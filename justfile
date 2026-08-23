@@ -116,9 +116,10 @@ ts-verify:
     npm test
     @just _record "TypeScript client typecheck and tests" "npm run typecheck && npm test"
 
-# Build the official examples.
+# Build the official examples. The binaries go to a temporary directory, so
+# the build never writes into the working tree.
 examples-build:
-    go build ./examples/...
+    go build -o "$(mktemp -d)/" ./examples/...
     @just _record "example compilation" "go build ./examples/... && npm run typecheck"
 
 # Write the v1 verification evidence.
