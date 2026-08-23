@@ -405,38 +405,49 @@ func (a *Auth) handleAccountUnlink(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, err)
 		return
 	}
-	list, err := a.cfg.store.Accounts().ListByUser(ctx, user.ID)
-	if err != nil {
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
-		return
-	}
-	found := false
-	for _, acct := range list {
-		if acct.Provider == providerID {
-			found = true
-			break
+	// The check and the delete run in one transaction. The transaction first
+	// writes the user row, which takes an exclusive row lock, so two
+	// concurrent unlink requests for one user cannot both believe that another
+	// authentication method remains.
+	err := a.cfg.store.Transaction(ctx, func(tx store.Store) error {
+		locked, err := tx.Users().GetByID(ctx, user.ID)
+		if err != nil {
+			return err
 		}
-	}
-	if !found {
-		a.writeError(w, apierr.ErrAccountNotLinked)
-		return
-	}
-	hasPassword := false
-	if _, err := a.cfg.store.Users().GetCredential(ctx, user.ID); err == nil {
-		hasPassword = true
-	}
-	// A user must keep at least one usable authentication method.
-	remaining := len(list) - 1
-	if !hasPassword && remaining == 0 {
-		a.writeError(w, apierr.ErrLastAuthMethod)
-		return
-	}
-	if err := a.cfg.store.Accounts().Delete(ctx, user.ID, providerID); err != nil {
+		locked.UpdatedAt = a.cfg.now()
+		if err := tx.Users().Update(ctx, locked); err != nil {
+			return err
+		}
+		list, err := tx.Accounts().ListByUser(ctx, user.ID)
+		if err != nil {
+			return err
+		}
+		found := false
+		for _, acct := range list {
+			if acct.Provider == providerID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return apierr.ErrAccountNotLinked
+		}
+		hasPassword := false
+		if _, err := tx.Users().GetCredential(ctx, user.ID); err == nil {
+			hasPassword = true
+		}
+		// A user must keep at least one usable authentication method.
+		if !hasPassword && len(list)-1 == 0 {
+			return apierr.ErrLastAuthMethod
+		}
+		return tx.Accounts().Delete(ctx, user.ID, providerID)
+	})
+	if err != nil {
 		if isNotFound(err) {
 			a.writeError(w, apierr.ErrAccountNotLinked)
 			return
 		}
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, publicError(err))
 		return
 	}
 	a.emitter.Emit(ctx, events.AccountUnlinked, user.ID, map[string]any{"provider": providerID})

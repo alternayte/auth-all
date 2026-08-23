@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -267,4 +268,110 @@ func intentKind(t *testing.T, intent email.Intent) string {
 	}
 	t.Fatalf("unknown intent %q", intent)
 	return ""
+}
+
+// TestEnumerationSafeResetResponse covers the required regression case of
+// Section 29.4: a password reset request must answer the same way for a known
+// and an unknown address.
+func TestEnumerationSafeResetResponse(t *testing.T) {
+	h := emailPasswordHarness(t)
+	h.SignUp("known-reset@example.com", testPassword)
+	h.ClearCookies()
+
+	known := h.Do(http.MethodPost, "/password/forgot", map[string]string{"email": "known-reset@example.com"})
+	unknown := h.Do(http.MethodPost, "/password/forgot", map[string]string{"email": "nobody-reset@example.com"})
+	invalid := h.Do(http.MethodPost, "/password/forgot", map[string]string{"email": "not-an-address"})
+
+	if known.Status != http.StatusOK {
+		t.Fatalf("the known address returned status %d: %s", known.Status, string(known.Body))
+	}
+	for name, resp := range map[string]*testsupport.Response{"unknown": unknown, "invalid": invalid} {
+		if resp.Status != known.Status {
+			t.Fatalf("the %s address returns status %d, the known address returns %d",
+				name, resp.Status, known.Status)
+		}
+		if string(resp.Body) != string(known.Body) {
+			t.Fatalf("the %s address gets another body:\n%s\n%s", name, string(known.Body), string(resp.Body))
+		}
+	}
+	if _, ok := h.Mail.Find(email.IntentResetPassword); !ok {
+		t.Fatalf("the known address received no reset message")
+	}
+	if count := len(h.Mail.All()); count != 1 {
+		t.Fatalf("expected exactly one message, got %d", count)
+	}
+}
+
+// TestEnumerationSafeVerificationResponse covers the verification request.
+func TestEnumerationSafeVerificationResponse(t *testing.T) {
+	h := emailPasswordHarness(t, authall.WithEmailPassword(authall.EmailPasswordOptions{
+		RequireEmailVerification: true,
+	}))
+	h.SignUp("known-verify@example.com", testPassword)
+	h.Mail.Reset()
+
+	known := h.Do(http.MethodPost, "/email-verification/send", map[string]string{"email": "known-verify@example.com"})
+	unknown := h.Do(http.MethodPost, "/email-verification/send", map[string]string{"email": "nobody-verify@example.com"})
+	if known.Status != unknown.Status || string(known.Body) != string(unknown.Body) {
+		t.Fatalf("the response discloses the account:\n%s\n%s", string(known.Body), string(unknown.Body))
+	}
+}
+
+// TestRedirectTargetsAreRestricted covers the redirect allow list of every
+// entry point that accepts a target.
+func TestRedirectTargetsAreRestricted(t *testing.T) {
+	f := newOAuthFixture(t, authall.WithPlugins(magiclink.New()))
+	unsafe := []string{
+		"https://evil.example.com/steal",
+		"//evil.example.com",
+		"/\\evil.example.com",
+		"\\\\evil.example.com",
+		"/\t/evil.example.com",
+		"/\r\n/evil.example.com",
+		"https:/\\evil.example.com",
+		"javascript:alert(1)",
+	}
+	for _, target := range unsafe {
+		// The OAuth start endpoint stores the target with the state.
+		start := f.h.Do(http.MethodGet, "/oauth/github?redirect_to="+url.QueryEscape(target), nil)
+		if start.Status != http.StatusFound {
+			t.Fatalf("the start endpoint failed for %q: %d", target, start.Status)
+		}
+		state := testsupport.QueryParam(t, start.Location(), "state")
+		callback := f.callback(t, "github", "valid-code", state)
+		if callback.Status != http.StatusFound {
+			t.Fatalf("the callback failed for %q: %s", target, string(callback.Body))
+		}
+		if location := callback.Location(); strings.Contains(location, "evil.example.com") || strings.Contains(location, "javascript:") {
+			t.Fatalf("the OAuth callback redirects to the untrusted target %q: %s", target, location)
+		}
+		f.h.ClearCookies()
+		f.github.SetAccount(12345, "octo@example.com", true)
+
+		// The magic link carries the target through the email.
+		f.h.Mail.Reset()
+		f.h.Do(http.MethodPost, "/magic-link/send", map[string]any{
+			"email": "redirects@example.com", "callbackURL": target,
+		})
+		msg := f.h.Mail.Last(t, email.IntentMagicLink)
+		if strings.Contains(msg.URL, "evil.example.com") {
+			t.Fatalf("the emailed link carries the untrusted target %q: %s", target, msg.URL)
+		}
+		verify := f.h.DoURL(http.MethodGet, msg.URL+"&callbackURL="+url.QueryEscape(target), nil)
+		if location := verify.Location(); strings.Contains(location, "evil.example.com") || strings.Contains(location, "javascript:") {
+			t.Fatalf("the magic link redirects to the untrusted target %q: %s", target, location)
+		}
+		f.h.ClearCookies()
+	}
+
+	// A relative path of the application stays intact.
+	f.h.Mail.Reset()
+	f.h.Do(http.MethodPost, "/magic-link/send", map[string]any{
+		"email": "relative@example.com", "callbackURL": "/dashboard?tab=1",
+	})
+	msg := f.h.Mail.Last(t, email.IntentMagicLink)
+	verify := f.h.DoURL(http.MethodGet, msg.URL, nil)
+	if verify.Location() != "/dashboard?tab=1" {
+		t.Fatalf("a relative target was discarded: %q", verify.Location())
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"sync"
 	"testing"
 
 	authall "github.com/alternayte/auth-all"
@@ -419,5 +420,45 @@ func TestUnknownProviderIsRejected(t *testing.T) {
 	resp := f.h.Do(http.MethodGet, "/oauth/gitlab", nil)
 	if code := resp.ErrorCode(t); code != "PROVIDER_NOT_FOUND" {
 		t.Fatalf("unexpected code %q", code)
+	}
+}
+
+// TestConcurrentUnlinkKeepsOneMethod checks that two concurrent unlink
+// requests cannot leave a user without an authentication method.
+func TestConcurrentUnlinkKeepsOneMethod(t *testing.T) {
+	f := newOAuthFixture(t)
+	// The user owns two provider accounts and no password.
+	state := f.startGitHub(t)
+	if resp := f.callback(t, "github", "valid-code", state); resp.Status != http.StatusFound {
+		t.Fatalf("the GitHub sign-up failed")
+	}
+	session := f.h.GetSession()
+	resp := f.h.Do(http.MethodPost, "/account/link/google", nil)
+	var link struct {
+		URL string `json:"url"`
+	}
+	resp.Decode(t, &link)
+	f.google.SetNonce(testsupport.QueryParam(t, link.URL, "nonce"))
+	f.google.SetExpectedChallenge(testsupport.QueryParam(t, link.URL, "code_challenge"))
+	if cb := f.callback(t, "google", "valid-code", testsupport.QueryParam(t, link.URL, "state")); cb.Status != http.StatusFound {
+		t.Fatalf("the Google link failed: %s", string(cb.Body))
+	}
+
+	var wg sync.WaitGroup
+	for _, provider := range []string{"github", "google"} {
+		wg.Add(1)
+		go func(p string) {
+			defer wg.Done()
+			f.h.Do(http.MethodPost, "/account/unlink/"+p, nil)
+		}(provider)
+	}
+	wg.Wait()
+
+	accounts, err := f.h.Store.Accounts().ListByUser(context.Background(), session.User.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(accounts) == 0 {
+		t.Fatalf("the user lost every authentication method")
 	}
 }

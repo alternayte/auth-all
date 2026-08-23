@@ -97,17 +97,29 @@ func requestOrigin(r *http.Request) string {
 	return scheme + "://" + r.Host
 }
 
-// safeRedirect returns candidate when it is a relative path or points at a
-// trusted origin, and fallback otherwise.
+// safeRedirect returns candidate when it is a relative path of this
+// application or points at a trusted origin, and fallback otherwise.
+//
+// A browser resolves a backslash like a forward slash and drops a control
+// character, so "/\\evil.example.com" would reach another origin. Auth-All
+// therefore rejects a candidate that carries a backslash or a control
+// character, and it rejects every scheme-relative reference.
 func (a *Auth) safeRedirect(candidate, fallback string) string {
 	candidate = strings.TrimSpace(candidate)
 	if candidate == "" {
 		return fallback
 	}
-	if strings.HasPrefix(candidate, "//") || strings.HasPrefix(candidate, "\\") {
+	if strings.ContainsRune(candidate, '\\') || hasControlRune(candidate) {
 		return fallback
 	}
 	if strings.HasPrefix(candidate, "/") {
+		if strings.HasPrefix(candidate, "//") {
+			return fallback
+		}
+		u, err := url.Parse(candidate)
+		if err != nil || u.Scheme != "" || u.Host != "" {
+			return fallback
+		}
 		return candidate
 	}
 	u, err := url.Parse(candidate)
@@ -121,6 +133,17 @@ func (a *Auth) safeRedirect(candidate, fallback string) string {
 		}
 	}
 	return fallback
+}
+
+// hasControlRune reports whether s carries a character that a browser drops
+// while it parses a URL.
+func hasControlRune(s string) bool {
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return true
+		}
+	}
+	return false
 }
 
 // clientIP returns the request IP for a rate-limit key.

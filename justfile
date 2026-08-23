@@ -56,7 +56,7 @@ db-down:
 # Run the unit tests of the library packages.
 test-unit:
     go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./internal/crypto/... ./internal/clientgen/...
-    @just _record "unit tests" "go test ./email/... ./events/... ./ratelimit/... ./internal/crypto/..."
+    @just _record "unit tests" "go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./internal/crypto/... ./internal/clientgen/..."
 
 # Run the storage contract suite against PostgreSQL.
 test-postgres:
@@ -71,18 +71,18 @@ test-sqlite:
 # Run the HTTP integration and acceptance tests.
 test-http:
     AUTHALL_POSTGRES_DSN="{{postgres_dsn}}" go test -run 'TestAUTH|TestPLUG|TestAPI|TestMIG|TestPostgres|TestMagicLink|TestOAuth|TestAccount|TestUnlink|TestUnknown|TestProvider|TestVerified|TestAutoLink|TestGeneration|TestDuplicate|TestConfig|TestPassword|TestStable|TestPlugin' .
-    @just _record "HTTP integration tests" "go test -run 'TestAUTH|TestPLUG|TestAPI|TestMIG|...' ."
+    @just _record "HTTP integration tests" "just test-http"
 
 # Run the security regression tests.
 test-security:
-    go test -run 'TestSEC|TestSession|TestCookie|TestUnsafe|TestWildcard|TestInvalid|TestGoogleIdentity' .
-    @just _record "security regression tests" "go test -run 'TestSEC|TestSession|TestCookie|TestUnsafe|TestWildcard|TestInvalid' ."
+    go test -run 'TestSEC|TestSession|TestCookie|TestUnsafe|TestWildcard|TestInvalid|TestGoogleIdentity|TestEnumeration|TestRedirectTargets' .
+    @just _record "security regression tests" "just test-security"
 
 # Run the concurrency tests.
 test-concurrency:
-    AUTHALL_POSTGRES_DSN="{{postgres_dsn}}" go test -race -run 'TestC00|TestAUTH013' -count 1 .
+    AUTHALL_POSTGRES_DSN="{{postgres_dsn}}" go test -race -run 'TestC00|TestAUTH013|TestConcurrentUnlink' -count 1 .
     AUTHALL_POSTGRES_DSN="{{postgres_dsn}}" go test -race -run 'TestStorageContract/Concurrent' -count 1 ./store/...
-    @just _record "concurrency tests" "go test -race -run 'TestC00|TestStorageContract/Concurrent' ./..."
+    @just _record "concurrency tests" "just test-concurrency"
 
 # Run the complete suite under the race detector.
 test-race:
@@ -120,7 +120,7 @@ ts-verify:
 # the build never writes into the working tree.
 examples-build:
     go build -o "$(mktemp -d)/" ./examples/...
-    @just _record "example compilation" "go build ./examples/... && npm run typecheck"
+    @just _record "example compilation" "go build -o \\$(mktemp -d)/ ./examples/..."
 
 # Write the v1 verification evidence.
 evidence:
