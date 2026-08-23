@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/alternayte/auth-all/apierr"
 	"github.com/alternayte/auth-all/email"
@@ -23,21 +22,17 @@ const (
 	messageVerifySent = "If the address needs verification, a message has been sent."
 )
 
-var (
-	dummyHashOnce sync.Once
-	dummyHash     string
-)
-
 // dummyPasswordHash returns a hash used to equalize the sign-in timing of a
-// known and an unknown address.
+// known and an unknown address. The hash uses the parameters of this instance,
+// so the work of both paths is equal.
 func (a *Auth) dummyPasswordHash() string {
-	dummyHashOnce.Do(func() {
+	a.dummyHashOnce.Do(func() {
 		h, err := crypto.HashPassword("auth-all-timing-equalizer", a.cfg.argon)
 		if err == nil {
-			dummyHash = h
+			a.dummyHash = h
 		}
 	})
-	return dummyHash
+	return a.dummyHash
 }
 
 func (a *Auth) allow(ctx context.Context, w http.ResponseWriter, key ratelimit.Key) bool {

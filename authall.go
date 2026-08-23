@@ -9,6 +9,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/alternayte/auth-all/apierr"
@@ -48,6 +49,9 @@ type Auth struct {
 	routes          []RouteInfo
 	// registering names the plugin whose routes are mounted right now.
 	registering string
+
+	dummyHashOnce sync.Once
+	dummyHash     string
 }
 
 // RouteInfo describes one mounted Auth-All route.
