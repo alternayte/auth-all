@@ -53,7 +53,10 @@ func Core() []Table {
 			},
 			Indexes: []Index{
 				{Name: "auth_accounts_provider_key", Columns: []string{"provider", "provider_account_id"}, Unique: true},
-				{Name: "auth_accounts_user_id_idx", Columns: []string{"user_id"}},
+				// One user owns at most one account of one provider, so the
+				// unlink of a provider removes exactly one row and cannot
+				// remove a second authentication method by accident.
+				{Name: "auth_accounts_user_provider_key", Columns: []string{"user_id", "provider"}, Unique: true},
 			},
 			ForeignKeys: []ForeignKey{
 				{Column: "user_id", RefTable: TableUsers, RefColumn: "id", OnDelete: "CASCADE"},

@@ -75,12 +75,18 @@ condition holds:
 
 Enable it only for providers that verify addresses.
 
-## Ownership invariant
+## Ownership invariants
 
-A provider identity, which is the pair of the provider id and the provider
-account id, belongs to at most one user. The database enforces it with a
-unique index, so two concurrent link attempts produce one link and one
-`ACCOUNT_ALREADY_LINKED` error.
+Two invariants hold, and the database enforces both with a unique index:
+
+- A provider identity, which is the pair of the provider id and the provider
+  account id, belongs to at most one user.
+- A user owns at most one account of one provider.
+
+Two concurrent link attempts therefore produce one link and one
+`ACCOUNT_ALREADY_LINKED` error. The second invariant also keeps the unlink
+exact: `POST /account/unlink/{provider}` removes one account, so it can never
+remove a second authentication method by accident.
 
 ## Unlinking
 

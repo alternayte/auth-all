@@ -328,7 +328,8 @@ func (a *Auth) resolveOAuthUser(ctx context.Context, providerID string, identity
 	return a.createUserWithAccount(ctx, identity, providerID, normalized)
 }
 
-// linkAccount adds one provider identity to a user.
+// linkAccount adds one provider identity to a user. A user owns at most one
+// account of one provider, and the database enforces it.
 func (a *Auth) linkAccount(ctx context.Context, user *store.User, providerID, providerAccountID string) error {
 	now := a.cfg.now()
 	account := &store.Account{

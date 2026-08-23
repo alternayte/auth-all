@@ -462,3 +462,44 @@ func TestConcurrentUnlinkKeepsOneMethod(t *testing.T) {
 		t.Fatalf("the user lost every authentication method")
 	}
 }
+
+// TestUnlinkCannotRemoveEveryAuthenticationMethod covers the AUTH-019
+// safeguard when a user tries to own two accounts of one provider.
+func TestUnlinkCannotRemoveEveryAuthenticationMethod(t *testing.T) {
+	f := newOAuthFixture(t)
+	// The user signs up through GitHub and owns no password.
+	state := f.startGitHub(t)
+	if resp := f.callback(t, "github", "valid-code", state); resp.Status != http.StatusFound {
+		t.Fatalf("the GitHub sign-up failed")
+	}
+	userID := f.h.GetSession().User.ID
+
+	// A second GitHub identity cannot join the same user.
+	f.github.SetAccount(99999, "octo2@example.com", true)
+	resp := f.h.Do(http.MethodPost, "/account/link/github", nil)
+	var link struct {
+		URL string `json:"url"`
+	}
+	resp.Decode(t, &link)
+	second := f.callback(t, "github", "valid-code", testsupport.QueryParam(t, link.URL, "state"))
+	if second.Status == http.StatusFound {
+		t.Fatalf("a second account of one provider was linked to one user")
+	}
+	if code := second.ErrorCode(t); code != "ACCOUNT_ALREADY_LINKED" {
+		t.Fatalf("unexpected code %q", code)
+	}
+
+	// The single remaining method cannot be removed.
+	unlink := f.h.Do(http.MethodPost, "/account/unlink/github", nil)
+	if unlink.Status != http.StatusConflict {
+		t.Fatalf("expected status 409, got %d: %s", unlink.Status, string(unlink.Body))
+	}
+	accounts, err := f.h.Store.Accounts().ListByUser(context.Background(), userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, credErr := f.h.Store.Users().GetCredential(context.Background(), userID)
+	if len(accounts) == 0 && credErr != nil {
+		t.Fatalf("the user lost every authentication method")
+	}
+}

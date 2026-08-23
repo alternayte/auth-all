@@ -33,6 +33,7 @@ func Run(t *testing.T, newStore Factory) {
 		{"Credentials", testCredentials},
 		{"Accounts", testAccounts},
 		{"AccountProviderIdentityIsUnique", testAccountUnique},
+		{"OneAccountPerProviderAndUser", testAccountOnePerProvider},
 		{"Sessions", testSessions},
 		{"SessionRevocationIsFinal", testSessionRevocation},
 		{"Tokens", testTokens},
@@ -248,6 +249,25 @@ func testAccountUnique(t *testing.T, s store.Store) {
 	b := &store.Account{ID: uuid.NewString(), UserID: second.ID, Provider: "google", ProviderAccountID: "same", CreatedAt: now(), UpdatedAt: now()}
 	if err := s.Accounts().Create(c, b); !errors.Is(err, store.ErrConflict) {
 		t.Fatalf("expected ErrConflict, got %v", err)
+	}
+}
+
+// testAccountOnePerProvider checks that one user owns at most one account of
+// one provider, so a delete by provider removes exactly one row.
+func testAccountOnePerProvider(t *testing.T, s store.Store) {
+	c := ctx(t)
+	u := mustCreateUser(t, s, "single@example.com")
+	first := &store.Account{ID: uuid.NewString(), UserID: u.ID, Provider: "github", ProviderAccountID: "1", CreatedAt: now(), UpdatedAt: now()}
+	if err := s.Accounts().Create(c, first); err != nil {
+		t.Fatal(err)
+	}
+	second := &store.Account{ID: uuid.NewString(), UserID: u.ID, Provider: "github", ProviderAccountID: "2", CreatedAt: now(), UpdatedAt: now()}
+	if err := s.Accounts().Create(c, second); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("expected ErrConflict for a second account of one provider, got %v", err)
+	}
+	list, err := s.Accounts().ListByUser(c, u.ID)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("the user owns %d accounts of one provider: %v", len(list), err)
 	}
 }
 
