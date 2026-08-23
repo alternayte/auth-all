@@ -123,7 +123,7 @@ examples-build:
 
 # Write the v1 verification evidence.
 evidence:
-    go run ./tools/evidence --checks {{checks}} --out artifacts/v1-verification.md
+    AUTHALL_POSTGRES_DSN="{{postgres_dsn}}" go run ./tools/evidence --checks {{checks}} --out artifacts/v1-verification.md
     @echo "Evidence written to artifacts/v1-verification.md"
 
 # Remove the recorded check results.
