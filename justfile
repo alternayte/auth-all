@@ -6,7 +6,7 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 postgres_dsn := env_var_or_default("AUTHALL_POSTGRES_DSN", "postgres://authall:authall@127.0.0.1:55432/authall?sslmode=disable")
-compose := "docker compose -f docker-compose.test.yml"
+compose := "docker compose -p authall-test -f docker-compose.test.yml"
 checks := "artifacts/checks.tsv"
 
 # Show the available commands.
