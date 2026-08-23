@@ -402,6 +402,23 @@ func (a *Auth) GetUserByEmail(ctx context.Context, address string) (*store.User,
 	return u, nil
 }
 
+// VerifyEmailToken consumes an email verification token and records that the
+// user controls the address. It exists so an application can verify an address
+// from its own page without a call to the HTTP API.
+func (a *Auth) VerifyEmailToken(ctx context.Context, token string) (*store.User, error) {
+	tok, err := a.consumeToken(ctx, tokenKindVerifyEmail, token)
+	if err != nil {
+		return nil, err
+	}
+	if tok.UserID == nil {
+		return nil, apierr.ErrInvalidToken
+	}
+	if err := a.markEmailVerified(ctx, *tok.UserID); err != nil {
+		return nil, err
+	}
+	return a.GetUser(ctx, *tok.UserID)
+}
+
 // RevokeSession revokes one session by id.
 func (a *Auth) RevokeSession(ctx context.Context, sessionID string) error {
 	if err := a.cfg.store.Sessions().Delete(ctx, sessionID); err != nil {

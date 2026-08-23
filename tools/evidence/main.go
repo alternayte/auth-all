@@ -233,6 +233,8 @@ func render(results map[string]string, skipped []string, checks []checkResult) (
 	fmt.Fprintf(&b, "- Generated: %s\n", time.Now().UTC().Format(time.RFC3339))
 	fmt.Fprintf(&b, "- Commit SHA: %s\n", commandOutput("git", "rev-parse", "HEAD"))
 	fmt.Fprintf(&b, "- Working tree: %s\n", workingTreeState())
+	b.WriteString("- Scope: the values below describe the commit named above. " +
+		"This file is committed on top of that commit, because it records its own run.\n")
 	fmt.Fprintf(&b, "- Go version: %s\n", runtime.Version())
 	fmt.Fprintf(&b, "- Node version: %s\n", commandOutput("node", "--version"))
 	fmt.Fprintf(&b, "- TypeScript version: %s\n", commandOutput("npx", "--no-install", "tsc", "--version"))
@@ -309,9 +311,21 @@ func commandOutput(name string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// workingTreeState reports the state of the tree that produced the evidence.
+// The evidence file itself is excluded, because the run rewrites it.
 func workingTreeState() string {
-	if commandOutput("git", "status", "--porcelain") == "" {
+	out := commandOutput("git", "status", "--porcelain")
+	if out == "" {
 		return "clean"
 	}
-	return "modified"
+	for _, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if strings.HasSuffix(strings.TrimSpace(line), "artifacts/v1-verification.md") {
+			continue
+		}
+		return "modified"
+	}
+	return "clean, apart from this generated file"
 }

@@ -70,6 +70,13 @@ the page lives somewhere else.
 
 `SendVerificationOnSignUp` sends the message without blocking the sign-in.
 
+An application that serves its own verification page consumes the token
+without a call to the HTTP API:
+
+```go
+user, err := auth.VerifyEmailToken(ctx, r.URL.Query().Get("token"))
+```
+
 ## Password reset
 
 The reset flow never discloses whether an account exists. The response is

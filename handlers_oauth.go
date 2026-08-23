@@ -2,8 +2,10 @@ package authall
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -83,7 +85,7 @@ func (a *Auth) callbackURI(providerID string) string {
 
 // startOAuth stores the state, the PKCE verifier, and the nonce, and returns
 // the provider authorization URL.
-func (a *Auth) startOAuth(ctx context.Context, p oauth.Provider, redirectTo string, linkUserID *string) (string, error) {
+func (a *Auth) startOAuth(ctx context.Context, w http.ResponseWriter, p oauth.Provider, redirectTo string, linkUserID *string) (string, error) {
 	state, err := crypto.NewToken()
 	if err != nil {
 		return "", apierr.ErrInternal.WithCause(err)
@@ -125,7 +127,55 @@ func (a *Auth) startOAuth(ctx context.Context, p oauth.Provider, redirectTo stri
 	if err != nil {
 		return "", apierr.ErrInternal.WithCause(err)
 	}
+	// The state cookie binds the pending request to this browser. Only the
+	// browser that started the flow can complete it, so a state that an
+	// attacker obtained cannot be finished in the browser of another person.
+	a.setOAuthStateCookie(w, state, record.ExpiresAt)
 	return url, nil
+}
+
+// oauthStateCookieName returns the name of the short-lived binding cookie.
+func (a *Auth) oauthStateCookieName() string { return a.cfg.cookie.Name + ".oauth_state" }
+
+// setOAuthStateCookie writes the binding cookie of one pending OAuth request.
+func (a *Auth) setOAuthStateCookie(w http.ResponseWriter, state string, expires time.Time) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     a.oauthStateCookieName(),
+		Value:    state,
+		Path:     a.cfg.cookie.Path,
+		Domain:   a.cfg.cookie.Domain,
+		Expires:  expires,
+		HttpOnly: true,
+		Secure:   a.cookieSecure(),
+		// The provider returns the browser with a top-level navigation, which
+		// carries a cookie of this policy.
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// clearOAuthStateCookie removes the binding cookie.
+func (a *Auth) clearOAuthStateCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     a.oauthStateCookieName(),
+		Value:    "",
+		Path:     a.cfg.cookie.Path,
+		Domain:   a.cfg.cookie.Domain,
+		Expires:  time.Unix(0, 0),
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   a.cookieSecure(),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// requestBindsState reports whether the request carries the binding cookie of
+// the state it presents.
+func (a *Auth) requestBindsState(r *http.Request, state string) bool {
+	cookie, err := r.Cookie(a.oauthStateCookieName())
+	if err != nil || cookie.Value == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(state)) == 1
 }
 
 func (a *Auth) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +186,7 @@ func (a *Auth) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redirectTo := a.safeRedirect(r.URL.Query().Get("redirect_to"), a.cfg.baseURL)
-	url, err := a.startOAuth(ctx, p, redirectTo, nil)
+	url, err := a.startOAuth(ctx, w, p, redirectTo, nil)
 	if err != nil {
 		a.writeError(w, err)
 		return
@@ -162,6 +212,13 @@ func (a *Auth) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, apierr.ErrOAuthStateInvalid)
 		return
 	}
+	// The browser that completes the flow must be the browser that started it.
+	if !a.requestBindsState(r, state) {
+		a.clearOAuthStateCookie(w)
+		a.writeError(w, apierr.ErrOAuthStateInvalid)
+		return
+	}
+	a.clearOAuthStateCookie(w)
 	record, err := a.cfg.store.OAuthStates().Consume(ctx, crypto.HashToken(state), a.cfg.now())
 	if err != nil {
 		if isNotFound(err) {
@@ -174,6 +231,19 @@ func (a *Auth) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	if record.Provider != p.ID() {
 		a.writeError(w, apierr.ErrOAuthStateInvalid)
 		return
+	}
+	if record.LinkUserID != nil {
+		// A link completes only for the authenticated user that started it.
+		_, current, err := a.resolveSession(ctx, r)
+		if err != nil {
+			a.writeError(w, err)
+			return
+		}
+		if current == nil || current.ID != *record.LinkUserID {
+			a.writeError(w, apierr.ErrUnauthorized.WithMessage(
+				"Sign in again and start the provider link from your account."))
+			return
+		}
 	}
 	identity, err := p.Exchange(ctx, oauth.ExchangeRequest{
 		Code:         code,
@@ -382,7 +452,7 @@ func (a *Auth) handleAccountLink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	redirectTo := a.safeRedirect(r.URL.Query().Get("redirect_to"), a.cfg.baseURL)
-	url, err := a.startOAuth(ctx, p, redirectTo, &user.ID)
+	url, err := a.startOAuth(ctx, w, p, redirectTo, &user.ID)
 	if err != nil {
 		a.writeError(w, err)
 		return

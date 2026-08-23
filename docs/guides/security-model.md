@@ -47,6 +47,12 @@ Password reset, email verification, and magic links use one-time tokens.
   accept a challenge on its OAuth app endpoint.
 - Auth-All always sends its own callback URL, so a provider cannot be told to
   redirect somewhere else.
+- A short-lived `HttpOnly` cookie binds the pending request to the browser that
+  started it. A callback from another browser is rejected, so a state value
+  that an attacker obtained cannot be completed in the browser of another
+  person.
+- A provider link completes only when the callback request is authenticated as
+  the user that started the link.
 - An OpenID Connect identity token is accepted only after Auth-All validates
   the issuer, the audience, the nonce, the expiry, and the RS256 signature.
 

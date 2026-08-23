@@ -39,16 +39,22 @@ Auth-All accepts a relative path or an absolute URL of a trusted origin.
 
 ## Flow
 
-1. Auth-All stores a hashed state value with a 15 minute lifetime.
+1. Auth-All stores a hashed state value with a 15 minute lifetime, and it
+   sets a short-lived `HttpOnly` cookie that binds the request to this browser.
 2. GitHub returns the browser with a code and the state.
-3. Auth-All consumes the state one time and rejects an unknown, expired,
-   replayed, or foreign state with `OAUTH_STATE_INVALID`.
+3. Auth-All consumes the state one time. It rejects an unknown, expired,
+   replayed, or foreign state, and a state that another browser presents, with
+   `OAUTH_STATE_INVALID`.
 4. Auth-All exchanges the code, reads the account, and reads the verified
    primary address.
 5. Auth-All resolves the user and creates a session.
 
 GitHub does not accept a PKCE challenge on the OAuth app authorization
-endpoint, so Auth-All relies on the state value and on the exact callback URL.
+endpoint, so Auth-All relies on the state value, the browser binding cookie,
+and the exact callback URL.
+
+One browser runs one provider flow at a time. A second start replaces the
+binding cookie, so the first flow can no longer complete.
 
 ## Scopes
 

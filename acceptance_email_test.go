@@ -275,3 +275,29 @@ func TestPasswordResetRevokesSessions(t *testing.T) {
 		t.Fatalf("the session of user %s survived the password reset", out.User.ID)
 	}
 }
+
+// TestVerifyEmailTokenProgrammaticAPI covers the programmatic verification
+// path that the official Go example uses for its verification page.
+func TestVerifyEmailTokenProgrammaticAPI(t *testing.T) {
+	h := emailPasswordHarness(t, authall.WithEmailPassword(authall.EmailPasswordOptions{
+		RequireEmailVerification: true,
+	}))
+	h.SignUp("programmatic@example.com", testPassword)
+	msg := h.Mail.Last(t, email.IntentVerifyEmail)
+
+	// The emailed link carries the token that the page consumes.
+	token := testsupport.TokenFromURL(t, msg.URL)
+	user, err := h.Auth.VerifyEmailToken(context.Background(), token)
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if user.EmailVerifiedAt == nil || user.Email != "programmatic@example.com" {
+		t.Fatalf("unexpected user %+v", user)
+	}
+	if _, err := h.Auth.VerifyEmailToken(context.Background(), token); err == nil {
+		t.Fatalf("the token verified a second time")
+	}
+	if resp, _ := h.SignIn("programmatic@example.com", testPassword); resp.Status != http.StatusOK {
+		t.Fatalf("the verified account cannot sign in: %s", string(resp.Body))
+	}
+}

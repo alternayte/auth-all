@@ -33,6 +33,10 @@ authall.WithCookie(authall.CookieOptions{
 
 Set `Secure` to false only for local development over plain HTTP.
 
+Auth-All also sets a short-lived cookie named `<session cookie>.oauth_state`
+while a provider sign-in is pending. It carries no session and disappears when
+the flow completes.
+
 ## Lifetime
 
 ```go

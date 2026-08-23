@@ -375,3 +375,109 @@ func TestRedirectTargetsAreRestricted(t *testing.T) {
 		t.Fatalf("a relative target was discarded: %q", verify.Location())
 	}
 }
+
+// TestLinkStateIsBoundToTheStartingBrowser proves that a provider link cannot
+// be completed in the browser of another person.
+func TestLinkStateIsBoundToTheStartingBrowser(t *testing.T) {
+	f := newOAuthFixture(t)
+	_, attacker := f.h.SignUp("attacker@example.com", testPassword)
+	resp := f.h.Do(http.MethodPost, "/account/link/github", nil)
+	if resp.Status != http.StatusOK {
+		t.Fatalf("the link start failed: %s", string(resp.Body))
+	}
+	var link struct {
+		URL string `json:"url"`
+	}
+	resp.Decode(t, &link)
+	state := testsupport.QueryParam(t, link.URL, "state")
+
+	// The victim uses another browser and authorizes with their own account.
+	f.h.ClearCookies()
+	f.github.SetAccount(999, "victim@example.com", true)
+	callback := f.callback(t, "github", "valid-code", state)
+
+	if callback.Status == http.StatusFound {
+		t.Fatalf("the callback completed in the browser of another person")
+	}
+	if code := callback.ErrorCode(t); code != "OAUTH_STATE_INVALID" {
+		t.Fatalf("unexpected code %q", code)
+	}
+	if _, err := f.h.Store.Accounts().GetByProviderAccount(context.Background(), "github", "999"); err == nil {
+		t.Fatalf("the provider identity of the victim was linked to another account")
+	}
+	if session := f.h.GetSession(); session.Session != nil {
+		t.Fatalf("the callback signed the victim in as user %s", attacker.User.ID)
+	}
+}
+
+// TestSignInStateIsBoundToTheStartingBrowser proves the same binding for the
+// plain provider sign-in.
+func TestSignInStateIsBoundToTheStartingBrowser(t *testing.T) {
+	f := newOAuthFixture(t)
+	state := f.startGitHub(t)
+
+	// Another browser presents the same state.
+	f.h.ClearCookies()
+	callback := f.callback(t, "github", "valid-code", state)
+	if callback.Status == http.StatusFound {
+		t.Fatalf("a foreign browser completed the sign-in")
+	}
+	if code := callback.ErrorCode(t); code != "OAUTH_STATE_INVALID" {
+		t.Fatalf("unexpected code %q", code)
+	}
+	if session := f.h.GetSession(); session.Session != nil {
+		t.Fatalf("a foreign browser received a session")
+	}
+	if _, err := f.h.Store.Accounts().GetByProviderAccount(context.Background(), "github", "12345"); err == nil {
+		t.Fatalf("a foreign browser created an external account")
+	}
+}
+
+// TestLinkCompletionNeedsTheSameSession proves that the link callback checks
+// the authenticated user, and not only the binding cookie.
+func TestLinkCompletionNeedsTheSameSession(t *testing.T) {
+	f := newOAuthFixture(t)
+	f.h.SignUp("owner@example.com", testPassword)
+	resp := f.h.Do(http.MethodPost, "/account/link/github", nil)
+	var link struct {
+		URL string `json:"url"`
+	}
+	resp.Decode(t, &link)
+	state := testsupport.QueryParam(t, link.URL, "state")
+
+	// The same browser keeps the binding cookie but signs out first.
+	if out := f.h.Do(http.MethodPost, "/sign-out", nil); out.Status != http.StatusOK {
+		t.Fatalf("sign-out failed: %s", string(out.Body))
+	}
+	callback := f.callback(t, "github", "valid-code", state)
+	if callback.Status == http.StatusFound {
+		t.Fatalf("the link completed without the session that started it")
+	}
+	if code := callback.ErrorCode(t); code != "UNAUTHORIZED" {
+		t.Fatalf("unexpected code %q", code)
+	}
+	if _, err := f.h.Store.Accounts().GetByProviderAccount(context.Background(), "github", "12345"); err == nil {
+		t.Fatalf("the account was linked without a session")
+	}
+}
+
+// TestOAuthStateCookieIsRestricted checks the attributes of the binding cookie.
+func TestOAuthStateCookieIsRestricted(t *testing.T) {
+	f := newOAuthFixture(t)
+	resp := f.h.Do(http.MethodGet, "/oauth/github", nil)
+	var binding *http.Cookie
+	for _, c := range resp.Cookies {
+		if strings.HasSuffix(c.Name, ".oauth_state") {
+			binding = c
+		}
+	}
+	if binding == nil {
+		t.Fatalf("the start endpoint set no binding cookie: %+v", resp.Cookies)
+	}
+	if !binding.HttpOnly || binding.SameSite != http.SameSiteLaxMode {
+		t.Fatalf("the binding cookie is not restricted: %+v", binding)
+	}
+	if binding.Value == "" {
+		t.Fatalf("the binding cookie carries no value")
+	}
+}

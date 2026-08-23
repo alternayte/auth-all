@@ -76,6 +76,16 @@ func run() error {
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/auth/", auth.Handler())
+	// The verification email points at this page. The page consumes the token
+	// through the programmatic API, so the application controls the result.
+	mux.HandleFunc("GET /verify-email", func(w http.ResponseWriter, r *http.Request) {
+		user, err := auth.VerifyEmailToken(r.Context(), r.URL.Query().Get("token"))
+		if err != nil {
+			http.Error(w, "The verification link is invalid or expired.", http.StatusBadRequest)
+			return
+		}
+		fmt.Fprintf(w, "The address %s is verified. You can sign in now.\n", user.Email)
+	})
 	mux.HandleFunc("GET /me", func(w http.ResponseWriter, r *http.Request) {
 		user, err := auth.User(r.Context(), r)
 		if err != nil {

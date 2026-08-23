@@ -44,6 +44,12 @@ Google supports PKCE. Auth-All creates a code verifier for each request,
 stores it with the state, and sends the S256 challenge. A code that an
 attacker injects cannot be redeemed without the stored verifier.
 
+## State binding
+
+Auth-All stores a hashed, single-use state value and sets a short-lived
+`HttpOnly` cookie that binds the pending request to the browser that started
+it. A callback from another browser is rejected with `OAUTH_STATE_INVALID`.
+
 ## Scopes
 
 The default scopes are `openid`, `email`, and `profile`.

@@ -49,6 +49,15 @@ authorization URL:
 Auth-All stores the id of the signed-in user with the state, so the callback
 links the identity to that user and to no other user.
 
+Two further checks protect the flow:
+
+- A binding cookie ties the pending request to the browser that started it.
+- The callback must be authenticated as the same user. A signed-out browser
+  gets `UNAUTHORIZED` and no link.
+
+An attacker therefore cannot start a link in their own account and make
+another person complete it.
+
 ## The opt-in auto-link
 
 ```go

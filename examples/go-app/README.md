@@ -30,4 +30,19 @@ curl -X POST http://localhost:8080/api/auth/sign-up/email \
   -d '{"email":"user@example.com","password":"a long password"}'
 ```
 
-Open the verification link from the log, then sign in and call `/me`.
+Open the verification link from the log. The example serves the page at
+`/verify-email` and consumes the token with `auth.VerifyEmailToken`:
+
+```bash
+curl "http://localhost:8080/verify-email?token=<the token from the log>"
+```
+
+Then sign in and call `/me`:
+
+```bash
+curl -i -c cookies.txt -X POST http://localhost:8080/api/auth/sign-in/email \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"user@example.com","password":"a long password"}'
+
+curl -b cookies.txt http://localhost:8080/me
+```

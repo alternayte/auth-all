@@ -232,16 +232,7 @@ func (a *Auth) handleVerificationVerify(w http.ResponseWriter, r *http.Request) 
 		a.writeError(w, err)
 		return
 	}
-	tok, err := a.consumeToken(ctx, tokenKindVerifyEmail, req.Token)
-	if err != nil {
-		a.writeError(w, err)
-		return
-	}
-	if tok.UserID == nil {
-		a.writeError(w, apierr.ErrInvalidToken)
-		return
-	}
-	if err := a.markEmailVerified(ctx, *tok.UserID); err != nil {
+	if _, err := a.VerifyEmailToken(ctx, req.Token); err != nil {
 		a.writeError(w, err)
 		return
 	}
