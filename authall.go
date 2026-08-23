@@ -45,6 +45,20 @@ type Auth struct {
 	providerOrder   []string
 	trustedOrigins  []string
 	svc             *services
+	routes          []RouteInfo
+	// registering names the plugin whose routes are mounted right now.
+	registering string
+}
+
+// RouteInfo describes one mounted Auth-All route.
+type RouteInfo struct {
+	Method string
+	// Path is the complete path, including the configured base path.
+	Path string
+	// PluginID names the contributing plugin. It is empty for a core route.
+	PluginID string
+	// Documented reports whether the route appears in the OpenAPI document.
+	Documented bool
 }
 
 // New builds an Auth-All instance from functional options.
@@ -122,6 +136,7 @@ func New(opts ...Option) (*Auth, error) {
 			return nil, fmt.Errorf("authall: the plugin %q is registered twice", id)
 		}
 		seen[id] = true
+		a.registering = id
 		reg := plugin.NewRegistry(id, a.svc, a.hooks)
 		if err := p.Register(reg); err != nil {
 			return nil, fmt.Errorf("authall: the plugin %q failed to register: %w", id, err)
@@ -139,6 +154,7 @@ func New(opts ...Option) (*Auth, error) {
 				return nil, fmt.Errorf("authall: the plugin %q contributed an invalid route: %w", id, err)
 			}
 		}
+		a.registering = ""
 	}
 	return a, nil
 }
@@ -249,8 +265,17 @@ func (a *Auth) mount(method, path string, h http.Handler, op *openapi.Operation)
 	if op != nil {
 		a.doc.AddOperation(method, a.cfg.basePath+path, op)
 	}
+	a.routes = append(a.routes, RouteInfo{
+		Method:     method,
+		Path:       a.cfg.basePath + path,
+		PluginID:   a.registering,
+		Documented: op != nil,
+	})
 	return nil
 }
+
+// Routes returns every mounted route of the enabled API.
+func (a *Auth) Routes() []RouteInfo { return append([]RouteInfo(nil), a.routes...) }
 
 func (a *Auth) handle(method, path string, fn http.HandlerFunc, op *openapi.Operation) {
 	if err := a.mount(method, path, fn, op); err != nil {

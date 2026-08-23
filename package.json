@@ -1,0 +1,22 @@
+{
+  "name": "auth-all-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "clients/typescript",
+    "examples/react-app"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test clients/typescript/test/*.test.ts",
+    "verify": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.9.0"
+  }
+}

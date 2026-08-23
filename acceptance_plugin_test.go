@@ -7,6 +7,7 @@ import (
 	"go/parser"
 	"go/token"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -184,29 +185,38 @@ func TestPLUG004OpenAPI(t *testing.T) {
 
 // TestPLUG006MagicLinkUsesPublicAPIsOnly covers PLUG-006.
 func TestPLUG006MagicLinkUsesPublicAPIsOnly(t *testing.T) {
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, filepath.Join("plugins", "magiclink"), nil, parser.ImportsOnly)
+	dir := filepath.Join("plugins", "magiclink")
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("parse the plugin: %v", err)
+		t.Fatalf("read the plugin directory: %v", err)
 	}
-	if len(pkgs) == 0 {
-		t.Fatalf("the Magic Link package was not found")
-	}
-	for _, pkg := range pkgs {
-		for name, file := range pkg.Files {
-			for _, imp := range file.Imports {
-				path, err := strconv.Unquote(imp.Path.Value)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if strings.Contains(path, "/internal/") {
-					t.Fatalf("%s imports the internal package %q", name, path)
-				}
-				if path == "github.com/alternayte/auth-all" {
-					t.Fatalf("%s imports the core package, which a third-party plugin cannot rely on for extension", name)
-				}
+	fset := token.NewFileSet()
+	checked := 0
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
+			continue
+		}
+		name := filepath.Join(dir, entry.Name())
+		file, err := parser.ParseFile(fset, name, nil, parser.ImportsOnly)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		checked++
+		for _, imp := range file.Imports {
+			path, err := strconv.Unquote(imp.Path.Value)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(path, "/internal/") {
+				t.Fatalf("%s imports the internal package %q", name, path)
+			}
+			if path == "github.com/alternayte/auth-all" {
+				t.Fatalf("%s imports the core package, which a third-party plugin cannot rely on for extension", name)
 			}
 		}
+	}
+	if checked == 0 {
+		t.Fatalf("the Magic Link package was not found")
 	}
 }
 

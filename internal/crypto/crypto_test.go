@@ -102,7 +102,8 @@ func TestTokenGeneration(t *testing.T) {
 	if len(HashToken(first)) != 64 {
 		t.Fatalf("unexpected hash length")
 	}
-	if HashToken(first) != HashToken(first) {
+	hashed := HashToken(first)
+	if HashToken(first) != hashed {
 		t.Fatalf("the hash is not stable")
 	}
 }

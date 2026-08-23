@@ -1,0 +1,1061 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Auth-All",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/auth/account/link/{provider}": {
+      "post": {
+        "operationId": "accountLink",
+        "summary": "Start an explicit provider link",
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "description": "The configured provider id, for example github.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The provider authorization URL",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "account",
+          "method": "link"
+        }
+      }
+    },
+    "/api/auth/account/providers": {
+      "get": {
+        "operationId": "accountProviders",
+        "summary": "List the authentication methods of the current user",
+        "tags": [
+          "account"
+        ],
+        "responses": {
+          "200": {
+            "description": "The linked providers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProvidersResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "account",
+          "method": "providers"
+        }
+      }
+    },
+    "/api/auth/account/unlink/{provider}": {
+      "post": {
+        "operationId": "accountUnlink",
+        "summary": "Remove a linked provider",
+        "tags": [
+          "account"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "description": "The configured provider id, for example github.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The provider is unlinked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "account",
+          "method": "unlink"
+        }
+      }
+    },
+    "/api/auth/email-verification/send": {
+      "post": {
+        "operationId": "emailVerificationSend",
+        "summary": "Request an email verification message",
+        "tags": [
+          "email-password"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "redirectTo": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "An enumeration-safe acknowledgement",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "emailVerification",
+          "method": "send"
+        }
+      }
+    },
+    "/api/auth/email-verification/verify": {
+      "post": {
+        "operationId": "emailVerificationVerify",
+        "summary": "Verify an email address with a token",
+        "tags": [
+          "email-password"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "token"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The address is verified",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "emailVerification",
+          "method": "verify"
+        }
+      }
+    },
+    "/api/auth/magic-link/send": {
+      "post": {
+        "operationId": "magicLinkSend",
+        "summary": "Send a sign-in link to an email address",
+        "tags": [
+          "magic-link"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "callbackURL": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "An enumeration-safe acknowledgement",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "magicLink",
+          "method": "send"
+        }
+      }
+    },
+    "/api/auth/magic-link/verify": {
+      "get": {
+        "operationId": "magicLinkVerify",
+        "summary": "Complete a sign-in with a link token",
+        "tags": [
+          "magic-link"
+        ],
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "callbackURL",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "A redirect back to the application"
+          },
+          "400": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "magicLink",
+          "method": "verify",
+          "redirect": true
+        }
+      }
+    },
+    "/api/auth/oauth/{provider}": {
+      "get": {
+        "operationId": "oauthAuthorize",
+        "summary": "Start a provider sign-in",
+        "tags": [
+          "oauth"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "description": "The configured provider id, for example github.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "redirect_to",
+            "in": "query",
+            "description": "Where to send the browser after success.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "A redirect to the provider"
+          },
+          "404": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "oauth",
+          "method": "authorize",
+          "redirect": true
+        }
+      }
+    },
+    "/api/auth/oauth/{provider}/callback": {
+      "get": {
+        "operationId": "oauthCallback",
+        "summary": "Complete a provider sign-in",
+        "tags": [
+          "oauth"
+        ],
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "description": "The configured provider id, for example github.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "code",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "A redirect back to the application"
+          },
+          "400": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "oauth",
+          "method": "callback",
+          "redirect": true
+        }
+      }
+    },
+    "/api/auth/password/forgot": {
+      "post": {
+        "operationId": "passwordForgot",
+        "summary": "Request a password reset message",
+        "tags": [
+          "email-password"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "redirectTo": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "An enumeration-safe acknowledgement",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "password",
+          "method": "forgot"
+        }
+      }
+    },
+    "/api/auth/password/reset": {
+      "post": {
+        "operationId": "passwordReset",
+        "summary": "Set a new password with a reset token",
+        "tags": [
+          "email-password"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "password": {
+                    "type": "string"
+                  },
+                  "token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "token",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The password is changed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "password",
+          "method": "reset"
+        }
+      }
+    },
+    "/api/auth/session": {
+      "get": {
+        "operationId": "getSession",
+        "summary": "Return the current session and user",
+        "tags": [
+          "session"
+        ],
+        "responses": {
+          "200": {
+            "description": "The current session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "method": "getSession"
+        }
+      }
+    },
+    "/api/auth/sign-in/email": {
+      "post": {
+        "operationId": "signInEmail",
+        "summary": "Sign in with an email address and a password",
+        "tags": [
+          "email-password"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The session is created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "signIn",
+          "method": "email"
+        }
+      }
+    },
+    "/api/auth/sign-out": {
+      "post": {
+        "operationId": "signOut",
+        "summary": "Revoke the current session",
+        "tags": [
+          "session"
+        ],
+        "responses": {
+          "200": {
+            "description": "The session is revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "method": "signOut"
+        }
+      }
+    },
+    "/api/auth/sign-up/email": {
+      "post": {
+        "operationId": "signUpEmail",
+        "summary": "Create an account with an email address and a password",
+        "tags": [
+          "email-password"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The account is created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "signUp",
+          "method": "email"
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AuthResponse": {
+        "type": "object",
+        "properties": {
+          "emailVerificationRequired": {
+            "type": "boolean"
+          },
+          "session": {
+            "$ref": "#/components/schemas/Session",
+            "nullable": true
+          },
+          "user": {
+            "$ref": "#/components/schemas/User",
+            "nullable": true
+          }
+        },
+        "required": [
+          "user",
+          "session"
+        ]
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "LinkResponse": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "MessageResponse": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message"
+        ]
+      },
+      "ProvidersResponse": {
+        "type": "object",
+        "properties": {
+          "hasPassword": {
+            "type": "boolean"
+          },
+          "providers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "accountId": {
+                  "type": "string"
+                },
+                "linkedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "provider": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "provider",
+                "accountId",
+                "linkedAt"
+              ]
+            }
+          }
+        },
+        "required": [
+          "providers",
+          "hasPassword"
+        ]
+      },
+      "Session": {
+        "type": "object",
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "userId",
+          "createdAt",
+          "expiresAt"
+        ]
+      },
+      "SessionResponse": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "$ref": "#/components/schemas/Session",
+            "nullable": true
+          },
+          "user": {
+            "$ref": "#/components/schemas/User",
+            "nullable": true
+          }
+        },
+        "required": [
+          "user",
+          "session"
+        ]
+      },
+      "SuccessResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success"
+        ]
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "email": {
+            "type": "string"
+          },
+          "emailVerified": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "image": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "emailVerified",
+          "name",
+          "image",
+          "createdAt",
+          "updatedAt"
+        ]
+      }
+    }
+  }
+}
