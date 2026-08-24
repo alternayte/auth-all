@@ -22,6 +22,9 @@ const (
 	// user that somebody asked for a change. The message carries no token and
 	// no link, so the old address cannot complete the change.
 	IntentEmailChangeNotice Intent = "email-change-notice"
+	// IntentDeleteAccount asks the application to send a confirmation of an
+	// account delete. A user with no password credential needs it.
+	IntentDeleteAccount Intent = "delete-account"
 )
 
 // Message is the data Auth-All supplies for one message.

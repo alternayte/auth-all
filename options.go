@@ -56,6 +56,10 @@ type EmailPasswordOptions struct {
 	// token. Auth-All appends the token query parameter. The default is
 	// BaseURL + /change-email.
 	ChangeEmailURL string
+	// DeleteAccountURL is the application page that receives an account delete
+	// token. Auth-All appends the token query parameter. The default is
+	// BaseURL + /delete-account.
+	DeleteAccountURL string
 }
 
 // PasswordPolicy configures the accepted passwords. Auth-All does not require

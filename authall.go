@@ -33,6 +33,7 @@ const (
 	tokenKindVerifyEmail   = "verify-email"
 	tokenKindResetPassword = "reset-password"
 	tokenKindChangeEmail   = "email-change"
+	tokenKindDeleteAccount = "delete-account"
 )
 
 // Auth is a configured Auth-All instance.

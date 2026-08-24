@@ -70,6 +70,7 @@ go run github.com/alternayte/auth-all/cmd/auth-all migrate \
 | [Magic Link](docs/guides/magic-link.md) | The official sign-in link plugin. |
 | [GitHub OAuth](docs/guides/github-oauth.md) | GitHub sign-in. |
 | [Google OAuth](docs/guides/google-oauth.md) | Google sign-in. |
+| [Account management](docs/guides/account-management.md) | Password change, address change, and account delete. |
 | [Account linking](docs/guides/account-linking.md) | The linking policy and its threats. |
 | [PostgreSQL](docs/guides/postgresql.md) | The PostgreSQL adapter. |
 | [SQLite](docs/guides/sqlite.md) | The SQLite adapter. |

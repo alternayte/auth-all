@@ -4,10 +4,13 @@ import (
 	"context"
 	"net/http"
 	"testing"
+	"time"
 
 	authall "github.com/alternayte/auth-all"
 	"github.com/alternayte/auth-all/email"
+	"github.com/alternayte/auth-all/events"
 	"github.com/alternayte/auth-all/internal/testsupport"
+	"github.com/alternayte/auth-all/store"
 )
 
 const newTestPassword = "another sufficiently long password"
@@ -384,5 +387,223 @@ func TestAccountEmailChangeVerifyRejectsATakenAddress(t *testing.T) {
 	}
 	if code := resp.ErrorCode(t); code != "EMAIL_ALREADY_EXISTS" {
 		t.Fatalf("unexpected code %q", code)
+	}
+}
+
+// ownedRowCounts returns the number of rows that belong to one user in every
+// table that carries a user reference.
+func ownedRowCounts(t *testing.T, h *testsupport.Harness, userID string) map[string]int {
+	t.Helper()
+	out := map[string]int{}
+	for _, table := range []string{
+		"auth_users", "auth_sessions", "auth_credentials", "auth_accounts", "auth_tokens",
+	} {
+		out[table] = countUserRows(t, h, table, userID)
+	}
+	return out
+}
+
+// seedOwnedRows gives a user one row in every owned table.
+func seedOwnedRows(t *testing.T, h *testsupport.Harness, userID string) {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	if err := h.Store.Accounts().Create(ctx, &store.Account{
+		ID: "account-" + userID, UserID: userID, Provider: "github",
+		ProviderAccountID: "provider-" + userID, CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("seed an account: %v", err)
+	}
+	if err := h.Store.Tokens().Create(ctx, &store.Token{
+		ID: "token-" + userID, UserID: &userID, Kind: "reset-password",
+		Identifier: "seed@example.com", TokenHash: "seed-hash-" + userID,
+		CreatedAt: now, ExpiresAt: now.Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("seed a token: %v", err)
+	}
+}
+
+// runAccountDeleteWithPassword covers the delete of a user that has a
+// password. It runs against every adapter.
+func runAccountDeleteWithPassword(t *testing.T, h *testsupport.Harness) {
+	t.Helper()
+	ctx := context.Background()
+	const address = "delete-me@example.com"
+	h.SignUp(address, testPassword)
+	user, err := h.Auth.GetUserByEmail(ctx, address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedOwnedRows(t, h, user.ID)
+	// A second session and a second device.
+	h.ClearCookies()
+	h.SignIn(address, testPassword)
+
+	before := ownedRowCounts(t, h, user.ID)
+	for table, count := range before {
+		if count == 0 {
+			t.Fatalf("the test seeded no row in %s", table)
+		}
+	}
+
+	// A wrong password does not delete the account.
+	wrong := h.Do(http.MethodPost, "/user/delete", map[string]any{
+		"currentPassword": "a completely wrong password",
+	})
+	if wrong.Status != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", wrong.Status, string(wrong.Body))
+	}
+	if got := ownedRowCounts(t, h, user.ID); got["auth_users"] != 1 {
+		t.Fatalf("a wrong password deleted the account")
+	}
+
+	resp := h.Do(http.MethodPost, "/user/delete", map[string]any{
+		"currentPassword": testPassword,
+	})
+	if resp.Status != http.StatusOK {
+		t.Fatalf("the delete failed: %d %s", resp.Status, string(resp.Body))
+	}
+	// The endpoint clears the session cookie.
+	cleared := false
+	for _, c := range resp.Cookies {
+		if c.Name == authall.DefaultCookieName && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Fatalf("the delete did not clear the session cookie: %+v", resp.Cookies)
+	}
+
+	for table, count := range ownedRowCounts(t, h, user.ID) {
+		if count != 0 {
+			t.Fatalf("%d owned rows survived in %s", count, table)
+		}
+	}
+	if _, err := h.Auth.GetUserByEmail(ctx, address); err == nil {
+		t.Fatalf("the user still resolves")
+	}
+	// The address is free again.
+	h.ClearCookies()
+	if again := h.Do(http.MethodPost, "/sign-up/email", map[string]string{
+		"email": address, "password": testPassword,
+	}); again.Status != http.StatusCreated {
+		t.Fatalf("the address stayed taken: %d %s", again.Status, string(again.Body))
+	}
+}
+
+// TestAccountDeleteWithPassword covers POST /user/delete on SQLite.
+func TestAccountDeleteWithPassword(t *testing.T) {
+	runAccountDeleteWithPassword(t, emailPasswordHarness(t))
+}
+
+// TestAccountDeleteEmitsAnEventBeforeTheDelete proves that an application can
+// react while the rows still exist.
+func TestAccountDeleteEmitsAnEventBeforeTheDelete(t *testing.T) {
+	var seen []string
+	var stillPresent bool
+	var h *testsupport.Harness
+	recorder := events.HandlerFunc(func(_ context.Context, e events.Event) {
+		seen = append(seen, string(e.Name))
+		if e.Name == events.UserDeleted && h != nil {
+			// The rows must still exist while the handler runs.
+			stillPresent = ownedRowCounts(t, h, e.UserID)["auth_users"] == 1
+		}
+	})
+	h = emailPasswordHarness(t, authall.WithEventHandler(recorder))
+	const address = "event-delete@example.com"
+	h.SignUp(address, testPassword)
+
+	if resp := h.Do(http.MethodPost, "/user/delete", map[string]any{
+		"currentPassword": testPassword,
+	}); resp.Status != http.StatusOK {
+		t.Fatalf("the delete failed: %s", string(resp.Body))
+	}
+	found := false
+	for _, name := range seen {
+		if name == string(events.UserDeleted) {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no delete event was emitted: %v", seen)
+	}
+	if !stillPresent {
+		t.Fatalf("the event arrived after the delete")
+	}
+}
+
+// TestAccountDeleteWithoutACredential covers the token confirmation.
+func TestAccountDeleteWithoutACredential(t *testing.T) {
+	h := emailPasswordHarness(t)
+	const address = "delete-no-password@example.com"
+	h.SignUp(address, testPassword)
+	user, err := h.Auth.GetUserByEmail(context.Background(), address)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := h.Store.Users().DeleteCredential(context.Background(), user.ID); err != nil {
+		t.Fatal(err)
+	}
+	seedOwnedRows(t, h, user.ID)
+	h.Mail.Reset()
+
+	resp := h.Do(http.MethodPost, "/user/delete", map[string]any{})
+	if resp.Status != http.StatusOK {
+		t.Fatalf("the request failed: %d %s", resp.Status, string(resp.Body))
+	}
+	var body struct {
+		ConfirmationRequired bool `json:"confirmationRequired"`
+	}
+	resp.Decode(t, &body)
+	if !body.ConfirmationRequired {
+		t.Fatalf("the response did not ask for a confirmation: %s", string(resp.Body))
+	}
+	// The account still exists.
+	if got := ownedRowCounts(t, h, user.ID); got["auth_users"] != 1 {
+		t.Fatalf("the request deleted the account without a confirmation")
+	}
+
+	msg := h.Mail.Last(t, email.IntentDeleteAccount)
+	if msg.To != address || msg.Token == "" {
+		t.Fatalf("the confirmation is wrong: %+v", msg)
+	}
+
+	verify := h.Do(http.MethodPost, "/user/delete/verify", map[string]any{"token": msg.Token})
+	if verify.Status != http.StatusOK {
+		t.Fatalf("the confirmation failed: %d %s", verify.Status, string(verify.Body))
+	}
+	for table, count := range ownedRowCounts(t, h, user.ID) {
+		if count != 0 {
+			t.Fatalf("%d owned rows survived in %s", count, table)
+		}
+	}
+
+	// The token is single use.
+	replay := h.Do(http.MethodPost, "/user/delete/verify", map[string]any{"token": msg.Token})
+	if code := replay.ErrorCode(t); code != "INVALID_TOKEN" {
+		t.Fatalf("unexpected code %q", code)
+	}
+}
+
+// TestAccountDeleteNeedsASessionAndAnOrigin covers the two guards.
+func TestAccountDeleteNeedsASessionAndAnOrigin(t *testing.T) {
+	h := emailPasswordHarness(t, authall.WithTrustedOrigins("https://app.example.com"))
+	const address = "delete-guards@example.com"
+	h.SignUp(address, testPassword)
+
+	forged := h.Do(http.MethodPost, "/user/delete", map[string]any{"currentPassword": testPassword},
+		testsupport.WithHeader("Origin", "https://evil.example.com"))
+	if code := forged.ErrorCode(t); code != "ORIGIN_NOT_ALLOWED" {
+		t.Fatalf("unexpected code %q", code)
+	}
+
+	h.ClearCookies()
+	anonymous := h.Do(http.MethodPost, "/user/delete", map[string]any{"currentPassword": testPassword})
+	if anonymous.Status != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d", anonymous.Status)
+	}
+
+	if _, err := h.Auth.GetUserByEmail(context.Background(), address); err != nil {
+		t.Fatalf("a rejected request deleted the account: %v", err)
 	}
 }

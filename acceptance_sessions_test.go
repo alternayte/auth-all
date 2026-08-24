@@ -300,8 +300,7 @@ func TestSessionAbsoluteLifetime(t *testing.T) {
 		t.Fatalf("a session past the absolute lifetime still authenticates")
 	}
 	// The row is gone.
-	raw := rawDB(t, h)
-	if count := countRows(t, raw, "SELECT COUNT(*) FROM auth_sessions WHERE token_hash = ?", sha256Hex(token.Value)); count != 0 {
+	if count := countSessionsByHash(t, h, sha256Hex(token.Value)); count != 0 {
 		t.Fatalf("the expired session row survived: %d", count)
 	}
 }
@@ -329,10 +328,21 @@ func TestSessionIdleTimeout(t *testing.T) {
 	if session := h.GetSession(); session.Session != nil {
 		t.Fatalf("an idle session still authenticates")
 	}
-	raw := rawDB(t, h)
-	if count := countRows(t, raw, "SELECT COUNT(*) FROM auth_sessions WHERE token_hash = ?", sha256Hex(token.Value)); count != 0 {
+	if count := countSessionsByHash(t, h, sha256Hex(token.Value)); count != 0 {
 		t.Fatalf("the idle session row survived: %d", count)
 	}
+
+}
+
+// countSessionsByHash counts the session rows that carry one token hash.
+func countSessionsByHash(t *testing.T, h *testsupport.Harness, hash string) int {
+	t.Helper()
+	var count int
+	err := rawDB(t, h).QueryRow("SELECT COUNT(*) FROM auth_sessions WHERE token_hash = ?", hash).Scan(&count)
+	if err != nil {
+		t.Fatalf("count sessions: %v", err)
+	}
+	return count
 }
 
 // TestSessionLifetimeDefaults checks the documented defaults.

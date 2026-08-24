@@ -7,6 +7,11 @@ export interface AuthResponse {
   user: User | null
 }
 
+export interface DeleteResponse {
+  confirmationRequired?: boolean
+  success: boolean
+}
+
 export interface ErrorResponse {
   error: {
     code: string
@@ -133,6 +138,14 @@ export interface SignUpEmailBody {
   email: string
   name?: string
   password: string
+}
+
+export interface UserDeleteBody {
+  currentPassword?: string
+}
+
+export interface UserDeleteVerifyBody {
+  token: string
 }
 
 /** Options for the Auth-All client. */
@@ -300,6 +313,13 @@ export class AuthAllClient {
   readonly signUp = {
     /** Create an account with an email address and a password. */
     email: (body: SignUpEmailBody): Promise<AuthResponse> => this.http.request("POST", `/api/auth/sign-up/email`, body, undefined),
+  }
+
+  readonly user = {
+    /** Delete the account of the current user. */
+    delete: (body: UserDeleteBody): Promise<DeleteResponse> => this.http.request("POST", `/api/auth/user/delete`, body, undefined),
+    /** Complete an account delete with a token. */
+    deleteVerify: (body: UserDeleteVerifyBody): Promise<DeleteResponse> => this.http.request("POST", `/api/auth/user/delete/verify`, body, undefined),
   }
 }
 

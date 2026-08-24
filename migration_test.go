@@ -159,3 +159,11 @@ func TestPostgresHTTPFlows(t *testing.T) {
 		t.Fatalf("the magic link created no session on PostgreSQL")
 	}
 }
+
+// TestPostgresAccountDelete proves that no owned row survives a delete on the
+// PostgreSQL adapter. The SQLite adapter runs the same body.
+func TestPostgresAccountDelete(t *testing.T) {
+	s := testsupport.NewPostgres(t)
+	h := testsupport.NewHarnessWithStore(t, s, authall.WithEmailPassword())
+	runAccountDeleteWithPassword(t, h)
+}

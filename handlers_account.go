@@ -50,6 +50,158 @@ func (a *Auth) registerAccountRoutes() {
 		"The address is changed", openapi.Ref("SuccessResponse"),
 		&openapi.ClientBinding{Namespace: "email", Method: "changeVerify"},
 		"400", "403", "409"))
+
+	a.handle(http.MethodPost, "/user/delete", a.handleUserDelete, operation(
+		"userDelete", "Delete the account of the current user", []string{"user"},
+		openapi.JSONBody(openapi.Object(nil,
+			map[string]*openapi.Schema{"currentPassword": openapi.String()})),
+		"The account is deleted, or a confirmation is sent", openapi.Ref("DeleteResponse"),
+		&openapi.ClientBinding{Namespace: "user", Method: "delete"},
+		"400", "401", "403", "429"))
+
+	a.handle(http.MethodPost, "/user/delete/verify", a.handleUserDeleteVerify, operation(
+		"userDeleteVerify", "Complete an account delete with a token", []string{"user"},
+		openapi.JSONBody(openapi.Object([]string{"token"},
+			map[string]*openapi.Schema{"token": openapi.String()})),
+		"The account is deleted", openapi.Ref("DeleteResponse"),
+		&openapi.ClientBinding{Namespace: "user", Method: "deleteVerify"},
+		"400", "403"))
+}
+
+type userDeleteRequest struct {
+	// CurrentPassword is required for a user that has a password credential.
+	CurrentPassword string `json:"currentPassword"`
+}
+
+func (a *Auth) handleUserDelete(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if err := a.checkOrigin(r); err != nil {
+		a.writeError(w, err)
+		return
+	}
+	sess, user := a.requireSession(w, r)
+	if sess == nil {
+		return
+	}
+	var req userDeleteRequest
+	if err := a.decodeJSON(r, &req); err != nil {
+		a.writeError(w, err)
+		return
+	}
+	if !a.allow(ctx, w, ratelimit.Key{
+		Operation: ratelimit.OpUserDelete, IP: a.clientIP(r), UserID: user.ID,
+	}) {
+		return
+	}
+	cred, err := a.cfg.store.Users().GetCredential(ctx, user.ID)
+	if err != nil && !isNotFound(err) {
+		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		return
+	}
+	if cred == nil {
+		// A user with no password proves control of the address instead.
+		if err := a.sendDeleteConfirmation(ctx, user); err != nil {
+			a.writeError(w, err)
+			return
+		}
+		a.writeJSON(w, http.StatusOK, deleteResponse{ConfirmationRequired: true})
+		return
+	}
+	ok, _, err := crypto.VerifyPassword(req.CurrentPassword, cred.PasswordHash)
+	if err != nil {
+		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		return
+	}
+	if !ok {
+		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{"reason": "user_delete_denied"})
+		a.writeError(w, apierr.ErrInvalidCredentials)
+		return
+	}
+	if err := a.deleteUser(ctx, user); err != nil {
+		a.writeError(w, err)
+		return
+	}
+	a.clearCookie(w)
+	a.writeJSON(w, http.StatusOK, deleteResponse{Success: true})
+}
+
+type userDeleteVerifyRequest struct {
+	Token string `json:"token"`
+}
+
+func (a *Auth) handleUserDeleteVerify(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if err := a.checkOrigin(r); err != nil {
+		a.writeError(w, err)
+		return
+	}
+	var req userDeleteVerifyRequest
+	if err := a.decodeJSON(r, &req); err != nil {
+		a.writeError(w, err)
+		return
+	}
+	// The consumed token names the user, so the endpoint needs no session.
+	tok, err := a.consumeToken(ctx, tokenKindDeleteAccount, req.Token)
+	if err != nil {
+		a.writeError(w, err)
+		return
+	}
+	if tok.UserID == nil {
+		a.writeError(w, apierr.ErrInvalidToken)
+		return
+	}
+	user, err := a.cfg.store.Users().GetByID(ctx, *tok.UserID)
+	if err != nil {
+		a.writeError(w, publicError(err))
+		return
+	}
+	if err := a.deleteUser(ctx, user); err != nil {
+		a.writeError(w, err)
+		return
+	}
+	a.clearCookie(w)
+	a.writeJSON(w, http.StatusOK, deleteResponse{Success: true})
+}
+
+// sendDeleteConfirmation issues a delete token and sends it to the address of
+// the user.
+func (a *Auth) sendDeleteConfirmation(ctx context.Context, user *store.User) error {
+	if a.cfg.sender == nil {
+		a.cfg.logger.Error("authall: an account delete confirmation needs an email sender")
+		return apierr.ErrInternal
+	}
+	token, tok, err := a.issueToken(ctx, plugin.IssueTokenInput{
+		Kind:            tokenKindDeleteAccount,
+		UserID:          &user.ID,
+		Identifier:      user.EmailNormalized,
+		TTL:             a.cfg.tokenTTL.PasswordReset,
+		ReplaceExisting: true,
+	})
+	if err != nil {
+		return err
+	}
+	msg := email.Message{
+		Intent:    email.IntentDeleteAccount,
+		To:        user.Email,
+		UserID:    user.ID,
+		Token:     token,
+		URL:       a.actionURL(a.cfg.emailPassword.DeleteAccountURL, "/delete-account", token, ""),
+		ExpiresAt: tok.ExpiresAt,
+	}
+	if err := a.cfg.sender.Send(ctx, msg); err != nil {
+		return apierr.ErrInternal.WithCause(err)
+	}
+	return nil
+}
+
+// deleteUser removes a user and every owned row. It emits the event first, so
+// an application can still read the owned data.
+func (a *Auth) deleteUser(ctx context.Context, user *store.User) error {
+	a.emitter.Emit(ctx, events.UserDeleted, user.ID, map[string]any{"email": user.Email})
+	if err := a.cfg.store.Users().Delete(ctx, user.ID); err != nil {
+		return publicError(err)
+	}
+	return nil
 }
 
 // messageEmailChangeSent is the enumeration-safe response of a change request.

@@ -2,7 +2,6 @@ package authall_test
 
 import (
 	"context"
-	"database/sql"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +9,7 @@ import (
 	authall "github.com/alternayte/auth-all"
 	"github.com/alternayte/auth-all/internal/testsupport"
 	"github.com/alternayte/auth-all/plugins/magiclink"
+	"github.com/alternayte/auth-all/schema"
 	"github.com/alternayte/auth-all/store"
 )
 
@@ -148,17 +148,29 @@ func snapshotSubject(t *testing.T, h *testsupport.Harness, userID string) subjec
 	}
 	state.Accounts = len(accounts)
 
-	raw := rawDB(t, h)
-	state.Sessions = countRows(t, raw, "SELECT COUNT(*) FROM auth_sessions WHERE user_id = ?", userID)
-	state.Tokens = countRows(t, raw, "SELECT COUNT(*) FROM auth_tokens WHERE user_id = ?", userID)
+	state.Sessions = countUserRows(t, h, "auth_sessions", userID)
+	state.Tokens = countUserRows(t, h, "auth_tokens", userID)
 	return state
 }
 
-func countRows(t *testing.T, db *sql.DB, query, arg string) int {
+// countUserRows counts the rows of one table that reference one user.
+//
+// PostgreSQL and SQLite disagree about the placeholder style, so the helper
+// reads the dialect of the adapter under test.
+func countUserRows(t *testing.T, h *testsupport.Harness, table, userID string) int {
 	t.Helper()
+	column := "user_id"
+	if table == "auth_users" {
+		column = "id"
+	}
+	placeholder := "?"
+	if h.Store.Migrator().Dialect() == schema.Postgres {
+		placeholder = "$1"
+	}
 	var count int
-	if err := db.QueryRow(query, arg).Scan(&count); err != nil {
-		t.Fatalf("count rows: %v", err)
+	query := "SELECT COUNT(*) FROM " + table + " WHERE " + column + " = " + placeholder
+	if err := rawDB(t, h).QueryRow(query, userID).Scan(&count); err != nil {
+		t.Fatalf("count %s: %v", table, err)
 	}
 	return count
 }

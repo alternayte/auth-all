@@ -22,11 +22,14 @@ const (
 	EmailVerified          Name = "auth.email_verified"
 	EmailChangeRequested   Name = "auth.email_change_requested"
 	EmailChanged           Name = "auth.email_changed"
-	MagicLinkRequested     Name = "auth.magic_link_requested"
-	MagicLinkUsed          Name = "auth.magic_link_used"
-	OAuthCompleted         Name = "auth.oauth_completed"
-	AccountLinked          Name = "auth.account_linked"
-	AccountUnlinked        Name = "auth.account_unlinked"
+	// UserDeleted arrives before Auth-All removes the rows, so a handler can
+	// still read the owned data.
+	UserDeleted        Name = "auth.user_deleted"
+	MagicLinkRequested Name = "auth.magic_link_requested"
+	MagicLinkUsed      Name = "auth.magic_link_used"
+	OAuthCompleted     Name = "auth.oauth_completed"
+	AccountLinked      Name = "auth.account_linked"
+	AccountUnlinked    Name = "auth.account_unlinked"
 )
 
 // Event is one structured observability event.

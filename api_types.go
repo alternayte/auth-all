@@ -70,6 +70,15 @@ type sessionListResponse struct {
 	Sessions []sessionEntryDTO `json:"sessions"`
 }
 
+// deleteResponse answers an account delete. A user with no password credential
+// receives ConfirmationRequired instead of Success.
+type deleteResponse struct {
+	Success bool `json:"success"`
+	// ConfirmationRequired reports that Auth-All sent a confirmation to the
+	// address of the user.
+	ConfirmationRequired bool `json:"confirmationRequired,omitempty"`
+}
+
 type revokeAllResponse struct {
 	Revoked int `json:"revoked"`
 }
@@ -155,6 +164,12 @@ func registerCoreSchemas(doc *openapi.Document) {
 	doc.AddSchema("RevokeAllResponse", openapi.Object(
 		[]string{"revoked"},
 		map[string]*openapi.Schema{"revoked": {Type: "integer"}}))
+	doc.AddSchema("DeleteResponse", openapi.Object(
+		[]string{"success"},
+		map[string]*openapi.Schema{
+			"success":              openapi.Bool(),
+			"confirmationRequired": openapi.Bool(),
+		}))
 	doc.AddSchema("MessageResponse", openapi.Object(
 		[]string{"message"},
 		map[string]*openapi.Schema{"message": openapi.String()}))
