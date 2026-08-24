@@ -89,7 +89,7 @@ when the request carries no valid session.
 ## 7. Call the API from the browser
 
 ```ts
-import { createAuthClient } from "@auth-all/client"
+import { createAuthClient } from "@alternayte/auth-all-client"
 
 const auth = createAuthClient({ baseUrl: window.location.origin })
 

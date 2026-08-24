@@ -1,6 +1,6 @@
 // A sign-in form that uses the generated Auth-All client.
 import { useState } from "react"
-import { AuthAllError, type User } from "@auth-all/client"
+import { AuthAllError, type User } from "@alternayte/auth-all-client"
 
 import { auth } from "./auth.ts"
 

@@ -6,7 +6,7 @@ An enabled plugin operation appears in the client automatically.
 ## Install
 
 ```bash
-npm install @auth-all/client
+npm install @alternayte/auth-all-client
 ```
 
 The client version follows the version of the Go library. Install the client
@@ -15,7 +15,7 @@ version that matches the library version of the server.
 ## Use
 
 ```ts
-import { createAuthClient, AuthAllError } from "@auth-all/client"
+import { createAuthClient, AuthAllError } from "@alternayte/auth-all-client"
 
 const auth = createAuthClient({
   baseUrl: window.location.origin,

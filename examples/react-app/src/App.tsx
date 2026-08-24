@@ -1,7 +1,7 @@
 // The example application shell. It reads the session on the first render and
 // shows either the sign-in form or the signed-in user.
 import { useEffect, useState } from "react"
-import type { User } from "@auth-all/client"
+import type { User } from "@alternayte/auth-all-client"
 
 import { auth } from "./auth.ts"
 import { SignInForm } from "./SignInForm.tsx"

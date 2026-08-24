@@ -20,7 +20,7 @@ go get github.com/alternayte/auth-all
 The TypeScript client is a separate npm package:
 
 ```bash
-npm install @auth-all/client
+npm install @alternayte/auth-all-client
 ```
 
 The operator tool is available as a prebuilt binary on the

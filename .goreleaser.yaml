@@ -78,5 +78,5 @@ release:
     TypeScript client:
 
     ```bash
-    npm install @auth-all/client@{{ .Version }}
+    npm install @alternayte/auth-all-client@{{ .Version }}
     ```

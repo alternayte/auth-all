@@ -1,5 +1,5 @@
 {
-  "name": "@auth-all/client",
+  "name": "@alternayte/auth-all-client",
   "version": "0.1.0",
   "description": "The official TypeScript client for Auth-All.",
   "license": "MIT",
