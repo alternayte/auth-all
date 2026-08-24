@@ -6,12 +6,14 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 
 	authall "github.com/alternayte/auth-all"
 	"github.com/alternayte/auth-all/email"
 	"github.com/alternayte/auth-all/internal/testsupport"
 	"github.com/alternayte/auth-all/plugins/magiclink"
+	"github.com/alternayte/auth-all/ratelimit"
 )
 
 // forbiddenFragments are values that a public error body must never contain.
@@ -576,5 +578,96 @@ func TestSEC011VerifiedUserKeepsPasswordOnMagicLink(t *testing.T) {
 	h.ClearCookies()
 	if still := h.GetSession(testsupport.WithBearer(kept.Value)); still.Session == nil {
 		t.Fatalf("a repeat sign-in revoked the session of the user")
+	}
+}
+
+// recordingLimiter captures the rate-limit keys that Auth-All builds.
+type recordingLimiter struct {
+	mu   sync.Mutex
+	keys []ratelimit.Key
+}
+
+func (l *recordingLimiter) Allow(_ context.Context, k ratelimit.Key) (bool, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.keys = append(l.keys, k)
+	return true, nil
+}
+
+// lastIP returns the client address of the most recent rate-limit key.
+func (l *recordingLimiter) lastIP(t *testing.T) string {
+	t.Helper()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.keys) == 0 {
+		t.Fatalf("the handler built no rate-limit key")
+	}
+	return l.keys[len(l.keys)-1].IP
+}
+
+// signInFrom sends one sign-in attempt with a forged forwarded header.
+func signInFrom(t *testing.T, h *testsupport.Harness, forwarded string) {
+	t.Helper()
+	opts := []testsupport.RequestOption{}
+	if forwarded != "" {
+		opts = append(opts, testsupport.WithHeader("X-Forwarded-For", forwarded))
+	}
+	h.Do(http.MethodPost, "/sign-in/email",
+		map[string]string{"email": "proxy@example.com", "password": testPassword}, opts...)
+}
+
+// TestSEC012ForwardedHeaderIsIgnoredByDefault proves that a client cannot
+// choose its own rate-limit key. Without a declared trusted proxy, Auth-All
+// uses the address of the direct peer.
+func TestSEC012ForwardedHeaderIsIgnoredByDefault(t *testing.T) {
+	limiter := &recordingLimiter{}
+	h := emailPasswordHarness(t, authall.WithRateLimiter(limiter))
+
+	signInFrom(t, h, "")
+	direct := limiter.lastIP(t)
+	if direct == "" {
+		t.Fatalf("the rate-limit key carries no client address")
+	}
+
+	for _, forged := range []string{"203.0.113.9", "203.0.113.9, 198.51.100.7", "not-an-address"} {
+		signInFrom(t, h, forged)
+		if got := limiter.lastIP(t); got != direct {
+			t.Fatalf("the header %q changed the rate-limit key to %q, want %q", forged, got, direct)
+		}
+	}
+}
+
+// TestSEC013ForwardedHeaderIsUsedBehindATrustedProxy proves the right-to-left
+// walk of the forwarded header.
+func TestSEC013ForwardedHeaderIsUsedBehindATrustedProxy(t *testing.T) {
+	limiter := &recordingLimiter{}
+	h := emailPasswordHarness(t,
+		authall.WithRateLimiter(limiter),
+		authall.WithTrustedProxies("127.0.0.1", "::1", "10.0.0.0/8"))
+
+	signInFrom(t, h, "")
+	direct := limiter.lastIP(t)
+
+	cases := []struct {
+		name      string
+		forwarded string
+		want      string
+	}{
+		{"one hop", "203.0.113.9", "203.0.113.9"},
+		{"a trusted hop on the right", "203.0.113.9, 10.1.2.3", "203.0.113.9"},
+		{"two trusted hops on the right", "203.0.113.9, 10.1.2.3, 10.4.5.6", "203.0.113.9"},
+		// The client prepends a hop of its own. The proxy appends the true
+		// address on the right, so the injected value never wins.
+		{"an injected extra hop", "198.51.100.7, 203.0.113.9", "203.0.113.9"},
+		{"every hop is trusted", "10.1.2.3", direct},
+		{"a malformed hop", "203.0.113.9, not-an-address", direct},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			signInFrom(t, h, tc.forwarded)
+			if got := limiter.lastIP(t); got != tc.want {
+				t.Fatalf("the header %q produced %q, want %q", tc.forwarded, got, tc.want)
+			}
+		})
 	}
 }

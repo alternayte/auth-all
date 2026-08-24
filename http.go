@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 
@@ -146,15 +147,76 @@ func hasControlRune(s string) bool {
 	return false
 }
 
-// clientIP returns the request IP for a rate-limit key.
-func clientIP(r *http.Request) string {
-	if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
-		parts := strings.Split(forwarded, ",")
-		return strings.TrimSpace(parts[0])
+// parseProxyBlock reads one trusted proxy value. It accepts a CIDR block and a
+// single IP address. A single address becomes a block of one host.
+func parseProxyBlock(raw string) (netip.Prefix, error) {
+	raw = strings.TrimSpace(raw)
+	if block, err := netip.ParsePrefix(raw); err == nil {
+		return block.Masked(), nil
 	}
+	addr, err := netip.ParseAddr(raw)
+	if err != nil {
+		return netip.Prefix{}, err
+	}
+	addr = addr.Unmap()
+	return netip.PrefixFrom(addr, addr.BitLen()), nil
+}
+
+// trustedProxy reports whether a declared block contains the address.
+func (a *Auth) trustedProxy(addr netip.Addr) bool {
+	addr = addr.Unmap()
+	for _, block := range a.cfg.proxyNets {
+		if block.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}
+
+// remoteHost returns the address of the direct peer of a request.
+func remoteHost(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// clientIP returns the request IP for a rate-limit key.
+//
+// Any client can set X-Forwarded-For, so a key that trusts the header is
+// forgeable, and the brute-force defense fails. Auth-All therefore reads the
+// header only when a declared trusted proxy holds the direct peer.
+//
+// The walk goes from right to left, because a proxy appends the address it
+// saw. Auth-All returns the first address that no trusted block contains, so a
+// hop that the client prepends never wins. Auth-All returns the address of the
+// direct peer when every hop is trusted, and also when a hop is malformed. A
+// malformed hop hides every address to its left, so nothing to its left is
+// trustworthy.
+func (a *Auth) clientIP(r *http.Request) string {
+	peer := remoteHost(r)
+	if len(a.cfg.proxyNets) == 0 {
+		return peer
+	}
+	addr, err := netip.ParseAddr(peer)
+	if err != nil || !a.trustedProxy(addr) {
+		return peer
+	}
+	var hops []string
+	for _, value := range r.Header.Values("X-Forwarded-For") {
+		for _, part := range strings.Split(value, ",") {
+			hops = append(hops, strings.TrimSpace(part))
+		}
+	}
+	for i := len(hops) - 1; i >= 0; i-- {
+		hop, err := netip.ParseAddr(hops[i])
+		if err != nil {
+			return peer
+		}
+		if !a.trustedProxy(hop) {
+			return hop.Unmap().String()
+		}
+	}
+	return peer
 }

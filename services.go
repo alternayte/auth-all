@@ -110,4 +110,4 @@ func (h *httpService) SafeRedirect(candidate, fallback string) string {
 	return h.auth.safeRedirect(candidate, fallback)
 }
 
-func (h *httpService) ClientIP(r *http.Request) string { return clientIP(r) }
+func (h *httpService) ClientIP(r *http.Request) string { return h.auth.clientIP(r) }

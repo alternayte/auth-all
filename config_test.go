@@ -37,6 +37,12 @@ func TestConfigurationValidation(t *testing.T) {
 		{"relative trusted origin", []authall.Option{
 			authall.WithStore(s), authall.WithTrustedOrigins("app.example.com"),
 		}, "absolute"},
+		{"invalid trusted proxy", []authall.Option{
+			authall.WithStore(s), authall.WithTrustedProxies("10.0.0.0/64"),
+		}, "trusted proxy"},
+		{"trusted proxy that is not an address", []authall.Option{
+			authall.WithStore(s), authall.WithTrustedProxies("proxy.example.com"),
+		}, "trusted proxy"},
 		{"impossible password policy", []authall.Option{
 			authall.WithStore(s),
 			authall.WithPasswordPolicy(authall.PasswordPolicy{MinLength: 12, MaxLength: 4}),

@@ -181,7 +181,7 @@ func (a *Auth) handleSignUpEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	normalized := email.Normalize(req.Email)
-	if !a.allow(ctx, w, ratelimit.Key{Operation: ratelimit.OpSignUp, IP: clientIP(r), Email: normalized}) {
+	if !a.allow(ctx, w, ratelimit.Key{Operation: ratelimit.OpSignUp, IP: a.clientIP(r), Email: normalized}) {
 		return
 	}
 	if !email.Valid(normalized) {
@@ -244,7 +244,7 @@ func (a *Auth) handleSignInEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	normalized := email.Normalize(req.Email)
-	if !a.allow(ctx, w, ratelimit.Key{Operation: ratelimit.OpSignIn, IP: clientIP(r), Email: normalized}) {
+	if !a.allow(ctx, w, ratelimit.Key{Operation: ratelimit.OpSignIn, IP: a.clientIP(r), Email: normalized}) {
 		return
 	}
 	user, err := a.cfg.store.Users().GetByNormalizedEmail(ctx, normalized)

@@ -7,6 +7,7 @@ package authall
 import (
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"time"
 
 	"github.com/alternayte/auth-all/email"
@@ -99,6 +100,10 @@ type config struct {
 	basePath       string
 	baseURL        string
 	trustedOrigins []string
+	trustedProxies []string
+	// proxyNets holds the parsed form of trustedProxies. normalizeConfig fills
+	// it, so a request never parses a configuration value.
+	proxyNets []netip.Prefix
 
 	emailPasswordEnabled bool
 	emailPassword        EmailPasswordOptions
@@ -140,6 +145,21 @@ func WithBaseURL(u string) Option { return func(c *config) { c.baseURL = u } }
 // origin is never allowed.
 func WithTrustedOrigins(origins ...string) Option {
 	return func(c *config) { c.trustedOrigins = append(c.trustedOrigins, origins...) }
+}
+
+// WithTrustedProxies declares the reverse proxies that stand in front of the
+// application. Auth-All reads a forwarded client address only when the direct
+// peer is inside one of these blocks.
+//
+// Each value is a CIDR block, for example 10.0.0.0/8. A single IP address is
+// also valid, and Auth-All treats it as one host. An invalid value fails the
+// construction.
+//
+// Auth-All ignores the X-Forwarded-For header when no trusted proxy is
+// declared, because any client can set that header. Declare the proxies of the
+// deployment. See docs/guides/deployment.md.
+func WithTrustedProxies(cidrs ...string) Option {
+	return func(c *config) { c.trustedProxies = append(c.trustedProxies, cidrs...) }
 }
 
 // WithEmailPassword enables email and password authentication.

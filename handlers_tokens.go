@@ -78,7 +78,7 @@ func (a *Auth) handlePasswordForgot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	normalized := email.Normalize(req.Email)
-	if !a.allow(ctx, w, ratelimit.Key{Operation: ratelimit.OpPasswordForgot, IP: clientIP(r), Email: normalized}) {
+	if !a.allow(ctx, w, ratelimit.Key{Operation: ratelimit.OpPasswordForgot, IP: a.clientIP(r), Email: normalized}) {
 		return
 	}
 	// The response never discloses whether the account exists.
@@ -197,7 +197,7 @@ func (a *Auth) handleVerificationSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	normalized := email.Normalize(req.Email)
-	if !a.allow(ctx, w, ratelimit.Key{Operation: ratelimit.OpEmailVerify, IP: clientIP(r), Email: normalized}) {
+	if !a.allow(ctx, w, ratelimit.Key{Operation: ratelimit.OpEmailVerify, IP: a.clientIP(r), Email: normalized}) {
 		return
 	}
 	defer a.writeJSON(w, http.StatusOK, messageResponse{Message: messageVerifySent})

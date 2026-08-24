@@ -107,6 +107,34 @@ most one user, and the database enforces it.
 - A wildcard trusted origin is rejected during construction.
 - A redirect target must be a relative path or a trusted origin.
 
+## Client address
+
+The rate limiter and the enumeration defense need one client address per
+request. Any client can set the `X-Forwarded-For` header, so a key that trusts
+that header is forgeable.
+
+Auth-All therefore ignores every forwarded header by default. The key carries
+the address of the direct peer.
+
+Declare the reverse proxies of the deployment to change this:
+
+```go
+authall.WithTrustedProxies("10.0.0.0/8", "127.0.0.1")
+```
+
+- Each value is a CIDR block or a single IP address. An invalid value fails
+  the construction.
+- Auth-All reads `X-Forwarded-For` only when a declared block holds the direct
+  peer.
+- The walk goes from right to left, because a proxy appends the address that it
+  saw. Auth-All returns the first address that no declared block contains, so a
+  hop that the client prepends never wins.
+- Auth-All returns the address of the direct peer when every hop is trusted,
+  and also when a hop is malformed.
+- Auth-All never returns an address that it cannot parse.
+
+The [deployment guide](deployment.md) shows the option in a complete setup.
+
 ## User enumeration
 
 Password reset, email verification, and magic-link requests answer the same

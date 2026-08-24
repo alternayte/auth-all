@@ -231,6 +231,14 @@ func normalizeConfig(cfg *config) error {
 			return fmt.Errorf("authall: email verification requires an email sender. Use authall.WithEmailSender")
 		}
 	}
+	for _, raw := range cfg.trustedProxies {
+		block, err := parseProxyBlock(raw)
+		if err != nil {
+			return fmt.Errorf(
+				"authall: the trusted proxy %q must be a CIDR block or an IP address, for example 10.0.0.0/8", raw)
+		}
+		cfg.proxyNets = append(cfg.proxyNets, block)
+	}
 	for _, o := range cfg.trustedOrigins {
 		if strings.Contains(o, "*") {
 			return fmt.Errorf("authall: a wildcard trusted origin is not allowed: %q", o)
