@@ -28,6 +28,8 @@ var v1Endpoints = []struct{ Method, Path string }{
 	{"POST", "/api/auth/password/change"},
 	{"POST", "/api/auth/email-verification/send"},
 	{"POST", "/api/auth/email-verification/verify"},
+	{"POST", "/api/auth/email/change"},
+	{"POST", "/api/auth/email/change/verify"},
 	{"GET", "/api/auth/oauth/{provider}"},
 	{"GET", "/api/auth/oauth/{provider}/callback"},
 	{"GET", "/api/auth/account/providers"},

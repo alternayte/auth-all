@@ -32,6 +32,7 @@ const Version = "1.0.0"
 const (
 	tokenKindVerifyEmail   = "verify-email"
 	tokenKindResetPassword = "reset-password"
+	tokenKindChangeEmail   = "email-change"
 )
 
 // Auth is a configured Auth-All instance.

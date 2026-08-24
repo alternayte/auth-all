@@ -22,6 +22,8 @@ authall.WithEmailPassword(authall.EmailPasswordOptions{
 | POST | `/api/auth/password/change` | Change the password of the current user. |
 | POST | `/api/auth/email-verification/send` | Request a verification message. |
 | POST | `/api/auth/email-verification/verify` | Verify an address. |
+| POST | `/api/auth/email/change` | Request a change of the address. |
+| POST | `/api/auth/email/change/verify` | Complete the change. |
 
 ## Password storage
 
@@ -119,6 +121,55 @@ signed in. It needs a session and it runs the origin check.
   reaches this. Such a user sets a first password through the reset flow.
 - The endpoint is rate-limited under the operation `password-change`.
 
+## Email change
+
+The change needs two steps, because the person must prove the new address
+before it moves.
+
+`POST /api/auth/email/change` needs a session and runs the origin check:
+
+```json
+{ "newEmail": "new@example.com", "currentPassword": "the password of today" }
+```
+
+- A user with a password credential must supply the correct password. A wrong
+  password answers `401`.
+- A user with no password credential skips the check. An account that only
+  signs in through a provider reaches this, so it can still move its address.
+- The response never discloses whether the new address is taken:
+
+```json
+{ "message": "If the address can receive a confirmation, one has been sent." }
+```
+
+- A taken address stops the flow before the send, so the owner of that address
+  receives nothing.
+- A free address receives a confirmation with the intent `email-change`. The
+  message carries the token.
+- The old address receives a notice with the intent `email-change-notice`. The
+  notice carries no token and no link, so the old address cannot complete the
+  change.
+- The endpoint is rate-limited under the operation `email-change`.
+
+`POST /api/auth/email/change/verify` completes the change:
+
+```json
+{ "token": "the token from the confirmation" }
+```
+
+- The endpoint consumes the token, writes the new address, and marks the
+  address verified.
+- The consumed token names the user, so the endpoint needs no session.
+- The address moves in its normalized form. Normalization lowercases the
+  address and changes nothing else.
+- The change revokes every session of the user except the current one.
+- A person who took the address between the two steps causes `409` with the
+  code `EMAIL_ALREADY_EXISTS`.
+
+Set the application page that receives the token with
+`EmailPasswordOptions.ChangeEmailURL`. The default is the base URL plus
+`/change-email`.
+
 ## Errors
 
 | Code | Meaning |
@@ -129,6 +180,7 @@ signed in. It needs a session and it runs the origin check.
 | `EMAIL_NOT_VERIFIED` | The address needs verification first. |
 | `INVALID_TOKEN` | The token is unknown, expired, or already used. |
 | `NO_PASSWORD_CREDENTIAL` | The account has no password to change. |
+| `EMAIL_ALREADY_EXISTS` | Somebody took the address before the confirmation. |
 
 The sign-in response is identical for an unknown address and a wrong password,
 and both paths perform the same hashing work.

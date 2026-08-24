@@ -52,6 +52,10 @@ type EmailPasswordOptions struct {
 	// token. Auth-All appends the token query parameter. The default is
 	// BaseURL + /reset-password.
 	ResetPasswordURL string
+	// ChangeEmailURL is the application page that receives an email change
+	// token. Auth-All appends the token query parameter. The default is
+	// BaseURL + /change-email.
+	ChangeEmailURL string
 }
 
 // PasswordPolicy configures the accepted passwords. Auth-All does not require

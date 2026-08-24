@@ -85,6 +85,15 @@ export interface EmailVerificationVerifyBody {
   token: string
 }
 
+export interface EmailChangeBody {
+  currentPassword?: string
+  newEmail: string
+}
+
+export interface EmailChangeVerifyBody {
+  token: string
+}
+
 export interface MagicLinkSendBody {
   callbackURL?: string
   email: string
@@ -235,6 +244,13 @@ export class AuthAllClient {
     providers: (): Promise<ProvidersResponse> => this.http.request("GET", `/api/auth/account/providers`, undefined, undefined),
     /** Remove a linked provider. */
     unlink: (provider: string): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/account/unlink/${provider}`, undefined, undefined),
+  }
+
+  readonly email = {
+    /** Request a change of the email address. */
+    change: (body: EmailChangeBody): Promise<MessageResponse> => this.http.request("POST", `/api/auth/email/change`, body, undefined),
+    /** Complete a change of the email address. */
+    changeVerify: (body: EmailChangeVerifyBody): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/email/change/verify`, body, undefined),
   }
 
   readonly emailVerification = {

@@ -15,6 +15,13 @@ const (
 	IntentVerifyEmail   Intent = "verify-email"
 	IntentResetPassword Intent = "reset-password"
 	IntentMagicLink     Intent = "magic-link"
+	// IntentEmailChange asks the application to send a confirmation to the new
+	// address of a user. The message carries the token.
+	IntentEmailChange Intent = "email-change"
+	// IntentEmailChangeNotice asks the application to tell the old address of a
+	// user that somebody asked for a change. The message carries no token and
+	// no link, so the old address cannot complete the change.
+	IntentEmailChangeNotice Intent = "email-change-notice"
 )
 
 // Message is the data Auth-All supplies for one message.

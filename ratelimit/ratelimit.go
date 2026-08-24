@@ -19,6 +19,7 @@ const (
 	OpEmailVerify      Operation = "email-verification-send"
 	OpMagicLinkRequest Operation = "magic-link-request"
 	OpPasswordChange   Operation = "password-change"
+	OpEmailChange      Operation = "email-change"
 )
 
 // Key identifies one rate-limited attempt. Fields are set when relevant.

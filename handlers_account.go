@@ -5,10 +5,12 @@ import (
 	"net/http"
 
 	"github.com/alternayte/auth-all/apierr"
+	"github.com/alternayte/auth-all/email"
 	"github.com/alternayte/auth-all/events"
 	"github.com/alternayte/auth-all/hook"
 	"github.com/alternayte/auth-all/internal/crypto"
 	"github.com/alternayte/auth-all/openapi"
+	"github.com/alternayte/auth-all/plugin"
 	"github.com/alternayte/auth-all/ratelimit"
 	"github.com/alternayte/auth-all/store"
 )
@@ -29,6 +31,194 @@ func (a *Auth) registerAccountRoutes() {
 		"The password is changed", openapi.Ref("SuccessResponse"),
 		&openapi.ClientBinding{Namespace: "password", Method: "change"},
 		"400", "401", "403", "429"))
+
+	a.handle(http.MethodPost, "/email/change", a.handleEmailChange, operation(
+		"emailChange", "Request a change of the email address", tag,
+		openapi.JSONBody(openapi.Object([]string{"newEmail"},
+			map[string]*openapi.Schema{
+				"newEmail":        openapi.String(),
+				"currentPassword": openapi.String(),
+			})),
+		"An enumeration-safe acknowledgement", openapi.Ref("MessageResponse"),
+		&openapi.ClientBinding{Namespace: "email", Method: "change"},
+		"400", "401", "403", "429"))
+
+	a.handle(http.MethodPost, "/email/change/verify", a.handleEmailChangeVerify, operation(
+		"emailChangeVerify", "Complete a change of the email address", tag,
+		openapi.JSONBody(openapi.Object([]string{"token"},
+			map[string]*openapi.Schema{"token": openapi.String()})),
+		"The address is changed", openapi.Ref("SuccessResponse"),
+		&openapi.ClientBinding{Namespace: "email", Method: "changeVerify"},
+		"400", "403", "409"))
+}
+
+// messageEmailChangeSent is the enumeration-safe response of a change request.
+const messageEmailChangeSent = "If the address can receive a confirmation, one has been sent."
+
+type emailChangeRequest struct {
+	NewEmail string `json:"newEmail"`
+	// CurrentPassword is required for a user that has a password credential.
+	CurrentPassword string `json:"currentPassword"`
+}
+
+func (a *Auth) handleEmailChange(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if err := a.checkOrigin(r); err != nil {
+		a.writeError(w, err)
+		return
+	}
+	sess, user := a.requireSession(w, r)
+	if sess == nil {
+		return
+	}
+	var req emailChangeRequest
+	if err := a.decodeJSON(r, &req); err != nil {
+		a.writeError(w, err)
+		return
+	}
+	if !a.allow(ctx, w, ratelimit.Key{
+		Operation: ratelimit.OpEmailChange, IP: a.clientIP(r), UserID: user.ID,
+	}) {
+		return
+	}
+	normalized := email.Normalize(req.NewEmail)
+	if !email.Valid(normalized) {
+		// The format of an address is public knowledge, so this answer
+		// discloses nothing about another account.
+		a.writeError(w, apierr.ErrInvalidRequest.WithMessage("The email address is invalid."))
+		return
+	}
+	// A user with a password proves the password. A user without one, for
+	// example an account that only signs in through a provider, skips the
+	// check. See docs/guides/email-password.md.
+	cred, err := a.cfg.store.Users().GetCredential(ctx, user.ID)
+	if err != nil && !isNotFound(err) {
+		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		return
+	}
+	if cred != nil {
+		ok, _, err := crypto.VerifyPassword(req.CurrentPassword, cred.PasswordHash)
+		if err != nil {
+			a.writeError(w, apierr.ErrInternal.WithCause(err))
+			return
+		}
+		if !ok {
+			a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{"reason": "email_change_denied"})
+			a.writeError(w, apierr.ErrInvalidCredentials)
+			return
+		}
+	}
+
+	// The response never discloses whether the new address is taken.
+	defer a.writeJSON(w, http.StatusOK, messageResponse{Message: messageEmailChangeSent})
+
+	if a.cfg.sender == nil {
+		a.cfg.logger.Error("authall: an email change needs an email sender")
+		return
+	}
+	if _, err := a.cfg.store.Users().GetByNormalizedEmail(ctx, normalized); err == nil {
+		// The address belongs to somebody, and it can be the caller. The flow
+		// stops here, so no message reaches the owner of the address.
+		return
+	} else if !isNotFound(err) {
+		a.cfg.logger.Error("authall: cannot read the user", "error", err.Error())
+		return
+	}
+	token, tok, err := a.issueToken(ctx, plugin.IssueTokenInput{
+		Kind:            tokenKindChangeEmail,
+		UserID:          &user.ID,
+		Identifier:      normalized,
+		TTL:             a.cfg.tokenTTL.EmailVerification,
+		ReplaceExisting: true,
+	})
+	if err != nil {
+		a.cfg.logger.Error("authall: cannot issue a change token", "error", err.Error())
+		return
+	}
+	confirmation := email.Message{
+		Intent:    email.IntentEmailChange,
+		To:        normalized,
+		UserID:    user.ID,
+		Token:     token,
+		URL:       a.actionURL(a.cfg.emailPassword.ChangeEmailURL, "/change-email", token, ""),
+		ExpiresAt: tok.ExpiresAt,
+		Data:      map[string]string{"oldEmail": user.Email, "newEmail": normalized},
+	}
+	if err := a.cfg.sender.Send(ctx, confirmation); err != nil {
+		a.cfg.logger.Error("authall: cannot send the change confirmation", "error", err.Error())
+		return
+	}
+	// The old address learns about the request. The message carries no token
+	// and no link, so it cannot complete the change.
+	notice := email.Message{
+		Intent: email.IntentEmailChangeNotice,
+		To:     user.Email,
+		UserID: user.ID,
+		Data:   map[string]string{"oldEmail": user.Email, "newEmail": normalized},
+	}
+	if err := a.cfg.sender.Send(ctx, notice); err != nil {
+		a.cfg.logger.Error("authall: cannot send the change notice", "error", err.Error())
+	}
+	a.emitter.Emit(ctx, events.EmailChangeRequested, user.ID, nil)
+}
+
+type emailChangeVerifyRequest struct {
+	Token string `json:"token"`
+}
+
+func (a *Auth) handleEmailChangeVerify(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if err := a.checkOrigin(r); err != nil {
+		a.writeError(w, err)
+		return
+	}
+	var req emailChangeVerifyRequest
+	if err := a.decodeJSON(r, &req); err != nil {
+		a.writeError(w, err)
+		return
+	}
+	// The consumed token names the user, so the endpoint needs no session.
+	tok, err := a.consumeToken(ctx, tokenKindChangeEmail, req.Token)
+	if err != nil {
+		a.writeError(w, err)
+		return
+	}
+	if tok.UserID == nil {
+		a.writeError(w, apierr.ErrInvalidToken)
+		return
+	}
+	user, err := a.cfg.store.Users().GetByID(ctx, *tok.UserID)
+	if err != nil {
+		a.writeError(w, publicError(err))
+		return
+	}
+	now := a.cfg.now()
+	// The address stays in its normalized form, because the token carries only
+	// that form. Normalization lowercases the address and changes nothing else.
+	updated := *user
+	updated.Email = tok.Identifier
+	updated.EmailNormalized = tok.Identifier
+	updated.EmailVerifiedAt = &now
+	updated.UpdatedAt = now
+	if err := a.cfg.store.Users().Update(ctx, &updated); err != nil {
+		if isConflict(err) {
+			// Somebody took the address between the request and the
+			// confirmation.
+			a.writeError(w, apierr.ErrEmailAlreadyExists)
+			return
+		}
+		a.writeError(w, publicError(err))
+		return
+	}
+	// The address changed, so every session except the current one ends.
+	current, _, err := a.resolveSession(ctx, r)
+	keep := ""
+	if err == nil && current != nil && current.UserID == updated.ID {
+		keep = current.ID
+	}
+	a.revokeOtherSessions(ctx, updated.ID, keep)
+	a.emitter.Emit(ctx, events.EmailChanged, updated.ID, nil)
+	a.writeJSON(w, http.StatusOK, successResponse{Success: true})
 }
 
 type passwordChangeRequest struct {

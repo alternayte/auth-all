@@ -20,6 +20,8 @@ const (
 	PasswordResetRequested Name = "auth.password_reset_requested"
 	PasswordChanged        Name = "auth.password_changed"
 	EmailVerified          Name = "auth.email_verified"
+	EmailChangeRequested   Name = "auth.email_change_requested"
+	EmailChanged           Name = "auth.email_changed"
 	MagicLinkRequested     Name = "auth.magic_link_requested"
 	MagicLinkUsed          Name = "auth.magic_link_used"
 	OAuthCompleted         Name = "auth.oauth_completed"
