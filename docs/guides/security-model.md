@@ -107,6 +107,24 @@ most one user, and the database enforces it.
 - A wildcard trusted origin is rejected during construction.
 - A redirect target must be a relative path or a trusted origin.
 
+## Rate limiting
+
+Auth-All exposes the integration point and ships no production limiter. The
+application must supply one.
+
+- A construction with no limiter writes one warning on the configured logger.
+  The warning names the risk and the two options.
+- `authall.WithStrictRateLimiting()` turns that warning into a construction
+  error. Use it in production, so a deploy with no limiter fails fast.
+- `ratelimit.Memory` counts inside one process. It serves a local run and a
+  test. It does not bound a distributed deployment, because each process keeps
+  its own counters.
+
+```go
+authall.WithRateLimiter(myRedisLimiter),
+authall.WithStrictRateLimiting(),
+```
+
 ## Client address
 
 The rate limiter and the enumeration defense need one client address per

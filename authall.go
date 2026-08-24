@@ -174,6 +174,17 @@ func normalizeConfig(cfg *config) error {
 		cfg.now = time.Now
 	}
 	if cfg.limiter == nil {
+		if cfg.strictRateLimiting {
+			return fmt.Errorf("authall: no rate limiter is configured, and authall.WithStrictRateLimiting is set. " +
+				"Use authall.WithRateLimiter, for example " +
+				"authall.WithRateLimiter(ratelimit.NewMemory(10, time.Minute))")
+		}
+		// A silent start with no limiter is the common production mistake, so
+		// the warning names the risk and the two options.
+		cfg.logger.Warn("authall: no rate limiter is configured. " +
+			"Sign-in, sign-up, password reset, and every other sensitive endpoint accepts unlimited attempts, " +
+			"so a brute-force attack and an enumeration attack run without a bound. " +
+			"Use authall.WithRateLimiter, or use authall.WithStrictRateLimiting to fail the construction instead.")
 		cfg.limiter = ratelimit.LimiterFunc(func(context.Context, ratelimit.Key) (bool, error) { return true, nil })
 	}
 	if cfg.cookie.Name == "" {

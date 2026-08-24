@@ -119,10 +119,13 @@ type config struct {
 	tokenTTL TokenTTLOptions
 	linking  AccountLinkingOptions
 
-	limiter  ratelimit.Limiter
-	logger   *slog.Logger
-	now      func() time.Time
-	handlers []events.Handler
+	limiter ratelimit.Limiter
+	// strictRateLimiting turns the missing-limiter warning into a construction
+	// error.
+	strictRateLimiting bool
+	logger             *slog.Logger
+	now                func() time.Time
+	handlers           []events.Handler
 }
 
 // Option configures Auth-All.
@@ -206,6 +209,15 @@ func WithAccountLinking(o AccountLinkingOptions) Option { return func(c *config)
 
 // WithRateLimiter sets the rate limiter for sensitive operations.
 func WithRateLimiter(l ratelimit.Limiter) Option { return func(c *config) { c.limiter = l } }
+
+// WithStrictRateLimiting fails the construction when no rate limiter is
+// configured.
+//
+// A production deployment needs a limiter. Without one, every sensitive
+// endpoint accepts unlimited attempts, so a brute-force attack and an
+// enumeration attack run without a bound. The default only writes a warning,
+// because a test and a local run do not need a limiter.
+func WithStrictRateLimiting() Option { return func(c *config) { c.strictRateLimiting = true } }
 
 // WithLogger sets the logger.
 func WithLogger(l *slog.Logger) Option { return func(c *config) { c.logger = l } }

@@ -1,14 +1,19 @@
 package authall_test
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	authall "github.com/alternayte/auth-all"
 	"github.com/alternayte/auth-all/apierr"
 	"github.com/alternayte/auth-all/internal/testsupport"
 	"github.com/alternayte/auth-all/oauth/github"
+	"github.com/alternayte/auth-all/ratelimit"
 )
 
 func TestConfigurationValidation(t *testing.T) {
@@ -154,3 +159,103 @@ type errString string
 func (e errString) Error() string { return string(e) }
 
 func boolPtr(v bool) *bool { return &v }
+
+// captureHandler collects the log records of one Auth-All construction.
+type captureHandler struct {
+	mu      sync.Mutex
+	records []slog.Record
+}
+
+func (h *captureHandler) Enabled(context.Context, slog.Level) bool { return true }
+
+func (h *captureHandler) Handle(_ context.Context, r slog.Record) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.records = append(h.records, r)
+	return nil
+}
+
+func (h *captureHandler) WithAttrs([]slog.Attr) slog.Handler { return h }
+
+func (h *captureHandler) WithGroup(string) slog.Handler { return h }
+
+// warnings returns the messages of the collected warnings.
+func (h *captureHandler) warnings() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var out []string
+	for _, r := range h.records {
+		if r.Level == slog.LevelWarn {
+			out = append(out, r.Message)
+		}
+	}
+	return out
+}
+
+// TestConfigWarnsWithoutARateLimiter checks that a silent production start
+// becomes loud. The default configuration has no limiter, so every sensitive
+// endpoint accepts unlimited attempts.
+func TestConfigWarnsWithoutARateLimiter(t *testing.T) {
+	s := testsupport.NewSQLite(t)
+	capture := &captureHandler{}
+	if _, err := authall.New(
+		authall.WithStore(s),
+		authall.WithEmailPassword(),
+		authall.WithLogger(slog.New(capture)),
+	); err != nil {
+		t.Fatal(err)
+	}
+	warnings := capture.warnings()
+	if len(warnings) != 1 {
+		t.Fatalf("expected exactly one warning, got %d: %v", len(warnings), warnings)
+	}
+	message := warnings[0]
+	for _, want := range []string{"rate limiter", "WithRateLimiter", "WithStrictRateLimiting"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("the warning misses %q: %s", want, message)
+		}
+	}
+
+	// A configured limiter produces no warning.
+	quiet := &captureHandler{}
+	if _, err := authall.New(
+		authall.WithStore(s),
+		authall.WithEmailPassword(),
+		authall.WithLogger(slog.New(quiet)),
+		authall.WithRateLimiter(ratelimit.NewMemory(10, time.Minute)),
+	); err != nil {
+		t.Fatal(err)
+	}
+	if got := quiet.warnings(); len(got) != 0 {
+		t.Fatalf("a configured limiter still warned: %v", got)
+	}
+}
+
+// TestConfigStrictRateLimiting checks that the strict option fails the
+// construction instead of a warning.
+func TestConfigStrictRateLimiting(t *testing.T) {
+	s := testsupport.NewSQLite(t)
+	_, err := authall.New(
+		authall.WithStore(s),
+		authall.WithEmailPassword(),
+		authall.WithStrictRateLimiting(),
+	)
+	if err == nil {
+		t.Fatalf("the construction accepted a missing rate limiter")
+	}
+	for _, want := range []string{"rate limiter", "WithRateLimiter"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the error misses %q: %v", want, err)
+		}
+	}
+
+	// The strict option accepts a configured limiter.
+	if _, err := authall.New(
+		authall.WithStore(s),
+		authall.WithEmailPassword(),
+		authall.WithStrictRateLimiting(),
+		authall.WithRateLimiter(ratelimit.NewMemory(10, time.Minute)),
+	); err != nil {
+		t.Fatalf("the strict option rejected a configured limiter: %v", err)
+	}
+}
