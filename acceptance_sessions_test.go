@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	authall "github.com/alternayte/auth-all"
 	"github.com/alternayte/auth-all/internal/testsupport"
@@ -265,4 +266,81 @@ func sessionIDOf(t *testing.T, h *testsupport.Harness, token string) string {
 		t.Fatalf("read the session: %v", err)
 	}
 	return sess.ID
+}
+
+// TestSessionAbsoluteLifetime proves that a session ends at the absolute
+// lifetime, even when the person stays active.
+//
+// A stolen token that stays active never expired before, because one value
+// served both the idle timeout and the total lifetime.
+func TestSessionAbsoluteLifetime(t *testing.T) {
+	clock := testsupport.NewClock()
+	const day = 24 * time.Hour
+	h := testsupport.NewHarness(t,
+		authall.WithEmailPassword(),
+		authall.WithClock(clock.Now),
+		authall.WithSessionLifetime(7*day, 30*day))
+	h.SignUp("absolute@example.com", testPassword)
+	token := h.SessionCookie()
+	if token == nil {
+		t.Fatalf("the sign-up issued no session")
+	}
+
+	// The person stays active, so the idle timeout never fires.
+	for elapsed := 6 * day; elapsed <= 24*day; elapsed += 6 * day {
+		clock.Advance(6 * day)
+		if session := h.GetSession(); session.User == nil {
+			t.Fatalf("the idle timeout ended an active session after %v", elapsed)
+		}
+	}
+
+	// Day 30 reaches the absolute lifetime.
+	clock.Advance(6 * day)
+	if session := h.GetSession(); session.Session != nil {
+		t.Fatalf("a session past the absolute lifetime still authenticates")
+	}
+	// The row is gone.
+	raw := rawDB(t, h)
+	if count := countRows(t, raw, "SELECT COUNT(*) FROM auth_sessions WHERE token_hash = ?", sha256Hex(token.Value)); count != 0 {
+		t.Fatalf("the expired session row survived: %d", count)
+	}
+}
+
+// TestSessionIdleTimeout proves that an inactive session ends before the
+// absolute lifetime.
+func TestSessionIdleTimeout(t *testing.T) {
+	clock := testsupport.NewClock()
+	const day = 24 * time.Hour
+	h := testsupport.NewHarness(t,
+		authall.WithEmailPassword(),
+		authall.WithClock(clock.Now),
+		authall.WithSessionLifetime(7*day, 30*day))
+	h.SignUp("idle@example.com", testPassword)
+	token := h.SessionCookie()
+
+	// Six days of silence keep the session.
+	clock.Advance(6 * day)
+	if session := h.GetSession(); session.User == nil {
+		t.Fatalf("the idle timeout fired too early")
+	}
+
+	// Eight days of silence end it, although the absolute lifetime is 30 days.
+	clock.Advance(8 * day)
+	if session := h.GetSession(); session.Session != nil {
+		t.Fatalf("an idle session still authenticates")
+	}
+	raw := rawDB(t, h)
+	if count := countRows(t, raw, "SELECT COUNT(*) FROM auth_sessions WHERE token_hash = ?", sha256Hex(token.Value)); count != 0 {
+		t.Fatalf("the idle session row survived: %d", count)
+	}
+}
+
+// TestSessionLifetimeDefaults checks the documented defaults.
+func TestSessionLifetimeDefaults(t *testing.T) {
+	if authall.DefaultSessionIdleTimeout != 7*24*time.Hour {
+		t.Fatalf("unexpected default idle timeout %v", authall.DefaultSessionIdleTimeout)
+	}
+	if authall.DefaultSessionTTL != 30*24*time.Hour {
+		t.Fatalf("unexpected default absolute lifetime %v", authall.DefaultSessionTTL)
+	}
 }

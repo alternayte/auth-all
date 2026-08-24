@@ -69,7 +69,13 @@ func (a *Auth) resolveSession(ctx context.Context, r *http.Request) (*store.Sess
 		return nil, nil, apierr.ErrInternal.WithCause(err)
 	}
 	now := a.cfg.now()
-	if !now.Before(sess.ExpiresAt) {
+	// A session ends at the first of three deadlines. ExpiresAt carries the
+	// absolute lifetime, and the idle timeout runs from the last request. One
+	// value cannot serve both, because a stolen token that stays active would
+	// never expire.
+	if !now.Before(sess.ExpiresAt) ||
+		!now.Before(sess.CreatedAt.Add(a.cfg.session.TTL)) ||
+		!now.Before(sess.LastSeenAt.Add(a.cfg.session.IdleTimeout)) {
 		// An expired session never authenticates. Remove it eagerly.
 		_ = a.cfg.store.Sessions().Delete(ctx, sess.ID)
 		return nil, nil, nil

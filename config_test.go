@@ -48,6 +48,10 @@ func TestConfigurationValidation(t *testing.T) {
 		{"trusted proxy that is not an address", []authall.Option{
 			authall.WithStore(s), authall.WithTrustedProxies("proxy.example.com"),
 		}, "trusted proxy"},
+		{"idle timeout above the absolute lifetime", []authall.Option{
+			authall.WithStore(s),
+			authall.WithSessionLifetime(48*time.Hour, 24*time.Hour),
+		}, "idle timeout"},
 		{"impossible password policy", []authall.Option{
 			authall.WithStore(s),
 			authall.WithPasswordPolicy(authall.PasswordPolicy{MinLength: 12, MaxLength: 4}),

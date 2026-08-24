@@ -132,6 +132,11 @@ func (a *Auth) handleGetSession(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, err)
 		return
 	}
+	if sess == nil && a.requestToken(r) != "" {
+		// The request carried a token that no longer resolves. The row is gone,
+		// so the browser must drop the cookie as well.
+		a.clearCookie(w)
+	}
 	a.writeJSON(w, http.StatusOK, struct {
 		User    *userDTO    `json:"user"`
 		Session *sessionDTO `json:"session"`

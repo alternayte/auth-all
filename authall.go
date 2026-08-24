@@ -72,7 +72,8 @@ func New(opts ...Option) (*Auth, error) {
 		passwordPolicy: DefaultPasswordPolicy(),
 		argon:          crypto.DefaultArgon2Params(),
 		cookie:         CookieOptions{Name: DefaultCookieName, Path: "/", SameSite: http.SameSiteLaxMode},
-		session:        SessionOptions{TTL: DefaultSessionTTL, TouchInterval: DefaultSessionTouchInterval},
+		// normalizeConfig fills IdleTimeout, because it depends on TTL.
+		session: SessionOptions{TTL: DefaultSessionTTL, TouchInterval: DefaultSessionTouchInterval},
 		tokenTTL: TokenTTLOptions{
 			EmailVerification: DefaultVerificationTTL,
 			PasswordReset:     DefaultPasswordResetTTL,
@@ -198,6 +199,20 @@ func normalizeConfig(cfg *config) error {
 	}
 	if cfg.session.TTL <= 0 {
 		cfg.session.TTL = DefaultSessionTTL
+	}
+	if cfg.session.IdleTimeout <= 0 {
+		// A short absolute lifetime keeps the idle timeout below it, so a
+		// caller that sets only the lifetime needs no second value.
+		cfg.session.IdleTimeout = DefaultSessionIdleTimeout
+		if cfg.session.IdleTimeout > cfg.session.TTL {
+			cfg.session.IdleTimeout = cfg.session.TTL
+		}
+	} else if cfg.session.IdleTimeout > cfg.session.TTL {
+		// An idle timeout above the absolute lifetime never fires, which hides
+		// the intent of the caller.
+		return fmt.Errorf(
+			"authall: the session idle timeout %s is above the absolute lifetime %s. Use authall.WithSessionLifetime",
+			cfg.session.IdleTimeout, cfg.session.TTL)
 	}
 	if cfg.session.TouchInterval <= 0 {
 		cfg.session.TouchInterval = DefaultSessionTouchInterval

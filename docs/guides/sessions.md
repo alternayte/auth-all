@@ -39,14 +39,38 @@ the flow completes.
 
 ## Lifetime
 
+A session has two deadlines. One value cannot serve both, because a stolen
+token that stays active would never expire.
+
+| Value | Meaning | Default |
+| --- | --- | --- |
+| Idle timeout | The session ends when it saw no request for this long. | 7 days |
+| Absolute lifetime | The session ends at this age, even when the person stays active. | 30 days |
+
+```go
+authall.WithSessionLifetime(7*24*time.Hour, 30*24*time.Hour)
+```
+
+The full option carries both values and the touch interval:
+
 ```go
 authall.WithSession(authall.SessionOptions{
-    TTL:           14 * 24 * time.Hour,
+    TTL:           30 * 24 * time.Hour,
+    IdleTimeout:   7 * 24 * time.Hour,
     TouchInterval: 5 * time.Minute,
 })
 ```
 
-`TouchInterval` limits how often a session read updates `last_seen_at`.
+`TouchInterval` limits how often a session read updates `last_seen_at`. The
+idle timeout runs from `last_seen_at`, so the touch interval must stay well
+below the idle timeout.
+
+An idle timeout above the absolute lifetime fails the construction. A
+configuration that sets only `TTL` receives an idle timeout that never exceeds
+it.
+
+A session that passes either deadline fails, and Auth-All removes the row. The
+next read of `/api/auth/session` also clears the browser cookie.
 
 ## Reading a session
 

@@ -23,7 +23,12 @@ import (
 const (
 	DefaultBasePath   = "/api/auth"
 	DefaultCookieName = "authall.session"
+	// DefaultSessionTTL is the absolute lifetime of a session. A session ends
+	// at this age, even when the person stays active.
 	DefaultSessionTTL = 30 * 24 * time.Hour
+	// DefaultSessionIdleTimeout ends a session that saw no request for this
+	// long.
+	DefaultSessionIdleTimeout = 7 * 24 * time.Hour
 	// DefaultSessionTouchInterval limits how often a session read writes
 	// last_seen_at.
 	DefaultSessionTouchInterval = 5 * time.Minute
@@ -74,7 +79,12 @@ type CookieOptions struct {
 
 // SessionOptions configures session lifetime.
 type SessionOptions struct {
+	// TTL is the absolute lifetime. A session ends at this age, even when the
+	// person stays active. The default is 30 days.
 	TTL time.Duration
+	// IdleTimeout ends a session that saw no request for this long. The
+	// default is 7 days.
+	IdleTimeout time.Duration
 	// TouchInterval limits how often a session read updates last_seen_at.
 	TouchInterval time.Duration
 }
@@ -193,6 +203,20 @@ func WithCookie(o CookieOptions) Option { return func(c *config) { c.cookie = o 
 
 // WithSession configures session lifetime.
 func WithSession(o SessionOptions) Option { return func(c *config) { c.session = o } }
+
+// WithSessionLifetime sets the two session deadlines.
+//
+// idle ends a session that saw no request for that long. absolute ends a
+// session at that age, even when the person stays active. One value cannot
+// serve both, because a stolen token that stays active would never expire.
+//
+// The defaults are 7 days and 30 days.
+func WithSessionLifetime(idle, absolute time.Duration) Option {
+	return func(c *config) {
+		c.session.IdleTimeout = idle
+		c.session.TTL = absolute
+	}
+}
 
 // WithTokenTTL configures one-time token lifetimes.
 func WithTokenTTL(o TokenTTLOptions) Option { return func(c *config) { c.tokenTTL = o } }
