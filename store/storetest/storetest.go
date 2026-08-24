@@ -35,6 +35,7 @@ func Run(t *testing.T, newStore Factory) {
 		{"AccountProviderIdentityIsUnique", testAccountUnique},
 		{"OneAccountPerProviderAndUser", testAccountOnePerProvider},
 		{"Sessions", testSessions},
+		{"SessionListByUser", testSessionListByUser},
 		{"SessionRevocationIsFinal", testSessionRevocation},
 		{"Tokens", testTokens},
 		{"TokenConsumeRejectsExpired", testTokenExpired},
@@ -311,6 +312,72 @@ func testSessions(t *testing.T, s store.Store) {
 	n, err = s.Sessions().DeleteExpired(c, now())
 	if err != nil || n != 1 {
 		t.Fatalf("delete expired: %d %v", n, err)
+	}
+}
+
+func testSessionListByUser(t *testing.T, s store.Store) {
+	c := ctx(t)
+	owner := mustCreateUser(t, s, "list-owner@example.com")
+	other := mustCreateUser(t, s, "list-other@example.com")
+
+	// A user without a session gets an empty result and no error.
+	empty, err := s.Sessions().ListByUser(c, owner.ID)
+	if err != nil {
+		t.Fatalf("list an empty user: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("expected no session, got %d", len(empty))
+	}
+
+	base := now()
+	older := &store.Session{
+		ID: uuid.NewString(), UserID: owner.ID, TokenHash: "list-older",
+		CreatedAt: base.Add(-time.Hour), ExpiresAt: base.Add(time.Hour), LastSeenAt: base.Add(-time.Minute),
+	}
+	newer := &store.Session{
+		ID: uuid.NewString(), UserID: owner.ID, TokenHash: "list-newer",
+		CreatedAt: base, ExpiresAt: base.Add(2 * time.Hour), LastSeenAt: base,
+	}
+	foreign := &store.Session{
+		ID: uuid.NewString(), UserID: other.ID, TokenHash: "list-foreign",
+		CreatedAt: base, ExpiresAt: base.Add(time.Hour), LastSeenAt: base,
+	}
+	for _, m := range []*store.Session{older, newer, foreign} {
+		if err := s.Sessions().Create(c, m); err != nil {
+			t.Fatalf("create session: %v", err)
+		}
+	}
+
+	list, err := s.Sessions().ListByUser(c, owner.ID)
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(list) != 2 {
+		t.Fatalf("expected 2 sessions of the owner, got %d", len(list))
+	}
+	// The newest comes first.
+	if list[0].ID != newer.ID || list[1].ID != older.ID {
+		t.Fatalf("unexpected order: %s then %s", list[0].ID, list[1].ID)
+	}
+	for _, got := range list {
+		if got.UserID != owner.ID {
+			t.Fatalf("the list carries a session of another user: %s", got.UserID)
+		}
+	}
+	if !list[0].ExpiresAt.Equal(newer.ExpiresAt) || !list[0].LastSeenAt.Equal(newer.LastSeenAt) {
+		t.Fatalf("the list lost a timestamp: %+v", list[0])
+	}
+	if list[0].TokenHash != newer.TokenHash {
+		t.Fatalf("the list lost the token hash: %+v", list[0])
+	}
+
+	// A revoked session leaves the list.
+	if err := s.Sessions().Delete(c, older.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	list, err = s.Sessions().ListByUser(c, owner.ID)
+	if err != nil || len(list) != 1 || list[0].ID != newer.ID {
+		t.Fatalf("the revoked session survived the list: %+v %v", list, err)
 	}
 }
 

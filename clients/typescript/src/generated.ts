@@ -35,11 +35,26 @@ export interface ProvidersResponse {
   }[]
 }
 
+export interface RevokeAllResponse {
+  revoked: number
+}
+
 export interface Session {
   createdAt: string
   expiresAt: string
   id: string
   userId: string
+}
+
+export interface SessionEntry {
+  createdAt: string
+  expiresAt: string
+  id: string
+  lastSeenAt: string
+}
+
+export interface SessionListResponse {
+  sessions: SessionEntry[]
 }
 
 export interface SessionResponse {
@@ -88,6 +103,10 @@ export interface PasswordForgotBody {
 export interface PasswordResetBody {
   password: string
   token: string
+}
+
+export interface RevokeAllSessionsBody {
+  includeCurrent?: boolean
 }
 
 export interface SignInEmailBody {
@@ -238,6 +257,15 @@ export class AuthAllClient {
     forgot: (body: PasswordForgotBody): Promise<MessageResponse> => this.http.request("POST", `/api/auth/password/forgot`, body, undefined),
     /** Set a new password with a reset token. */
     reset: (body: PasswordResetBody): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/password/reset`, body, undefined),
+  }
+
+  readonly sessions = {
+    /** List the sessions of the current user. */
+    list: (): Promise<SessionListResponse> => this.http.request("GET", `/api/auth/sessions`, undefined, undefined),
+    /** Revoke one session of the current user. */
+    revoke: (id: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/sessions/${id}`, undefined, undefined),
+    /** Revoke the other sessions of the current user. */
+    revokeAll: (body: RevokeAllSessionsBody): Promise<RevokeAllResponse> => this.http.request("POST", `/api/auth/sessions/revoke-all`, body, undefined),
   }
 
   readonly signIn = {

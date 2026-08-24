@@ -29,6 +29,31 @@ func (ss *sessionStore) GetByTokenHash(ctx context.Context, tokenHash string) (*
 	return &m, nil
 }
 
+func (ss *sessionStore) ListByUser(ctx context.Context, userID string) ([]store.Session, error) {
+	// The order is deterministic, so a list is stable across two adapters. The
+	// id breaks a tie of two equal timestamps.
+	rows, err := ss.s.query(ctx,
+		"SELECT "+sessionColumns+" FROM "+schema.TableSessions+
+			" WHERE user_id = ? ORDER BY created_at DESC, id DESC", userID)
+	if err != nil {
+		return nil, ss.s.mapErr(err)
+	}
+	defer rows.Close()
+	out := []store.Session{}
+	for rows.Next() {
+		var m store.Session
+		if err := rows.Scan(&m.ID, &m.UserID, &m.TokenHash,
+			timeScan{&m.CreatedAt}, timeScan{&m.ExpiresAt}, timeScan{&m.LastSeenAt}); err != nil {
+			return nil, ss.s.mapErr(err)
+		}
+		out = append(out, m)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, ss.s.mapErr(err)
+	}
+	return out, nil
+}
+
 func (ss *sessionStore) Touch(ctx context.Context, id string, at time.Time) error {
 	res, err := ss.s.exec(ctx,
 		"UPDATE "+schema.TableSessions+" SET last_seen_at = ? WHERE id = ?", ss.s.bindTime(at), id)

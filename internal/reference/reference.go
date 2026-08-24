@@ -14,6 +14,7 @@ import (
 	"github.com/alternayte/auth-all/oauth/github"
 	"github.com/alternayte/auth-all/oauth/google"
 	"github.com/alternayte/auth-all/plugins/magiclink"
+	"github.com/alternayte/auth-all/ratelimit"
 	"github.com/alternayte/auth-all/store"
 	"github.com/alternayte/auth-all/store/sqlite"
 )
@@ -42,6 +43,9 @@ func Options(s store.Store) []authall.Option {
 			google.WithClientID("reference-client-id"),
 			google.WithClientSecret("reference-client-secret"),
 		)),
+		// The reference instance only describes the API. It still configures a
+		// limiter, so the command line tool writes no warning.
+		authall.WithRateLimiter(ratelimit.NewMemory(10, time.Minute)),
 		authall.WithPlugins(magiclink.New(magiclink.WithTTL(15 * time.Minute))),
 	}
 }

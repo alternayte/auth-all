@@ -62,6 +62,8 @@ func (a *Auth) registerCoreRoutes() {
 		"The session is revoked", openapi.Ref("SuccessResponse"),
 		&openapi.ClientBinding{Method: "signOut"}, "403"))
 
+	a.registerSessionRoutes()
+
 	if a.cfg.emailPasswordEnabled {
 		tag := []string{"email-password"}
 		a.handle(http.MethodPost, "/sign-up/email", a.handleSignUpEmail, operation(

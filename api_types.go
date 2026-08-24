@@ -48,6 +48,32 @@ func toSessionDTO(s *store.Session) *sessionDTO {
 	return &sessionDTO{ID: s.ID, UserID: s.UserID, CreatedAt: s.CreatedAt, ExpiresAt: s.ExpiresAt}
 }
 
+// sessionEntryDTO is one row of the session list. It never carries a token or
+// a token hash.
+type sessionEntryDTO struct {
+	ID         string    `json:"id"`
+	CreatedAt  time.Time `json:"createdAt"`
+	ExpiresAt  time.Time `json:"expiresAt"`
+	LastSeenAt time.Time `json:"lastSeenAt"`
+}
+
+func toSessionEntryDTO(s store.Session) sessionEntryDTO {
+	return sessionEntryDTO{
+		ID:         s.ID,
+		CreatedAt:  s.CreatedAt,
+		ExpiresAt:  s.ExpiresAt,
+		LastSeenAt: s.LastSeenAt,
+	}
+}
+
+type sessionListResponse struct {
+	Sessions []sessionEntryDTO `json:"sessions"`
+}
+
+type revokeAllResponse struct {
+	Revoked int `json:"revoked"`
+}
+
 type authResponse struct {
 	User    *userDTO    `json:"user"`
 	Session *sessionDTO `json:"session"`
@@ -113,6 +139,22 @@ func registerCoreSchemas(doc *openapi.Document) {
 			"user":    {Ref: "#/components/schemas/User", Nullable: true},
 			"session": {Ref: "#/components/schemas/Session", Nullable: true},
 		}))
+	doc.AddSchema("SessionEntry", openapi.Object(
+		[]string{"id", "createdAt", "expiresAt", "lastSeenAt"},
+		map[string]*openapi.Schema{
+			"id":         openapi.String(),
+			"createdAt":  {Type: "string", Format: "date-time"},
+			"expiresAt":  {Type: "string", Format: "date-time"},
+			"lastSeenAt": {Type: "string", Format: "date-time"},
+		}))
+	doc.AddSchema("SessionListResponse", openapi.Object(
+		[]string{"sessions"},
+		map[string]*openapi.Schema{
+			"sessions": {Type: "array", Items: openapi.Ref("SessionEntry")},
+		}))
+	doc.AddSchema("RevokeAllResponse", openapi.Object(
+		[]string{"revoked"},
+		map[string]*openapi.Schema{"revoked": {Type: "integer"}}))
 	doc.AddSchema("MessageResponse", openapi.Object(
 		[]string{"message"},
 		map[string]*openapi.Schema{"message": openapi.String()}))

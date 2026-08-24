@@ -726,6 +726,167 @@
         }
       }
     },
+    "/api/auth/sessions": {
+      "get": {
+        "operationId": "listSessions",
+        "summary": "List the sessions of the current user",
+        "tags": [
+          "session"
+        ],
+        "responses": {
+          "200": {
+            "description": "The sessions of the current user",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "sessions",
+          "method": "list"
+        }
+      }
+    },
+    "/api/auth/sessions/revoke-all": {
+      "post": {
+        "operationId": "revokeAllSessions",
+        "summary": "Revoke the other sessions of the current user",
+        "tags": [
+          "session"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "includeCurrent": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The number of revoked sessions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeAllResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "sessions",
+          "method": "revokeAll"
+        }
+      }
+    },
+    "/api/auth/sessions/{id}": {
+      "delete": {
+        "operationId": "revokeSession",
+        "summary": "Revoke one session of the current user",
+        "description": "A session of another user answers with 404, so the endpoint discloses nothing about the existence of that session.",
+        "tags": [
+          "session"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The session is revoked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "sessions",
+          "method": "revoke"
+        }
+      }
+    },
     "/api/auth/sign-in/email": {
       "post": {
         "operationId": "signInEmail",
@@ -1041,6 +1202,17 @@
           "hasPassword"
         ]
       },
+      "RevokeAllResponse": {
+        "type": "object",
+        "properties": {
+          "revoked": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revoked"
+        ]
+      },
       "Session": {
         "type": "object",
         "properties": {
@@ -1064,6 +1236,46 @@
           "userId",
           "createdAt",
           "expiresAt"
+        ]
+      },
+      "SessionEntry": {
+        "type": "object",
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastSeenAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "expiresAt",
+          "lastSeenAt"
+        ]
+      },
+      "SessionListResponse": {
+        "type": "object",
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SessionEntry"
+            }
+          }
+        },
+        "required": [
+          "sessions"
         ]
       },
       "SessionResponse": {

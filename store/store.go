@@ -118,6 +118,9 @@ type AccountStore interface {
 type SessionStore interface {
 	Create(ctx context.Context, s *Session) error
 	GetByTokenHash(ctx context.Context, tokenHash string) (*Session, error)
+	// ListByUser returns every session of one user, and the newest comes
+	// first. It returns an empty result for a user without a session.
+	ListByUser(ctx context.Context, userID string) ([]Session, error)
 	// Touch updates last_seen_at. It returns ErrNotFound when the session no
 	// longer exists, so a revoked session cannot be resurrected.
 	Touch(ctx context.Context, id string, at time.Time) error
