@@ -37,9 +37,25 @@ func TestSEC001SecretsAbsentFromErrors(t *testing.T) {
 	cookie := h.SessionCookie()
 	h.Do(http.MethodPost, "/password/forgot", map[string]string{"email": "secrets@example.com"})
 	resetToken := h.Mail.Last(t, email.IntentResetPassword).Token
+	sessionID := sessionIDOf(t, h, cookie.Value)
+
+	// The signed-in routes run first, because they need the session.
+	responses := []*testsupport.Response{
+		h.Do(http.MethodPost, "/password/change", map[string]any{
+			"currentPassword": "wrong password here", "newPassword": newTestPassword}),
+		h.Do(http.MethodPost, "/password/change", map[string]any{
+			"currentPassword": testPassword, "newPassword": "short"}),
+		h.Do(http.MethodPost, "/email/change", map[string]any{
+			"newEmail": "elsewhere@example.com", "currentPassword": "wrong password here"}),
+		h.Do(http.MethodPost, "/email/change", map[string]any{
+			"newEmail": "not-an-email", "currentPassword": testPassword}),
+		h.Do(http.MethodPost, "/user/delete", map[string]any{"currentPassword": "wrong password here"}),
+		h.Do(http.MethodDelete, "/sessions/00000000-0000-0000-0000-000000000000", nil),
+		h.Do(http.MethodPost, "/sessions/revoke-all", "not json at all"),
+	}
 	h.ClearCookies()
 
-	responses := []*testsupport.Response{
+	responses = append(responses,
 		h.Do(http.MethodPost, "/sign-in/email", map[string]string{"email": "secrets@example.com", "password": "wrong password here"}),
 		h.Do(http.MethodPost, "/sign-in/email", map[string]string{"email": "missing@example.com", "password": testPassword}),
 		h.Do(http.MethodPost, "/sign-up/email", map[string]string{"email": "secrets@example.com", "password": testPassword}),
@@ -47,10 +63,15 @@ func TestSEC001SecretsAbsentFromErrors(t *testing.T) {
 		h.Do(http.MethodPost, "/password/reset", map[string]string{"token": "wrong-token", "password": testPassword}),
 		h.Do(http.MethodPost, "/email-verification/verify", map[string]string{"token": "wrong-token"}),
 		h.Do(http.MethodGet, "/magic-link/verify?token=wrong-token", nil),
+		h.Do(http.MethodPost, "/magic-link/verify", map[string]string{"token": "wrong-token"}),
+		h.Do(http.MethodPost, "/email/change/verify", map[string]string{"token": "wrong-token"}),
+		h.Do(http.MethodPost, "/user/delete/verify", map[string]string{"token": "wrong-token"}),
+		h.Do(http.MethodGet, "/sessions", nil),
+		h.Do(http.MethodPost, "/user/delete", map[string]any{"currentPassword": testPassword}),
 		h.Do(http.MethodPost, "/account/unlink/github", nil),
 		h.Do(http.MethodPost, "/sign-up/email", "not json at all"),
-	}
-	secrets := []string{cookie.Value, resetToken, out.User.ID + "-never"}
+	)
+	secrets := []string{cookie.Value, resetToken, sessionID, sha256Hex(cookie.Value), out.User.ID + "-never"}
 	for i, resp := range responses {
 		body := string(resp.Body)
 		for _, fragment := range forbiddenFragments {

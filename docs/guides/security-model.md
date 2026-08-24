@@ -26,17 +26,31 @@
 - Authentication issues a new token and revokes the token the request already
   carried, so session fixation fails.
 - A revoked row is gone. A stale write cannot restore it.
+- A session ends at the first of two deadlines. The idle timeout runs from the
+  last request, and the absolute lifetime runs from the creation. The defaults
+  are 7 days and 30 days, so a stolen token that stays active still expires.
 - A password reset revokes every session of the user.
+- A password change and an email change revoke every session except the current
+  one.
+- A person can list and revoke their own sessions. No response carries a token
+  or a token hash. A revoke of a session that another user owns answers `404`.
 
 ## One-time tokens
 
-Password reset, email verification, and magic links use one-time tokens.
+Password reset, email verification, magic links, an email change, and an
+account delete use one-time tokens.
 
 - The token carries 256 bits of randomness.
 - The database stores the hash and an expiry.
 - Consumption is one atomic statement. Two concurrent attempts produce at most
   one success.
 - An expired, consumed, or malformed token produces `INVALID_TOKEN`.
+- A magic link needs a confirmation step. `GET /magic-link/verify` returns a
+  page and consumes nothing, so a mail scanner that pre-fetches the link
+  destroys no token and signs nobody in. `POST /magic-link/verify` runs the
+  origin check and creates the session, so a login cross-site request forgery
+  fails. Both routes send `Referrer-Policy: no-referrer`, so the token in the
+  query string stays out of the callback host.
 
 ## Pre-account hijacking
 
@@ -105,7 +119,13 @@ most one user, and the database enforces it.
   passes the origin check. Such a client is not exposed to cross-site request
   forgery.
 - A wildcard trusted origin is rejected during construction.
-- A redirect target must be a relative path or a trusted origin.
+- A redirect target must be a relative path or a trusted origin. Auth-All
+  checks the literal form and the percent-decoded form, and it rejects a
+  backslash, a control character, a scheme-relative reference, and user
+  information.
+- A handler derives the subject of an operation from the session or from a
+  consumed one-time token, and never from the request body. A contract test
+  enumerates every mounted route that changes state and enforces the rule.
 
 ## Rate limiting
 
@@ -155,8 +175,10 @@ The [deployment guide](deployment.md) shows the option in a complete setup.
 
 ## User enumeration
 
-Password reset, email verification, and magic-link requests answer the same
-way for a known and an unknown address.
+Password reset, email verification, magic-link requests, and email change
+requests answer the same way for a known and an unknown address. The email
+change stops before the send for a taken address, so the owner of that address
+receives nothing.
 
 Sign-up must report a duplicate address, because the person needs to know that
 the account exists. Protect the endpoint with a rate limit.
