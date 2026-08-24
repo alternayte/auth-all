@@ -323,6 +323,9 @@ func TestEnumerationSafeVerificationResponse(t *testing.T) {
 // entry point that accepts a target.
 func TestRedirectTargetsAreRestricted(t *testing.T) {
 	f := newOAuthFixture(t, authall.WithPlugins(magiclink.New()))
+	// trustedHost is the one origin that Auth-All accepts, so a candidate can
+	// try to borrow it.
+	trustedHost := strings.TrimPrefix(strings.TrimPrefix(f.h.BaseURL, "http://"), "https://")
 	unsafe := []string{
 		"https://evil.example.com/steal",
 		"//evil.example.com",
@@ -331,7 +334,27 @@ func TestRedirectTargetsAreRestricted(t *testing.T) {
 		"/\t/evil.example.com",
 		"/\r\n/evil.example.com",
 		"https:/\\evil.example.com",
+		// A scheme that runs code in the browser.
 		"javascript:alert(1)",
+		"JaVaScRiPt:alert(1)",
+		"data:text/html,<script>alert(1)</script>",
+		"vbscript:msgbox(1)",
+		// The host is evil.example.com. The trusted name is only user
+		// information, and a person reads it as the destination.
+		"https://trusted.example.com@evil.example.com/",
+		"http://" + trustedHost + "@evil.example.com/",
+		// The trusted name sits in the fragment, so the host stays evil.
+		"https://evil.example.com#@trusted.example.com",
+		// A trailing dot names the same host for DNS, but not for the origin
+		// comparison of a browser.
+		"https://trusted.example.com./",
+		"http://" + trustedHost + "./",
+		// A percent escape can hide a control character. A parser that decodes
+		// the value first reads //evil.example.com, which is another origin.
+		"/%09/evil.example.com",
+		"/%0d%0a/evil.example.com",
+		"/%5cevil.example.com",
+		"/%00/evil.example.com",
 	}
 	for _, target := range unsafe {
 		// The OAuth start endpoint stores the target with the state.
@@ -360,8 +383,9 @@ func TestRedirectTargetsAreRestricted(t *testing.T) {
 			t.Fatalf("the emailed link carries the untrusted target %q: %s", target, msg.URL)
 		}
 		verify := followMagicLink(t, f.h, msg.URL+"&callbackURL="+url.QueryEscape(target))
-		if location := verify.Location(); strings.Contains(location, "evil.example.com") || strings.Contains(location, "javascript:") {
-			t.Fatalf("the magic link redirects to the untrusted target %q: %s", target, location)
+		// The fallback of the magic link is the base URL, so the check is exact.
+		if location := verify.Location(); location != f.h.BaseURL {
+			t.Fatalf("the magic link did not fall back for the target %q: %s", target, location)
 		}
 		f.h.ClearCookies()
 	}

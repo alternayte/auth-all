@@ -100,23 +100,15 @@ func requestOrigin(r *http.Request) string {
 
 // safeRedirect returns candidate when it is a relative path of this
 // application or points at a trusted origin, and fallback otherwise.
-//
-// A browser resolves a backslash like a forward slash and drops a control
-// character, so "/\\evil.example.com" would reach another origin. Auth-All
-// therefore rejects a candidate that carries a backslash or a control
-// character, and it rejects every scheme-relative reference.
 func (a *Auth) safeRedirect(candidate, fallback string) string {
 	candidate = strings.TrimSpace(candidate)
 	if candidate == "" {
 		return fallback
 	}
-	if strings.ContainsRune(candidate, '\\') || hasControlRune(candidate) {
+	if unsafeReference(candidate) {
 		return fallback
 	}
 	if strings.HasPrefix(candidate, "/") {
-		if strings.HasPrefix(candidate, "//") {
-			return fallback
-		}
 		u, err := url.Parse(candidate)
 		if err != nil || u.Scheme != "" || u.Host != "" {
 			return fallback
@@ -127,6 +119,11 @@ func (a *Auth) safeRedirect(candidate, fallback string) string {
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return fallback
 	}
+	// User information hides the true host from a person who reads the link,
+	// so a target that carries it is never safe.
+	if u.User != nil {
+		return fallback
+	}
 	origin := u.Scheme + "://" + u.Host
 	for _, allowed := range a.trustedOrigins {
 		if strings.EqualFold(allowed, origin) {
@@ -134,6 +131,39 @@ func (a *Auth) safeRedirect(candidate, fallback string) string {
 		}
 	}
 	return fallback
+}
+
+// unsafeReference reports whether a redirect candidate can reach another
+// origin.
+//
+// A browser resolves a backslash like a forward slash and drops a control
+// character, so "/\\evil.example.com" and "/\t/evil.example.com" would reach
+// another origin. A proxy or a framework can also decode a percent escape
+// before another parser reads the value, so "/%09/evil.example.com" can become
+// "//evil.example.com". The function therefore checks the literal form and the
+// decoded form of the candidate.
+//
+// A candidate with an invalid percent escape is unsafe, because two parsers
+// can repair it in two ways.
+func unsafeReference(candidate string) bool {
+	forms := []string{candidate}
+	decoded, err := url.PathUnescape(candidate)
+	if err != nil {
+		return true
+	}
+	if decoded != candidate {
+		forms = append(forms, decoded)
+	}
+	for _, form := range forms {
+		if strings.ContainsRune(form, '\\') || hasControlRune(form) {
+			return true
+		}
+		// A scheme-relative reference names another origin.
+		if strings.HasPrefix(form, "//") {
+			return true
+		}
+	}
+	return false
 }
 
 // hasControlRune reports whether s carries a character that a browser drops
