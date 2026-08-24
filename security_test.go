@@ -481,3 +481,100 @@ func TestOAuthStateCookieIsRestricted(t *testing.T) {
 		t.Fatalf("the binding cookie carries no value")
 	}
 }
+
+// TestSEC010MagicLinkClearsPlantedPassword proves that a magic-link sign-in
+// removes a password credential that somebody planted on an unverified
+// address, and that it removes every session of that address.
+//
+// The attack: an attacker signs up with the address of the victim and a
+// password of their choice. The address stays unverified. The victim later
+// signs in with a magic link. The password of the attacker must not survive.
+func TestSEC010MagicLinkClearsPlantedPassword(t *testing.T) {
+	h := magicLinkHarness(t)
+	const address = "prehijack@example.com"
+
+	// The attacker plants a password on the address of the victim.
+	resp, planted := h.SignUp(address, testPassword)
+	if resp.Status != http.StatusCreated {
+		t.Fatalf("the sign-up failed: %d %s", resp.Status, string(resp.Body))
+	}
+	if planted.User != nil && planted.User.EmailVerified {
+		t.Fatalf("the planted account must stay unverified")
+	}
+	attacker := h.SessionCookie()
+	if attacker == nil || attacker.Value == "" {
+		t.Fatalf("the sign-up issued no session")
+	}
+
+	// The victim uses another browser and signs in with a link.
+	h.ClearCookies()
+	h.Mail.Reset()
+	sendMagicLink(t, h, address)
+	msg := h.Mail.Last(t, email.IntentMagicLink)
+	if done := followMagicLink(t, h, msg.URL); done.Status >= 400 {
+		t.Fatalf("the link failed: %d %s", done.Status, string(done.Body))
+	}
+	if victim := h.GetSession(); victim.User == nil {
+		t.Fatalf("the link created no session for the victim")
+	}
+
+	// The planted password no longer opens the account.
+	h.ClearCookies()
+	old, _ := h.SignIn(address, testPassword)
+	if old.Status != http.StatusUnauthorized {
+		t.Fatalf("the planted password still signs in: %d %s", old.Status, string(old.Body))
+	}
+	if code := old.ErrorCode(t); code != "INVALID_CREDENTIALS" {
+		t.Fatalf("unexpected code %q", code)
+	}
+
+	// The session of the attacker no longer authenticates.
+	if stale := h.GetSession(testsupport.WithBearer(attacker.Value)); stale.Session != nil {
+		t.Fatalf("the session of the attacker survived the proof")
+	}
+}
+
+// TestSEC011VerifiedUserKeepsPasswordOnMagicLink proves the no-op case. A
+// verified address is already proven, so a later magic link must not remove
+// the password credential and must not revoke another session.
+func TestSEC011VerifiedUserKeepsPasswordOnMagicLink(t *testing.T) {
+	h := magicLinkHarness(t)
+	const address = "verified-keeps@example.com"
+	if _, err := h.Auth.CreateUser(context.Background(), authall.CreateUserInput{
+		Email: address, Password: testPassword, EmailVerified: true,
+	}); err != nil {
+		t.Fatalf("create the verified user: %v", err)
+	}
+
+	// The user signs in with the password in one browser.
+	first, _ := h.SignIn(address, testPassword)
+	if first.Status != http.StatusOK {
+		t.Fatalf("the sign-in failed: %d %s", first.Status, string(first.Body))
+	}
+	kept := h.SessionCookie()
+	if kept == nil || kept.Value == "" {
+		t.Fatalf("the sign-in issued no session")
+	}
+
+	// The same user signs in with a link from another browser.
+	h.ClearCookies()
+	h.Mail.Reset()
+	sendMagicLink(t, h, address)
+	msg := h.Mail.Last(t, email.IntentMagicLink)
+	if done := followMagicLink(t, h, msg.URL); done.Status >= 400 {
+		t.Fatalf("the link failed: %d %s", done.Status, string(done.Body))
+	}
+
+	// The password still works.
+	h.ClearCookies()
+	again, _ := h.SignIn(address, testPassword)
+	if again.Status != http.StatusOK {
+		t.Fatalf("a verified user lost the password: %d %s", again.Status, string(again.Body))
+	}
+
+	// The first session still authenticates.
+	h.ClearCookies()
+	if still := h.GetSession(testsupport.WithBearer(kept.Value)); still.Session == nil {
+		t.Fatalf("a repeat sign-in revoked the session of the user")
+	}
+}

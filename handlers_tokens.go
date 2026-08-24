@@ -232,9 +232,25 @@ func (a *Auth) handleVerificationVerify(w http.ResponseWriter, r *http.Request) 
 		a.writeError(w, err)
 		return
 	}
-	if _, err := a.VerifyEmailToken(ctx, req.Token); err != nil {
+	// The proof revokes every session of the user, so the handler reads the
+	// current session first and issues a fresh one after the proof. The person
+	// who verifies from the browser of the sign-up therefore stays signed in,
+	// and every session that predates the proof ends.
+	current, currentUser, err := a.resolveSession(ctx, r)
+	if err != nil {
 		a.writeError(w, err)
 		return
+	}
+	user, err := a.VerifyEmailToken(ctx, req.Token)
+	if err != nil {
+		a.writeError(w, err)
+		return
+	}
+	if current != nil && currentUser != nil && currentUser.ID == user.ID {
+		if _, err := a.issueSession(ctx, w, nil, user, "email-verification"); err != nil {
+			a.writeError(w, err)
+			return
+		}
 	}
 	a.writeJSON(w, http.StatusOK, successResponse{Success: true})
 }

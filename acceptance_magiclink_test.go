@@ -154,3 +154,11 @@ func TestMagicLinkRejectsAMalformedToken(t *testing.T) {
 		t.Fatalf("unexpected code %q", code)
 	}
 }
+
+// followMagicLink completes an emailed sign-in link and returns the final
+// response. The flow can need more than one request, so every test goes
+// through this helper.
+func followMagicLink(t *testing.T, h *testsupport.Harness, link string, opts ...testsupport.RequestOption) *testsupport.Response {
+	t.Helper()
+	return h.DoURL(http.MethodGet, link, nil, opts...)
+}

@@ -27,6 +27,13 @@ authall.WithPlugins(
 - An unknown address creates an account, because a used link proves that the
   person controls the address. `WithCreateUser(false)` turns this off.
 - A successful link marks the address as verified.
+- A successful link on an address that is not verified yet also deletes the
+  password credential of the user and revokes every session of the user. The
+  link proves current control of the address, so a password that somebody set
+  while the address was unverified is not trustworthy. See the
+  [security model](security-model.md).
+- A successful link on an address that is already verified changes no password
+  and revokes no other session.
 - The response never discloses whether the address has an account:
 
 ```json

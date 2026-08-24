@@ -38,6 +38,39 @@ Password reset, email verification, and magic links use one-time tokens.
   one success.
 - An expired, consumed, or malformed token produces `INVALID_TOKEN`.
 
+## Pre-account hijacking
+
+An attacker can sign up with the address of another person and a password of
+their own choice. The address stays unverified. The attacker then waits until
+the true owner proves the address.
+
+Auth-All treats a passwordless proof of control as authoritative. A magic-link
+sign-in on an address that is not verified yet runs three steps in one
+transaction, and it runs them before it issues the new session.
+
+1. Auth-All deletes the password credential of the user.
+2. Auth-All revokes every session of the user.
+3. Auth-All marks the address as verified.
+
+The planted password and the planted session are therefore gone. A plugin
+author reaches the same behavior through `plugin.UserService.ProveEmailOwnership`.
+
+The steps do nothing for a user whose address is already verified. A normal
+repeat sign-in keeps its password and keeps its other sessions.
+
+The email verification endpoint applies step 2 and step 3, and it keeps the
+password credential. That endpoint belongs to the password flow, so the server
+cannot tell the account owner apart from the victim of a hijack. Both present
+the same valid token for the same unverified account. A wipe would delete the
+password that an honest user chose a moment earlier.
+
+One risk therefore remains. A person who acts on a verification message that
+they never requested proves an address for an account of somebody else, and
+the password of that account survives. Two facts bound the risk. The attacker
+holds no session after step 2. A victim who uses the password reset flow
+replaces the credential and revokes every session, which locks the attacker
+out.
+
 ## OAuth
 
 - The authorization code flow is the only supported flow.

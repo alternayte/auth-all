@@ -71,6 +71,50 @@ func (a *Auth) createUser(ctx context.Context, in CreateUserInput, passwordHash 
 	return user, nil
 }
 
+// proveEmailOwnership records proven control of the address of a user.
+//
+// A passwordless flow calls it after the flow proves that the person controls
+// the address. When the address was not verified yet, somebody can have set a
+// password and started a session before the proof. The method therefore
+// deletes the password credential, revokes every session, and marks the
+// address verified. It performs the three steps in one transaction.
+//
+// The method does nothing for a user whose address is already verified, so a
+// normal repeat sign-in keeps its password and its sessions.
+//
+// keepCredential suppresses the deletion of the password credential. The email
+// verification flow sets it, because that flow cannot tell the account owner
+// apart from the victim of a pre-account hijack. See docs/decisions.md.
+func (a *Auth) proveEmailOwnership(ctx context.Context, userID string, keepCredential bool) error {
+	user, err := a.cfg.store.Users().GetByID(ctx, userID)
+	if err != nil {
+		return publicError(err)
+	}
+	if user.EmailVerifiedAt != nil {
+		return nil
+	}
+	now := a.cfg.now()
+	err = a.cfg.store.Transaction(ctx, func(tx store.Store) error {
+		if !keepCredential {
+			if err := tx.Users().DeleteCredential(ctx, userID); err != nil && !isNotFound(err) {
+				return err
+			}
+		}
+		if _, err := tx.Sessions().DeleteByUser(ctx, userID); err != nil {
+			return err
+		}
+		proven := *user
+		proven.EmailVerifiedAt = &now
+		proven.UpdatedAt = now
+		return tx.Users().Update(ctx, &proven)
+	})
+	if err != nil {
+		return publicError(err)
+	}
+	a.emitter.Emit(ctx, events.EmailVerified, user.ID, nil)
+	return nil
+}
+
 // markEmailVerified records proven ownership of the user email address.
 func (a *Auth) markEmailVerified(ctx context.Context, userID string) error {
 	user, err := a.cfg.store.Users().GetByID(ctx, userID)

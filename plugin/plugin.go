@@ -132,8 +132,28 @@ type UserService interface {
 	ByEmail(ctx context.Context, address string) (*store.User, error)
 	// Create inserts a user and runs the user creation hooks.
 	Create(ctx context.Context, in CreateUserInput) (*store.User, error)
-	// MarkEmailVerified records proven ownership of the user email address.
+	// MarkEmailVerified records proven ownership of the user email address. It
+	// changes no other row. A passwordless flow calls ProveEmailOwnership
+	// instead.
 	MarkEmailVerified(ctx context.Context, userID string) error
+	// DeleteCredential removes the password credential of a user. It succeeds
+	// for a user that has no password credential.
+	DeleteCredential(ctx context.Context, userID string) error
+	// ProveEmailOwnership records proven control of the address of a user.
+	//
+	// A passwordless flow calls it after the flow proves that the person
+	// controls the address. When the address was not verified yet, somebody can
+	// have set a password and started a session before the proof. The method
+	// therefore deletes the password credential of the user, revokes every
+	// session of the user, and marks the address verified. It performs the
+	// three steps in one transaction.
+	//
+	// The method does nothing for a user whose address is already verified, so
+	// a normal repeat sign-in keeps its password and its sessions.
+	//
+	// A plugin that proves control of an address must call this method before
+	// it issues a session.
+	ProveEmailOwnership(ctx context.Context, userID string) error
 }
 
 // SessionService exposes session operations.
@@ -146,6 +166,8 @@ type SessionService interface {
 	Current(ctx context.Context, r *http.Request) (*store.Session, *store.User, error)
 	// Revoke deletes one session.
 	Revoke(ctx context.Context, sessionID string) error
+	// RevokeAll deletes every session of one user and returns the count.
+	RevokeAll(ctx context.Context, userID string) (int, error)
 	// Clear removes the session cookie.
 	Clear(w http.ResponseWriter)
 }

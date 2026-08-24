@@ -233,13 +233,16 @@ func (p *Plugin) handleVerify(w http.ResponseWriter, r *http.Request) {
 		httpSvc.WriteError(w, err)
 		return
 	}
-	if _, err := p.svc.Sessions().Issue(ctx, w, r, user, ID); err != nil {
+	// A used link proves that the person controls the address. An unverified
+	// address can carry a password and a session that somebody else planted, so
+	// the proof removes both before the plugin issues the new session.
+	if err := p.svc.Users().ProveEmailOwnership(ctx, user.ID); err != nil {
 		httpSvc.WriteError(w, err)
 		return
 	}
-	// A successful link proves that the user controls the address.
-	if err := p.svc.Users().MarkEmailVerified(ctx, user.ID); err != nil {
-		p.svc.Logger().Error("magiclink: cannot mark the address as verified", "error", err.Error())
+	if _, err := p.svc.Sessions().Issue(ctx, w, r, user, ID); err != nil {
+		httpSvc.WriteError(w, err)
+		return
 	}
 	p.svc.Events().Emit(ctx, events.MagicLinkUsed, user.ID, nil)
 	fallback := p.callbackURL

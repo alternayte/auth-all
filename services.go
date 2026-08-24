@@ -53,6 +53,17 @@ func (u *userService) MarkEmailVerified(ctx context.Context, userID string) erro
 	return u.auth.markEmailVerified(ctx, userID)
 }
 
+func (u *userService) DeleteCredential(ctx context.Context, userID string) error {
+	if err := u.auth.cfg.store.Users().DeleteCredential(ctx, userID); err != nil && !isNotFound(err) {
+		return publicError(err)
+	}
+	return nil
+}
+
+func (u *userService) ProveEmailOwnership(ctx context.Context, userID string) error {
+	return u.auth.proveEmailOwnership(ctx, userID, false)
+}
+
 type sessionService services
 
 func (s *sessionService) Issue(ctx context.Context, w http.ResponseWriter, r *http.Request, user *store.User, method string) (*store.Session, error) {
@@ -65,6 +76,10 @@ func (s *sessionService) Current(ctx context.Context, r *http.Request) (*store.S
 
 func (s *sessionService) Revoke(ctx context.Context, sessionID string) error {
 	return s.auth.RevokeSession(ctx, sessionID)
+}
+
+func (s *sessionService) RevokeAll(ctx context.Context, userID string) (int, error) {
+	return s.auth.RevokeUserSessions(ctx, userID)
 }
 
 func (s *sessionService) Clear(w http.ResponseWriter) { s.auth.clearCookie(w) }
