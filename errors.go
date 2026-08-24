@@ -25,6 +25,9 @@ var (
 	ErrForbidden          = apierr.ErrForbidden
 	ErrNotFound           = apierr.ErrNotFound
 	ErrLastAuthMethod     = apierr.ErrLastAuthMethod
+	// ErrNoPasswordCredential reports that the account has no password. An
+	// OAuth-only user reaches it.
+	ErrNoPasswordCredential = apierr.ErrNoPasswordCredential
 )
 
 func isNotFound(err error) bool { return errors.Is(err, store.ErrNotFound) }

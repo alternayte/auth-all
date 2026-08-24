@@ -95,6 +95,12 @@ export interface MagicLinkVerifyBody {
   token: string
 }
 
+export interface PasswordChangeBody {
+  currentPassword: string
+  newPassword: string
+  revokeOtherSessions?: boolean
+}
+
 export interface PasswordForgotBody {
   email: string
   redirectTo?: string
@@ -253,6 +259,8 @@ export class AuthAllClient {
   }
 
   readonly password = {
+    /** Change the password of the current user. */
+    change: (body: PasswordChangeBody): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/password/change`, body, undefined),
     /** Request a password reset message. */
     forgot: (body: PasswordForgotBody): Promise<MessageResponse> => this.http.request("POST", `/api/auth/password/forgot`, body, undefined),
     /** Set a new password with a reset token. */

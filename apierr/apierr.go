@@ -24,6 +24,7 @@ const (
 	CodeMethodNotAllowed     Code = "METHOD_NOT_ALLOWED"
 	CodeOriginNotAllowed     Code = "ORIGIN_NOT_ALLOWED"
 	CodeEmailNotVerified     Code = "EMAIL_NOT_VERIFIED"
+	CodeNoPasswordCredential Code = "NO_PASSWORD_CREDENTIAL"
 	CodeAccountAlreadyLinked Code = "ACCOUNT_ALREADY_LINKED"
 	CodeAccountNotLinked     Code = "ACCOUNT_NOT_LINKED"
 	CodeLastAuthMethod       Code = "LAST_AUTH_METHOD"
@@ -90,6 +91,7 @@ var (
 	ErrMethodNotAllowed     = New(CodeMethodNotAllowed, http.StatusMethodNotAllowed, "The method is not allowed.")
 	ErrOriginNotAllowed     = New(CodeOriginNotAllowed, http.StatusForbidden, "The request origin is not allowed.")
 	ErrEmailNotVerified     = New(CodeEmailNotVerified, http.StatusForbidden, "The email address is not verified.")
+	ErrNoPasswordCredential = New(CodeNoPasswordCredential, http.StatusBadRequest, "This account has no password.")
 	ErrAccountAlreadyLinked = New(CodeAccountAlreadyLinked, http.StatusConflict, "This provider account is already linked to another user.")
 	ErrAccountNotLinked     = New(CodeAccountNotLinked, http.StatusNotFound, "This provider account is not linked.")
 	ErrLastAuthMethod       = New(CodeLastAuthMethod, http.StatusConflict, "The last remaining authentication method cannot be removed.")

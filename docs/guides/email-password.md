@@ -19,6 +19,7 @@ authall.WithEmailPassword(authall.EmailPasswordOptions{
 | POST | `/api/auth/sign-out` | Revoke the current session. |
 | POST | `/api/auth/password/forgot` | Request a reset message. |
 | POST | `/api/auth/password/reset` | Set a new password. |
+| POST | `/api/auth/password/change` | Change the password of the current user. |
 | POST | `/api/auth/email-verification/send` | Request a verification message. |
 | POST | `/api/auth/email-verification/verify` | Verify an address. |
 
@@ -93,6 +94,31 @@ A reset token, a verification token, and a magic link token are single use.
 Auth-All consumes a token with one atomic statement, so two concurrent
 attempts produce at most one success.
 
+## Password change
+
+`POST /api/auth/password/change` changes the password of the person who is
+signed in. It needs a session and it runs the origin check.
+
+```json
+{
+  "currentPassword": "the password of today",
+  "newPassword": "the password of tomorrow",
+  "revokeOtherSessions": true
+}
+```
+
+- A wrong current password answers `401` with the code `INVALID_CREDENTIALS`.
+  The path performs the same hashing work as a correct password, so the
+  response time discloses nothing.
+- A success replaces the credential and keeps the current session. It revokes
+  every other session, because the account owner can have lost control of one.
+- Send `"revokeOtherSessions": false` to keep the other sessions.
+- The new password must satisfy the password policy.
+- A user with no password credential answers `400` with the code
+  `NO_PASSWORD_CREDENTIAL`. An account that only signs in through a provider
+  reaches this. Such a user sets a first password through the reset flow.
+- The endpoint is rate-limited under the operation `password-change`.
+
 ## Errors
 
 | Code | Meaning |
@@ -102,6 +128,7 @@ attempts produce at most one success.
 | `WEAK_PASSWORD` | The password is outside the policy. |
 | `EMAIL_NOT_VERIFIED` | The address needs verification first. |
 | `INVALID_TOKEN` | The token is unknown, expired, or already used. |
+| `NO_PASSWORD_CREDENTIAL` | The account has no password to change. |
 
 The sign-in response is identical for an unknown address and a wrong password,
 and both paths perform the same hashing work.

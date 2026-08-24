@@ -119,6 +119,8 @@ func (a *Auth) registerCoreRoutes() {
 			})),
 			"The address is verified", openapi.Ref("SuccessResponse"),
 			&openapi.ClientBinding{Namespace: "emailVerification", Method: "verify"}, "400"))
+
+		a.registerAccountRoutes()
 	}
 
 	if len(a.providers) > 0 {

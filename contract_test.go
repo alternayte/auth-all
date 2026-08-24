@@ -25,6 +25,7 @@ var v1Endpoints = []struct{ Method, Path string }{
 	{"POST", "/api/auth/sessions/revoke-all"},
 	{"POST", "/api/auth/password/forgot"},
 	{"POST", "/api/auth/password/reset"},
+	{"POST", "/api/auth/password/change"},
 	{"POST", "/api/auth/email-verification/send"},
 	{"POST", "/api/auth/email-verification/verify"},
 	{"GET", "/api/auth/oauth/{provider}"},
