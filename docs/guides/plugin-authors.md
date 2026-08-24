@@ -93,9 +93,46 @@ keeps a transaction open while it calls an external system, so a call to a
 mail provider or to a queue belongs in an After hook. An error from an After
 hook reaches the logger and does not undo the operation.
 
+## The subject rule
+
+A handler derives the subject of an operation from the session or from a
+consumed one-time token. A handler never derives the subject from the request
+body.
+
+```go
+// Correct. The session names the user.
+sess, user, err := p.svc.Sessions().Current(req.Context(), req)
+if user == nil {
+    p.svc.HTTP().WriteError(w, apierr.ErrUnauthorized)
+    return
+}
+
+// Correct. A consumed one-time token names the user.
+tok, err := p.svc.Tokens().Consume(req.Context(), MyKind, body.Token)
+
+// Wrong. Any caller can write any value here.
+user, err := p.svc.Users().ByID(req.Context(), body.UserID)
+```
+
+CVE-2025-61928 in Better Auth was one missing ownership check of this kind. An
+unauthenticated caller created an API key for any user, because the handler
+read a user id out of the body.
+
+`subject_contract_test.go` enforces the rule. It enumerates every mounted route
+that changes state, posts a body that names a second user, and then proves that
+no row of that second user changed. A new route joins the test on its own.
+
+Two habits keep a handler on the correct side of the rule.
+
+- Decode the body into a struct that carries no identifier of a subject.
+- Keep `DisallowUnknownFields` behavior by decoding through
+  `plugin.HTTPService.DecodeJSON`.
+
 ## Rules
 
 - The plugin id must be unique and stable. It names the plugin in errors.
+- A handler derives the subject from the session or from a consumed one-time
+  token, and never from the request body.
 - A schema table name must be unique in the effective schema.
 - Two operations must not claim the same client binding.
 - Keep the plaintext of a token inside the flow that issued it. Auth-All

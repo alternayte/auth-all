@@ -75,7 +75,7 @@ test-http:
 
 # Run the security regression tests.
 test-security:
-    go test -run 'TestSEC|TestSession|TestCookie|TestUnsafe|TestWildcard|TestInvalid|TestGoogleIdentity|TestEnumeration|TestRedirectTargets|TestLinkState|TestSignInState|TestLinkCompletion|TestOAuthStateCookie' .
+    go test -run 'TestSEC|TestSession|TestSubject|TestCookie|TestUnsafe|TestWildcard|TestInvalid|TestGoogleIdentity|TestEnumeration|TestRedirectTargets|TestLinkState|TestSignInState|TestLinkCompletion|TestOAuthStateCookie' .
     @just _record "security regression tests" "just test-security"
 
 # Run the concurrency tests.
