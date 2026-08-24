@@ -94,6 +94,10 @@ func (t *tokenService) Consume(ctx context.Context, kind, plaintext string) (*st
 	return t.auth.consumeToken(ctx, kind, plaintext)
 }
 
+func (t *tokenService) Peek(ctx context.Context, kind, plaintext string) (*store.Token, error) {
+	return t.auth.peekToken(ctx, kind, plaintext)
+}
+
 type httpService services
 
 func (h *httpService) CheckOrigin(r *http.Request) error { return h.auth.checkOrigin(r) }

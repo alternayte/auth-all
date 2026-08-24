@@ -228,7 +228,7 @@ func TestUnsafeRedirectIsIgnored(t *testing.T) {
 	if strings.Contains(msg.URL, "evil.example.com") {
 		t.Fatalf("an untrusted callback survived: %s", msg.URL)
 	}
-	resp := h.DoURL(http.MethodGet, msg.URL+"&callbackURL=https%3A%2F%2Fevil.example.com", nil)
+	resp := followMagicLink(t, h, msg.URL+"&callbackURL=https%3A%2F%2Fevil.example.com")
 	if strings.Contains(resp.Location(), "evil.example.com") {
 		t.Fatalf("the redirect target is untrusted: %s", resp.Location())
 	}
@@ -359,7 +359,7 @@ func TestRedirectTargetsAreRestricted(t *testing.T) {
 		if strings.Contains(msg.URL, "evil.example.com") {
 			t.Fatalf("the emailed link carries the untrusted target %q: %s", target, msg.URL)
 		}
-		verify := f.h.DoURL(http.MethodGet, msg.URL+"&callbackURL="+url.QueryEscape(target), nil)
+		verify := followMagicLink(t, f.h, msg.URL+"&callbackURL="+url.QueryEscape(target))
 		if location := verify.Location(); strings.Contains(location, "evil.example.com") || strings.Contains(location, "javascript:") {
 			t.Fatalf("the magic link redirects to the untrusted target %q: %s", target, location)
 		}
@@ -372,7 +372,7 @@ func TestRedirectTargetsAreRestricted(t *testing.T) {
 		"email": "relative@example.com", "callbackURL": "/dashboard?tab=1",
 	})
 	msg := f.h.Mail.Last(t, email.IntentMagicLink)
-	verify := f.h.DoURL(http.MethodGet, msg.URL, nil)
+	verify := followMagicLink(t, f.h, msg.URL)
 	if verify.Location() != "/dashboard?tab=1" {
 		t.Fatalf("a relative target was discarded: %q", verify.Location())
 	}
@@ -669,5 +669,92 @@ func TestSEC013ForwardedHeaderIsUsedBehindATrustedProxy(t *testing.T) {
 				t.Fatalf("the header %q produced %q, want %q", tc.forwarded, got, tc.want)
 			}
 		})
+	}
+}
+
+// TestSEC014MagicLinkGetCreatesNoSession proves that the confirmation page
+// creates no session and consumes no token.
+//
+// A GET that signs a person in accepts a login cross-site request forgery. An
+// attacker asks for a link for their own address, and then makes the browser
+// of the victim open that link. A mail scanner that pre-fetches the link also
+// consumes the one-time token, so the person can no longer sign in.
+func TestSEC014MagicLinkGetCreatesNoSession(t *testing.T) {
+	h := magicLinkHarness(t)
+	sendMagicLink(t, h, "confirm@example.com")
+	msg := h.Mail.Last(t, email.IntentMagicLink)
+
+	page := h.DoURL(http.MethodGet, msg.URL, nil)
+	if page.Status != http.StatusOK {
+		t.Fatalf("the confirmation page returned %d: %s", page.Status, string(page.Body))
+	}
+	if got := page.Header.Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
+		t.Fatalf("the confirmation page is not HTML: %q", got)
+	}
+	for _, c := range page.Cookies {
+		if c.Name == authall.DefaultCookieName && c.Value != "" {
+			t.Fatalf("the confirmation page set a session cookie")
+		}
+	}
+	if session := h.GetSession(); session.Session != nil {
+		t.Fatalf("the confirmation page created a session")
+	}
+
+	// The page carries the required headers.
+	if got := page.Header.Get("Referrer-Policy"); got != "no-referrer" {
+		t.Fatalf("unexpected referrer policy %q", got)
+	}
+	if got := page.Header.Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("unexpected cache control %q", got)
+	}
+	if got := page.Header.Get("Pragma"); got != "no-cache" {
+		t.Fatalf("unexpected pragma %q", got)
+	}
+
+	// The page needs no third-party asset and no script.
+	body := string(page.Body)
+	if strings.Contains(body, "<script") || strings.Contains(body, "http://") || strings.Contains(body, "https://") {
+		t.Fatalf("the confirmation page carries a script or an absolute URL: %s", body)
+	}
+	if !strings.Contains(body, `method="post"`) || !strings.Contains(body, "</form>") {
+		t.Fatalf("the confirmation page carries no form: %s", body)
+	}
+
+	// A repeated GET does not consume the token, so the link still works.
+	if again := h.DoURL(http.MethodGet, msg.URL, nil); again.Status != http.StatusOK {
+		t.Fatalf("a repeated page load consumed the token: %d %s", again.Status, string(again.Body))
+	}
+	if done := followMagicLink(t, h, msg.URL); done.Status != http.StatusSeeOther {
+		t.Fatalf("the link no longer works: %d %s", done.Status, string(done.Body))
+	}
+	if session := h.GetSession(); session.User == nil {
+		t.Fatalf("the confirmed link created no session")
+	}
+}
+
+// TestSEC015MagicLinkPostRejectsAnUntrustedOrigin proves that the confirmation
+// step runs the origin check.
+func TestSEC015MagicLinkPostRejectsAnUntrustedOrigin(t *testing.T) {
+	h := magicLinkHarness(t)
+	sendMagicLink(t, h, "forgery@example.com")
+	msg := h.Mail.Last(t, email.IntentMagicLink)
+	token := testsupport.TokenFromURL(t, msg.URL)
+
+	forged := h.Do(http.MethodPost, "/magic-link/verify", map[string]string{"token": token},
+		testsupport.WithHeader("Origin", "https://evil.example.com"))
+	if forged.Status != http.StatusForbidden {
+		t.Fatalf("an untrusted origin completed the sign-in: %d %s", forged.Status, string(forged.Body))
+	}
+	if code := forged.ErrorCode(t); code != "ORIGIN_NOT_ALLOWED" {
+		t.Fatalf("unexpected code %q", code)
+	}
+	if session := h.GetSession(); session.Session != nil {
+		t.Fatalf("an untrusted origin created a session")
+	}
+
+	// The rejected attempt consumed no token, so the true owner can still sign
+	// in.
+	if done := followMagicLink(t, h, msg.URL); done.Status != http.StatusSeeOther {
+		t.Fatalf("the rejected attempt consumed the token: %d %s", done.Status, string(done.Body))
 	}
 }

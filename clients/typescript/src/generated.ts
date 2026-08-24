@@ -18,6 +18,10 @@ export interface LinkResponse {
   url: string
 }
 
+export interface MagicLinkVerifyResponse {
+  redirectTo: string
+}
+
 export interface MessageResponse {
   message: string
 }
@@ -69,6 +73,11 @@ export interface EmailVerificationVerifyBody {
 export interface MagicLinkSendBody {
   callbackURL?: string
   email: string
+}
+
+export interface MagicLinkVerifyBody {
+  callbackURL?: string
+  token: string
 }
 
 export interface PasswordForgotBody {
@@ -214,7 +223,7 @@ export class AuthAllClient {
     /** Send a sign-in link to an email address. */
     send: (body: MagicLinkSendBody): Promise<MessageResponse> => this.http.request("POST", `/api/auth/magic-link/send`, body, undefined),
     /** Complete a sign-in with a link token. */
-    verify: (query: { callbackURL?: string; token?: string } = {}): string => this.http.url(`/api/auth/magic-link/verify`, query),
+    verify: (body: MagicLinkVerifyBody): Promise<MagicLinkVerifyResponse> => this.http.request("POST", `/api/auth/magic-link/verify`, body, undefined),
   }
 
   readonly oauth = {

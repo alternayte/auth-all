@@ -49,6 +49,25 @@ func (a *Auth) issueToken(ctx context.Context, in plugin.IssueTokenInput) (strin
 	return plaintext, tok, nil
 }
 
+// peekToken reads a one-time token and consumes nothing. A missing, expired,
+// or consumed token produces apierr.ErrInvalidToken.
+func (a *Auth) peekToken(ctx context.Context, kind, plaintext string) (*store.Token, error) {
+	if plaintext == "" {
+		return nil, apierr.ErrInvalidToken
+	}
+	tok, err := a.cfg.store.Tokens().Get(ctx, kind, crypto.HashToken(plaintext))
+	if err != nil {
+		if isNotFound(err) {
+			return nil, apierr.ErrInvalidToken
+		}
+		return nil, apierr.ErrInternal.WithCause(err)
+	}
+	if tok.ConsumedAt != nil || !a.cfg.now().Before(tok.ExpiresAt) {
+		return nil, apierr.ErrInvalidToken
+	}
+	return tok, nil
+}
+
 // consumeToken atomically consumes a one-time token. A replay, an expired
 // token, and a malformed token all produce apierr.ErrInvalidToken.
 func (a *Auth) consumeToken(ctx context.Context, kind, plaintext string) (*store.Token, error) {

@@ -349,8 +349,9 @@
     },
     "/api/auth/magic-link/verify": {
       "get": {
-        "operationId": "magicLinkVerify",
-        "summary": "Complete a sign-in with a link token",
+        "operationId": "magicLinkConfirmation",
+        "summary": "Return the confirmation page of a sign-in link",
+        "description": "The page carries a form that posts to the same path. The endpoint creates no session and consumes no token.",
         "tags": [
           "magic-link"
         ],
@@ -372,10 +373,74 @@
           }
         ],
         "responses": {
-          "302": {
+          "200": {
+            "description": "The confirmation page"
+          },
+          "400": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "magicLinkVerify",
+        "summary": "Complete a sign-in with a link token",
+        "description": "A JSON request receives the redirect target in the body. A form submission receives a 303 redirect, which is what the confirmation page needs.",
+        "tags": [
+          "magic-link"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "callbackURL": {
+                    "type": "string"
+                  },
+                  "token": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "token"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The sign-in is complete",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagicLinkVerifyResponse"
+                }
+              }
+            }
+          },
+          "303": {
             "description": "A redirect back to the application"
           },
           "400": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "Auth-All error",
             "content": {
               "application/json": {
@@ -388,8 +453,7 @@
         },
         "x-authall-client": {
           "namespace": "magicLink",
-          "method": "verify",
-          "redirect": true
+          "method": "verify"
         }
       }
     },
@@ -918,6 +982,17 @@
         },
         "required": [
           "url"
+        ]
+      },
+      "MagicLinkVerifyResponse": {
+        "type": "object",
+        "properties": {
+          "redirectTo": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "redirectTo"
         ]
       },
       "MessageResponse": {

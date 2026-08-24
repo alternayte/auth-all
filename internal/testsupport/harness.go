@@ -9,6 +9,7 @@ import (
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 
@@ -229,6 +230,35 @@ func (h *Harness) DoURL(method, target string, body any, opts ...RequestOption) 
 	resp, err := h.Client.Do(req)
 	if err != nil {
 		h.T.Fatalf("request %s %s: %v", method, target, err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		h.T.Fatalf("read body: %v", err)
+	}
+	return &Response{Status: resp.StatusCode, Header: resp.Header.Clone(), Body: raw, Cookies: resp.Cookies()}
+}
+
+// DoForm sends a form submission to an Auth-All path. The confirmation page of
+// the Magic Link plugin submits a plain HTML form, so a test can reproduce it.
+func (h *Harness) DoForm(target string, fields map[string]string, opts ...RequestOption) *Response {
+	h.T.Helper()
+	values := url.Values{}
+	for name, value := range fields {
+		values.Set(name, value)
+	}
+	req, err := http.NewRequest(http.MethodPost, target, strings.NewReader(values.Encode()))
+	if err != nil {
+		h.T.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Origin", h.BaseURL)
+	for _, o := range opts {
+		o(req)
+	}
+	resp, err := h.Client.Do(req)
+	if err != nil {
+		h.T.Fatalf("request POST %s: %v", target, err)
 	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(resp.Body)

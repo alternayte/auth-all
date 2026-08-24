@@ -152,7 +152,7 @@ func TestPostgresHTTPFlows(t *testing.T) {
 	h.ClearCookies()
 	h.Do(http.MethodPost, "/magic-link/send", map[string]string{"email": "pg@example.com"})
 	link := h.Mail.Last(t, "magic-link")
-	if v := h.DoURL(http.MethodGet, link.URL, nil); v.Status != http.StatusFound {
+	if v := followMagicLink(t, h, link.URL); v.Status != http.StatusSeeOther {
 		t.Fatalf("the magic link failed: %s", string(v.Body))
 	}
 	if session := h.GetSession(); session.User == nil {

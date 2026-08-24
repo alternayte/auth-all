@@ -194,6 +194,12 @@ type TokenService interface {
 	// Consume atomically consumes a token. Two concurrent calls for the same
 	// token produce at most one success.
 	Consume(ctx context.Context, kind, plaintext string) (*store.Token, error)
+	// Peek returns a token and consumes nothing. It reports an invalid token
+	// for a value that is missing, expired, or already consumed.
+	//
+	// A confirmation page calls Peek, so a repeated page load and a mail
+	// scanner that pre-fetches a link do not destroy the token.
+	Peek(ctx context.Context, kind, plaintext string) (*store.Token, error)
 }
 
 // HTTPService exposes the request helpers of Auth-All.

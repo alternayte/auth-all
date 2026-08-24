@@ -3,6 +3,7 @@ package authall_test
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -57,8 +58,8 @@ func TestAUTH012MagicLinkAuthentication(t *testing.T) {
 
 	sendMagicLink(t, h, "mlink@example.com")
 	msg := h.Mail.Last(t, email.IntentMagicLink)
-	resp := h.DoURL(http.MethodGet, msg.URL, nil)
-	if resp.Status != http.StatusFound {
+	resp := followMagicLink(t, h, msg.URL)
+	if resp.Status != http.StatusSeeOther {
 		t.Fatalf("expected a redirect, got %d: %s", resp.Status, string(resp.Body))
 	}
 	session := h.GetSession()
@@ -75,7 +76,7 @@ func TestMagicLinkCreatesAnAccount(t *testing.T) {
 	h := magicLinkHarness(t)
 	sendMagicLink(t, h, "brandnew@example.com")
 	msg := h.Mail.Last(t, email.IntentMagicLink)
-	if resp := h.DoURL(http.MethodGet, msg.URL, nil); resp.Status != http.StatusFound {
+	if resp := followMagicLink(t, h, msg.URL); resp.Status != http.StatusSeeOther {
 		t.Fatalf("the link failed: %s", string(resp.Body))
 	}
 	user, err := h.Auth.GetUserByEmail(context.Background(), "brandnew@example.com")
@@ -117,8 +118,8 @@ func TestAUTH013MagicLinkReplay(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			// Each attempt uses a client without shared cookies.
-			resp := h.DoURL(http.MethodGet, msg.URL, nil, testsupport.WithoutOrigin())
-			if resp.Status == http.StatusFound {
+			resp := followMagicLink(t, h, msg.URL, testsupport.WithoutOrigin())
+			if resp.Status == http.StatusSeeOther {
 				mu.Lock()
 				success++
 				mu.Unlock()
@@ -140,7 +141,7 @@ func TestMagicLinkExpiry(t *testing.T) {
 	sendMagicLink(t, h, "expiring@example.com")
 	msg := h.Mail.Last(t, email.IntentMagicLink)
 	clock.Advance(11 * time.Minute)
-	resp := h.DoURL(http.MethodGet, msg.URL, nil)
+	resp := followMagicLink(t, h, msg.URL)
 	if code := resp.ErrorCode(t); code != "INVALID_TOKEN" {
 		t.Fatalf("an expired link was accepted: %q", code)
 	}
@@ -156,9 +157,70 @@ func TestMagicLinkRejectsAMalformedToken(t *testing.T) {
 }
 
 // followMagicLink completes an emailed sign-in link and returns the final
-// response. The flow can need more than one request, so every test goes
-// through this helper.
+// response.
+//
+// The flow needs two requests. The GET returns a confirmation page and creates
+// no session. The POST completes the sign-in. The helper reads the hidden
+// fields of the page from the query string of the link, which is what the page
+// carries.
 func followMagicLink(t *testing.T, h *testsupport.Harness, link string, opts ...testsupport.RequestOption) *testsupport.Response {
 	t.Helper()
-	return h.DoURL(http.MethodGet, link, nil, opts...)
+	page := h.DoURL(http.MethodGet, link, nil, opts...)
+	if page.Status != http.StatusOK {
+		return page
+	}
+	u, err := url.Parse(link)
+	if err != nil {
+		t.Fatalf("parse the link %q: %v", link, err)
+	}
+	fields := map[string]string{
+		"token":       u.Query().Get("token"),
+		"callbackURL": u.Query().Get("callbackURL"),
+	}
+	return h.DoForm(u.Scheme+"://"+u.Host+u.Path, fields, opts...)
+}
+
+// TestMagicLinkVerifyAnswersJSON checks the confirmation step for a client
+// that is not a browser. It receives the redirect target in the body.
+func TestMagicLinkVerifyAnswersJSON(t *testing.T) {
+	h := magicLinkHarness(t)
+	sendMagicLink(t, h, "jsonclient@example.com")
+	msg := h.Mail.Last(t, email.IntentMagicLink)
+
+	resp := h.Do(http.MethodPost, "/magic-link/verify",
+		map[string]string{"token": testsupport.TokenFromURL(t, msg.URL)})
+	if resp.Status != http.StatusOK {
+		t.Fatalf("status %d: %s", resp.Status, string(resp.Body))
+	}
+	var body struct {
+		RedirectTo string `json:"redirectTo"`
+	}
+	resp.Decode(t, &body)
+	if body.RedirectTo == "" {
+		t.Fatalf("the response carries no redirect target: %s", string(resp.Body))
+	}
+	if session := h.GetSession(); session.User == nil {
+		t.Fatalf("the confirmation created no session")
+	}
+}
+
+// TestMagicLinkWithoutConfirmation checks the opt-out. The GET completes the
+// sign-in on its own.
+func TestMagicLinkWithoutConfirmation(t *testing.T) {
+	h := testsupport.NewHarness(t,
+		authall.WithPlugins(magiclink.New(magiclink.WithoutConfirmation())))
+	sendMagicLink(t, h, "noconfirm@example.com")
+	msg := h.Mail.Last(t, email.IntentMagicLink)
+
+	resp := h.DoURL(http.MethodGet, msg.URL, nil)
+	if resp.Status != http.StatusSeeOther {
+		t.Fatalf("expected a redirect, got %d: %s", resp.Status, string(resp.Body))
+	}
+	if session := h.GetSession(); session.User == nil {
+		t.Fatalf("the link created no session")
+	}
+	// The headers stay in place on the opt-out route.
+	if got := resp.Header.Get("Referrer-Policy"); got != "no-referrer" {
+		t.Fatalf("unexpected referrer policy %q", got)
+	}
 }

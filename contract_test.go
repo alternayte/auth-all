@@ -31,6 +31,7 @@ var v1Endpoints = []struct{ Method, Path string }{
 	{"POST", "/api/auth/account/unlink/{provider}"},
 	{"POST", "/api/auth/magic-link/send"},
 	{"GET", "/api/auth/magic-link/verify"},
+	{"POST", "/api/auth/magic-link/verify"},
 }
 
 // TestAPI001OpenAPICompleteness covers API-001.
