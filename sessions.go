@@ -15,9 +15,13 @@ import (
 	"github.com/alternayte/auth-all/store"
 )
 
-func (a *Auth) cookieSecure() bool {
-	if a.cfg.cookie.Secure != nil {
-		return *a.cfg.cookie.Secure
+func (a *Auth) cookieSecure() bool { return cookieSecure(a.cfg) }
+
+// cookieSecure reports the effective Secure attribute of the session cookie.
+// It defaults to true.
+func cookieSecure(cfg *config) bool {
+	if cfg.cookie.Secure != nil {
+		return *cfg.cookie.Secure
 	}
 	return true
 }

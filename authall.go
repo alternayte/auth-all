@@ -199,6 +199,14 @@ func normalizeConfig(cfg *config) error {
 	if cfg.cookie.SameSite == 0 {
 		cfg.cookie.SameSite = http.SameSiteLaxMode
 	}
+	if cfg.cookie.SameSite == http.SameSiteNoneMode && !cookieSecure(cfg) {
+		// A browser refuses a cookie with SameSite=None and no Secure
+		// attribute, so the session would never reach the server.
+		return fmt.Errorf("authall: a cookie with SameSite=None must be Secure. " +
+			"A browser refuses the pair, so no session survives. " +
+			"Serve the application over HTTPS and remove the Secure override, " +
+			"or use http.SameSiteLaxMode for local development")
+	}
 	if cfg.session.TTL <= 0 {
 		cfg.session.TTL = DefaultSessionTTL
 	}

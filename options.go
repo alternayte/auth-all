@@ -209,6 +209,17 @@ func WithPlugins(plugins ...plugin.Plugin) Option {
 // WithCookie configures the session cookie.
 func WithCookie(o CookieOptions) Option { return func(c *config) { c.cookie = o } }
 
+// WithCookieSameSite sets the SameSite attribute of the session cookie.
+//
+// Use http.SameSiteLaxMode when the application and the API share a
+// registrable domain, for example app.example.com and api.example.com. Use
+// http.SameSiteNoneMode only for a true cross-site setup. A browser refuses a
+// cookie with SameSite=None and no Secure attribute, so that pair fails the
+// construction. See docs/guides/deployment.md.
+func WithCookieSameSite(mode http.SameSite) Option {
+	return func(c *config) { c.cookie.SameSite = mode }
+}
+
 // WithSession configures session lifetime.
 func WithSession(o SessionOptions) Option { return func(c *config) { c.session = o } }
 

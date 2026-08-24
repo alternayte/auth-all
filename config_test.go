@@ -52,6 +52,17 @@ func TestConfigurationValidation(t *testing.T) {
 			authall.WithStore(s),
 			authall.WithSessionLifetime(48*time.Hour, 24*time.Hour),
 		}, "idle timeout"},
+		{"same-site none without secure", []authall.Option{
+			authall.WithStore(s),
+			authall.WithCookie(authall.CookieOptions{
+				SameSite: http.SameSiteNoneMode, Secure: boolPtr(false),
+			}),
+		}, "SameSite=None"},
+		{"same-site none without secure through the short option", []authall.Option{
+			authall.WithStore(s),
+			authall.WithCookie(authall.CookieOptions{Secure: boolPtr(false)}),
+			authall.WithCookieSameSite(http.SameSiteNoneMode),
+		}, "SameSite=None"},
 		{"impossible password policy", []authall.Option{
 			authall.WithStore(s),
 			authall.WithPasswordPolicy(authall.PasswordPolicy{MinLength: 12, MaxLength: 4}),
@@ -261,5 +272,31 @@ func TestConfigStrictRateLimiting(t *testing.T) {
 		authall.WithRateLimiter(ratelimit.NewMemory(10, time.Minute)),
 	); err != nil {
 		t.Fatalf("the strict option rejected a configured limiter: %v", err)
+	}
+}
+
+// TestConfigCookieSameSite checks the short option and the accepted pairs.
+func TestConfigCookieSameSite(t *testing.T) {
+	s := testsupport.NewSQLite(t)
+	// SameSite=None with a Secure cookie is the true cross-site setup.
+	auth, err := authall.New(
+		authall.WithStore(s),
+		authall.WithEmailPassword(),
+		authall.WithCookieSameSite(http.SameSiteNoneMode),
+	)
+	if err != nil {
+		t.Fatalf("a secure cross-site cookie was rejected: %v", err)
+	}
+	if auth == nil {
+		t.Fatalf("no instance was built")
+	}
+	// Lax over plain HTTP stays valid for local development.
+	if _, err := authall.New(
+		authall.WithStore(s),
+		authall.WithEmailPassword(),
+		authall.WithCookie(authall.CookieOptions{Secure: boolPtr(false)}),
+		authall.WithCookieSameSite(http.SameSiteLaxMode),
+	); err != nil {
+		t.Fatalf("local development over HTTP was rejected: %v", err)
 	}
 }

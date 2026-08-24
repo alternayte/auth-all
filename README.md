@@ -77,6 +77,7 @@ go run github.com/alternayte/auth-all/cmd/auth-all migrate \
 | [Migrations and the CLI](docs/guides/migrations-cli.md) | Schema operations. |
 | [Plugin authors](docs/guides/plugin-authors.md) | The public extension surface. |
 | [TypeScript client](docs/guides/typescript-client.md) | The generated client. |
+| [Deployment](docs/guides/deployment.md) | Cookies, origins, proxies, and a troubleshooting table. |
 | [Security model](docs/guides/security-model.md) | Threat assumptions and defenses. |
 
 Two official examples show a complete integration:
