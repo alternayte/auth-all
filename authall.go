@@ -460,7 +460,7 @@ func (a *Auth) VerifyEmailToken(ctx context.Context, token string) (*store.User,
 	// The proof revokes every session of the user, because a session can
 	// predate the proof. It keeps the password credential, because this flow
 	// cannot tell the account owner apart from the victim of a pre-account
-	// hijack. See docs/decisions.md.
+	// hijack. See docs/guides/security-model.md.
 	if err := a.proveEmailOwnership(ctx, *tok.UserID, true); err != nil {
 		return nil, err
 	}

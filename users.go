@@ -84,7 +84,8 @@ func (a *Auth) createUser(ctx context.Context, in CreateUserInput, passwordHash 
 //
 // keepCredential suppresses the deletion of the password credential. The email
 // verification flow sets it, because that flow cannot tell the account owner
-// apart from the victim of a pre-account hijack. See docs/decisions.md.
+// apart from the victim of a pre-account hijack. See
+// docs/guides/security-model.md.
 func (a *Auth) proveEmailOwnership(ctx context.Context, userID string, keepCredential bool) error {
 	user, err := a.cfg.store.Users().GetByID(ctx, userID)
 	if err != nil {
