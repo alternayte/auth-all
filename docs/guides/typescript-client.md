@@ -3,6 +3,15 @@
 The official client is generated from the effective Auth-All OpenAPI contract.
 An enabled plugin operation appears in the client automatically.
 
+## Install
+
+```bash
+npm install @auth-all/client
+```
+
+The client version follows the version of the Go library. Install the client
+version that matches the library version of the server.
+
 ## Use
 
 ```ts

@@ -32,16 +32,22 @@ Usage:
   auth-all migrate --driver <postgres|sqlite> --sql
   auth-all openapi [--out <file>]
   auth-all client [--out <file>]
+  auth-all version
 
 Commands:
   schema    Print the effective Auth-All schema.
   migrate   Apply the schema, plan it, or emit the SQL.
   openapi   Emit the OpenAPI contract of the complete v1 API.
   client    Emit the generated TypeScript client.
+  version   Print the version of the tool.
 
 An application with its own plugins calls the equivalent Go API instead:
 auth.Migrate, auth.MigrationPlan, auth.MigrationSQL, and auth.OpenAPI.
 `
+
+// version holds the released version. The release build sets it with the
+// linker. A build from the source keeps the development value.
+var version = "dev"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -64,6 +70,9 @@ func run(args []string) error {
 		return runOpenAPI(args[1:])
 	case "client":
 		return runClient(args[1:])
+	case "version", "-v", "--version":
+		fmt.Println(version)
+		return nil
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil

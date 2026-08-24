@@ -109,12 +109,15 @@ generate-check: generate
     just _record "OpenAPI freshness" "go run ./cmd/auth-all openapi --out api/openapi.json"
     just _record "TypeScript client freshness" "go run ./cmd/auth-all client --out clients/typescript/src/generated.ts"
 
-# Install the Node dependencies, typecheck, and test the TypeScript client.
+# Install the Node dependencies, typecheck, test, and build the TypeScript
+# client. The build proves that the published package compiles.
 ts-verify:
     npm ci
     npm run typecheck
     npm test
+    npm run build -w clients/typescript
     @just _record "TypeScript client typecheck and tests" "npm run typecheck && npm test"
+    @just _record "TypeScript client package build" "npm run build -w clients/typescript"
 
 # Build the official examples. The binaries go to a temporary directory, so
 # the build never writes into the working tree.

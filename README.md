@@ -17,6 +17,20 @@ HTTP server, and its user interface.
 go get github.com/alternayte/auth-all
 ```
 
+The TypeScript client is a separate npm package:
+
+```bash
+npm install @auth-all/client
+```
+
+The operator tool is available as a prebuilt binary on the
+[releases page](https://github.com/alternayte/auth-all/releases). A Go user can
+also install it directly:
+
+```bash
+go install github.com/alternayte/auth-all/cmd/auth-all@latest
+```
+
 ## Use
 
 ```go
