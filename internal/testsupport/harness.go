@@ -82,6 +82,16 @@ type Harness struct {
 	Client  *http.Client
 	Mail    *MailBox
 	Store   store.Store
+
+	// mux serves the Auth-All routes and any application route that a test
+	// adds through Handle.
+	mux *http.ServeMux
+}
+
+// Handle mounts one application route beside the Auth-All routes. A test uses
+// it to put a handler behind the Auth-All middleware.
+func (h *Harness) Handle(pattern string, handler http.Handler) {
+	h.mux.Handle(pattern, handler)
 }
 
 // NewHarness builds an Auth-All instance over SQLite behind a test server. The
@@ -143,7 +153,7 @@ func newHarness(t *testing.T, s store.Store, opts ...authall.Option) *Harness {
 			return http.ErrUseLastResponse
 		},
 	}
-	return &Harness{T: t, Auth: auth, Server: srv, BaseURL: srv.URL, Client: client, Mail: mail, Store: s}
+	return &Harness{T: t, Auth: auth, Server: srv, BaseURL: srv.URL, Client: client, Mail: mail, Store: s, mux: mux}
 }
 
 // URL returns the absolute URL of an Auth-All path.
