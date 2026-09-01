@@ -6,6 +6,9 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
 postgres_dsn := env_var_or_default("AUTHALL_POSTGRES_DSN", "postgres://authall:authall@127.0.0.1:55432/authall?sslmode=disable")
+# Verification makes the PostgreSQL run mandatory. A missing database fails the
+# check here, and skips outside of verification.
+pg := "AUTHALL_REQUIRE_POSTGRES=1 AUTHALL_POSTGRES_DSN=\"" + postgres_dsn + "\""
 compose := "docker compose -p authall-test -f docker-compose.test.yml"
 checks := "artifacts/checks.tsv"
 
@@ -55,12 +58,12 @@ db-down:
 
 # Run the unit tests of the library packages.
 test-unit:
-    go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./internal/crypto/... ./internal/clientgen/...
-    @just _record "unit tests" "go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./internal/crypto/... ./internal/clientgen/..."
+    go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/...
+    @just _record "unit tests" "go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/..."
 
 # Run the storage contract suite against PostgreSQL.
 test-postgres:
-    AUTHALL_POSTGRES_DSN="{{postgres_dsn}}" go test ./store/postgres/...
+    {{pg}} go test ./store/postgres/...
     @just _record "PostgreSQL storage contract" "go test ./store/postgres/..."
 
 # Run the storage contract suite against SQLite.
@@ -70,7 +73,7 @@ test-sqlite:
 
 # Run the HTTP integration and acceptance tests.
 test-http:
-    AUTHALL_POSTGRES_DSN="{{postgres_dsn}}" go test -run 'TestAUTH|TestPLUG|TestAPI|TestMIG|TestPostgres|TestMagicLink|TestOAuth|TestAccount|TestUnlink|TestUnknown|TestProvider|TestVerified|TestAutoLink|TestGeneration|TestDuplicate|TestConfig|TestPassword|TestStable|TestPlugin' .
+    {{pg}} go test -run 'TestAUTH|TestPLUG|TestAPI|TestMIG|TestPostgres|TestMagicLink|TestOAuth|TestAccount|TestUnlink|TestUnknown|TestProvider|TestVerified|TestAutoLink|TestGeneration|TestDuplicate|TestConfig|TestPassword|TestStable|TestPlugin' .
     @just _record "HTTP integration tests" "just test-http"
 
 # Run the security regression tests.
@@ -80,13 +83,13 @@ test-security:
 
 # Run the concurrency tests.
 test-concurrency:
-    AUTHALL_POSTGRES_DSN="{{postgres_dsn}}" go test -race -run 'TestC00|TestAUTH013|TestConcurrentUnlink' -count 1 .
-    AUTHALL_POSTGRES_DSN="{{postgres_dsn}}" go test -race -run 'TestStorageContract/Concurrent' -count 1 ./store/...
+    {{pg}} go test -race -run 'TestC00|TestAUTH013|TestConcurrentUnlink' -count 1 .
+    {{pg}} go test -race -run 'TestStorageContract/Concurrent' -count 1 ./store/...
     @just _record "concurrency tests" "just test-concurrency"
 
 # Run the complete suite under the race detector.
 test-race:
-    AUTHALL_POSTGRES_DSN="{{postgres_dsn}}" go test -race ./...
+    {{pg}} go test -race ./...
     @just _record "race detector" "go test -race ./..."
 
 # Regenerate the OpenAPI contract and the TypeScript client.
@@ -127,7 +130,7 @@ examples-build:
 
 # Write the v1 verification evidence.
 evidence:
-    AUTHALL_POSTGRES_DSN="{{postgres_dsn}}" go run ./tools/evidence --checks {{checks}} --out artifacts/v1-verification.md
+    {{pg}} go run ./tools/evidence --checks {{checks}} --out artifacts/v1-verification.md
     @echo "Evidence written to artifacts/v1-verification.md"
 
 # Remove the recorded check results.

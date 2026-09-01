@@ -22,6 +22,12 @@ import (
 // PostgreSQL instance. The verification command sets it.
 const PostgresDSNEnv = "AUTHALL_POSTGRES_DSN"
 
+// PostgresRequiredEnv names the environment variable that makes the PostgreSQL
+// run mandatory. The verification command sets it to "1", so a missing DSN
+// fails the suite there. A plain "go test ./..." leaves it empty, so the
+// PostgreSQL tests skip instead of fail.
+const PostgresRequiredEnv = "AUTHALL_REQUIRE_POSTGRES"
+
 // NewSQLite returns a migrated SQLite store backed by a temporary file.
 func NewSQLite(t *testing.T) store.Store {
 	t.Helper()
@@ -36,15 +42,24 @@ func NewSQLite(t *testing.T) store.Store {
 	return s
 }
 
-// PostgresDSN returns the configured PostgreSQL DSN. It fails the test when the
-// variable is missing, because the PostgreSQL contract run is required.
+// PostgresDSN returns the configured PostgreSQL DSN.
+//
+// A missing DSN skips the test, so a first "go test ./..." on a new checkout
+// reports no failure. A missing DSN fails the test when PostgresRequiredEnv is
+// set, because the PostgreSQL contract run is required in verification.
 func PostgresDSN(t *testing.T) string {
 	t.Helper()
 	dsn := os.Getenv(PostgresDSNEnv)
-	if dsn == "" {
-		t.Fatalf("%s is not set. Run the suite through: just verify", PostgresDSNEnv)
+	if dsn != "" {
+		return dsn
 	}
-	return dsn
+	if os.Getenv(PostgresRequiredEnv) != "" {
+		t.Fatalf("%s is set, but %s is not. Run the suite through: just verify",
+			PostgresRequiredEnv, PostgresDSNEnv)
+	}
+	t.Skipf("%s is not set. The PostgreSQL tests need a database. Run: just verify",
+		PostgresDSNEnv)
+	return ""
 }
 
 // NewPostgres returns a migrated PostgreSQL store inside a private schema. The
