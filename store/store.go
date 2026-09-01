@@ -71,6 +71,26 @@ type Token struct {
 	ConsumedAt *time.Time
 }
 
+// TOTP is the time-based one-time password enrolment of one user.
+//
+// Secret holds the base32 shared secret. Auth-All does not encrypt it, because
+// Auth-All holds no application key, and a key that the library invents lives
+// in the same database as the secret. An application that needs encryption at
+// rest applies it at the column or at the volume.
+type TOTP struct {
+	UserID string
+	Secret string
+	// ConfirmedAt is nil until the user proves one code. An unconfirmed
+	// enrolment never authenticates a sign-in.
+	ConfirmedAt *time.Time
+	// LastStep is the last accepted time step. The sign-in gate refuses a step
+	// that is not greater than this value, which stops a replay of one code
+	// inside its own window.
+	LastStep  int64
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
 // OAuthState is one pending OAuth authorization request.
 type OAuthState struct {
 	ID         string
@@ -144,6 +164,26 @@ type TokenStore interface {
 	DeleteExpired(ctx context.Context, before time.Time) (int, error)
 }
 
+// TOTPStore holds the TOTP enrolment of each user.
+type TOTPStore interface {
+	// Get returns the enrolment of one user. It returns ErrNotFound when the
+	// user holds no secret.
+	Get(ctx context.Context, userID string) (*TOTP, error)
+	// Upsert writes the enrolment of one user and replaces any existing row.
+	// A replacement clears the confirmation and the last step, because a new
+	// secret starts a new enrolment.
+	Upsert(ctx context.Context, t *TOTP) error
+	// Confirm marks the enrolment of one user as proven. It returns
+	// ErrNotFound when the user holds no secret.
+	Confirm(ctx context.Context, userID string, at time.Time) error
+	// SetLastStep records the last accepted time step. It returns ErrNotFound
+	// when the user holds no secret.
+	SetLastStep(ctx context.Context, userID string, step int64) error
+	// Delete removes the enrolment of one user. It returns ErrNotFound when
+	// the user holds no secret.
+	Delete(ctx context.Context, userID string) error
+}
+
 // OAuthStateStore holds pending OAuth authorization requests.
 type OAuthStateStore interface {
 	Create(ctx context.Context, s *OAuthState) error
@@ -173,6 +213,7 @@ type Store interface {
 	Sessions() SessionStore
 	Tokens() TokenStore
 	OAuthStates() OAuthStateStore
+	TOTP() TOTPStore
 
 	// Transaction runs fn inside one database transaction. The Store passed to
 	// fn performs every operation inside that transaction.

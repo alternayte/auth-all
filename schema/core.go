@@ -8,6 +8,7 @@ const (
 	TableSessions    = "auth_sessions"
 	TableTokens      = "auth_tokens"
 	TableOAuthStates = "auth_oauth_states"
+	TableTOTP        = "auth_totp"
 )
 
 // Core returns the core Auth-All schema.
@@ -116,6 +117,27 @@ func Core() []Table {
 			},
 			Indexes: []Index{
 				{Name: "auth_oauth_states_state_hash_key", Columns: []string{"state_hash"}, Unique: true},
+			},
+		},
+		{
+			Name: TableTOTP,
+			Columns: []Column{
+				{Name: "user_id", Type: TypeText, PrimaryKey: true},
+				// The secret is base32. It is not encrypted at rest. See the
+				// security guide, which states the reason and the remedy.
+				{Name: "secret", Type: TypeText},
+				// A null confirmation means an enrolment that the user never
+				// completed. Such a row never authenticates.
+				{Name: "confirmed_at", Type: TypeTimestamp, Nullable: true},
+				// last_step holds the last accepted time step, which refuses a
+				// replay of one code inside its own window. The step counter
+				// passes the 32-bit range, so the column is a 64-bit integer.
+				{Name: "last_step", Type: TypeInt},
+				{Name: "created_at", Type: TypeTimestamp},
+				{Name: "updated_at", Type: TypeTimestamp},
+			},
+			ForeignKeys: []ForeignKey{
+				{Column: "user_id", RefTable: TableUsers, RefColumn: "id", OnDelete: "CASCADE"},
 			},
 		},
 	}

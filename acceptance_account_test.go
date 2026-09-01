@@ -397,6 +397,7 @@ func ownedRowCounts(t *testing.T, h *testsupport.Harness, userID string) map[str
 	out := map[string]int{}
 	for _, table := range []string{
 		"auth_users", "auth_sessions", "auth_credentials", "auth_accounts", "auth_tokens",
+		"auth_totp",
 	} {
 		out[table] = countUserRows(t, h, table, userID)
 	}
@@ -420,6 +421,11 @@ func seedOwnedRows(t *testing.T, h *testsupport.Harness, userID string) {
 		CreatedAt: now, ExpiresAt: now.Add(time.Hour),
 	}); err != nil {
 		t.Fatalf("seed a token: %v", err)
+	}
+	if err := h.Store.TOTP().Upsert(ctx, &store.TOTP{
+		UserID: userID, Secret: "JBSWY3DPEHPK3PXP", CreatedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("seed a TOTP secret: %v", err)
 	}
 }
 

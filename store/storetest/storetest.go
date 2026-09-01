@@ -42,6 +42,11 @@ func Run(t *testing.T, newStore Factory) {
 		{"TokenConsumeRejectsReplay", testTokenReplay},
 		{"TokenDeleteByIdentifier", testTokenDeleteByIdentifier},
 		{"OAuthState", testOAuthState},
+		{"TOTP", testTOTP},
+		{"TOTPConfirm", testTOTPConfirm},
+		{"TOTPLastStep", testTOTPLastStep},
+		{"TOTPUpsertReplacesAnUnconfirmedSecret", testTOTPUpsertReplaces},
+		{"TOTPIsRemovedWithTheUser", testTOTPUserDelete},
 		{"TransactionCommit", testTransactionCommit},
 		{"TransactionRollback", testTransactionRollback},
 		{"ConcurrentSignUpSameEmail", testConcurrentSignUp},
@@ -652,5 +657,169 @@ func testConcurrentAccountLink(t *testing.T, s store.Store) {
 	wg.Wait()
 	if success != 1 {
 		t.Fatalf("expected exactly one successful account link, got %d", success)
+	}
+}
+
+// testTOTP covers the create, read, and delete path of the TOTP store.
+func testTOTP(t *testing.T, s store.Store) {
+	c := ctx(t)
+	u := mustCreateUser(t, s, "totp@example.com")
+
+	if _, err := s.TOTP().Get(c, u.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for a user with no secret, got %v", err)
+	}
+
+	rec := &store.TOTP{UserID: u.ID, Secret: "JBSWY3DPEHPK3PXP", CreatedAt: now(), UpdatedAt: now()}
+	if err := s.TOTP().Upsert(c, rec); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	got, err := s.TOTP().Get(c, u.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Secret != rec.Secret {
+		t.Fatalf("the secret is %q", got.Secret)
+	}
+	// A new row is never confirmed. The user must prove one code first.
+	if got.ConfirmedAt != nil {
+		t.Fatalf("a new row is confirmed at %v", got.ConfirmedAt)
+	}
+	if got.LastStep != 0 {
+		t.Fatalf("the last step of a new row is %d", got.LastStep)
+	}
+
+	if err := s.TOTP().Delete(c, u.ID); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	if _, err := s.TOTP().Get(c, u.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound after the delete, got %v", err)
+	}
+	// A delete of a missing row reports ErrNotFound, so a caller learns that
+	// it removed nothing.
+	if err := s.TOTP().Delete(c, u.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for a second delete, got %v", err)
+	}
+}
+
+// testTOTPConfirm covers the step that makes a secret live.
+func testTOTPConfirm(t *testing.T, s store.Store) {
+	c := ctx(t)
+	u := mustCreateUser(t, s, "confirm@example.com")
+
+	if err := s.TOTP().Confirm(c, u.ID, now()); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for a confirm with no row, got %v", err)
+	}
+
+	rec := &store.TOTP{UserID: u.ID, Secret: "JBSWY3DPEHPK3PXP", CreatedAt: now(), UpdatedAt: now()}
+	if err := s.TOTP().Upsert(c, rec); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	at := now()
+	if err := s.TOTP().Confirm(c, u.ID, at); err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+	got, err := s.TOTP().Get(c, u.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.ConfirmedAt == nil {
+		t.Fatal("the row is not confirmed")
+	}
+	if !got.ConfirmedAt.Equal(at) {
+		t.Fatalf("the confirmation time is %v and the expected time is %v", got.ConfirmedAt, at)
+	}
+}
+
+// testTOTPLastStep covers the value that the sign-in gate uses to refuse a
+// replay of one code.
+func testTOTPLastStep(t *testing.T, s store.Store) {
+	c := ctx(t)
+	u := mustCreateUser(t, s, "step@example.com")
+
+	if err := s.TOTP().SetLastStep(c, u.ID, 42); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("expected ErrNotFound for a step with no row, got %v", err)
+	}
+
+	rec := &store.TOTP{UserID: u.ID, Secret: "JBSWY3DPEHPK3PXP", CreatedAt: now(), UpdatedAt: now()}
+	if err := s.TOTP().Upsert(c, rec); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if err := s.TOTP().SetLastStep(c, u.ID, 58351370); err != nil {
+		t.Fatalf("set last step: %v", err)
+	}
+	got, err := s.TOTP().Get(c, u.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	// The step counter passes two thousand million in the year 2038, so the
+	// column must hold a 64-bit value.
+	if got.LastStep != 58351370 {
+		t.Fatalf("the last step is %d", got.LastStep)
+	}
+	if err := s.TOTP().SetLastStep(c, u.ID, 3000000000); err != nil {
+		t.Fatalf("set a large last step: %v", err)
+	}
+	got, err = s.TOTP().Get(c, u.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.LastStep != 3000000000 {
+		t.Fatalf("the large last step is %d", got.LastStep)
+	}
+}
+
+// testTOTPUpsertReplaces covers the restart of an abandoned enrolment. The
+// second secret replaces the first, and the confirmation state resets.
+func testTOTPUpsertReplaces(t *testing.T, s store.Store) {
+	c := ctx(t)
+	u := mustCreateUser(t, s, "replace@example.com")
+
+	first := &store.TOTP{UserID: u.ID, Secret: "AAAAAAAAAAAAAAAA", CreatedAt: now(), UpdatedAt: now()}
+	if err := s.TOTP().Upsert(c, first); err != nil {
+		t.Fatalf("first upsert: %v", err)
+	}
+	if err := s.TOTP().Confirm(c, u.ID, now()); err != nil {
+		t.Fatalf("confirm: %v", err)
+	}
+	if err := s.TOTP().SetLastStep(c, u.ID, 99); err != nil {
+		t.Fatalf("set last step: %v", err)
+	}
+
+	second := &store.TOTP{UserID: u.ID, Secret: "BBBBBBBBBBBBBBBB", CreatedAt: now(), UpdatedAt: now()}
+	if err := s.TOTP().Upsert(c, second); err != nil {
+		t.Fatalf("second upsert: %v", err)
+	}
+	got, err := s.TOTP().Get(c, u.ID)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Secret != second.Secret {
+		t.Fatalf("the secret is %q", got.Secret)
+	}
+	// A new secret starts a new enrolment. A row that keeps the old
+	// confirmation would accept the new secret with no proof.
+	if got.ConfirmedAt != nil {
+		t.Fatalf("the replaced row stayed confirmed at %v", got.ConfirmedAt)
+	}
+	// The step counter of the old secret means nothing for the new one.
+	if got.LastStep != 0 {
+		t.Fatalf("the replaced row kept the last step %d", got.LastStep)
+	}
+}
+
+// testTOTPUserDelete covers the promise of UserStore.Delete. A deleted user
+// leaves no TOTP secret.
+func testTOTPUserDelete(t *testing.T, s store.Store) {
+	c := ctx(t)
+	u := mustCreateUser(t, s, "cascade@example.com")
+	rec := &store.TOTP{UserID: u.ID, Secret: "JBSWY3DPEHPK3PXP", CreatedAt: now(), UpdatedAt: now()}
+	if err := s.TOTP().Upsert(c, rec); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	if err := s.Users().Delete(c, u.ID); err != nil {
+		t.Fatalf("delete user: %v", err)
+	}
+	if _, err := s.TOTP().Get(c, u.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("the secret outlived the user: %v", err)
 	}
 }
