@@ -176,9 +176,16 @@ type TOTPStore interface {
 	// Confirm marks the enrolment of one user as proven. It returns
 	// ErrNotFound when the user holds no secret.
 	Confirm(ctx context.Context, userID string, at time.Time) error
-	// SetLastStep records the last accepted time step. It returns ErrNotFound
-	// when the user holds no secret.
-	SetLastStep(ctx context.Context, userID string, step int64) error
+	// AdvanceStep records step when it is greater than the stored step, and
+	// reports whether the write happened.
+	//
+	// The comparison and the write are one atomic operation. Two concurrent
+	// calls that carry the same step must produce at most one true, because a
+	// read followed by a later write would let an attacker replay one stolen
+	// code across parallel requests.
+	//
+	// It returns ErrNotFound when the user holds no secret.
+	AdvanceStep(ctx context.Context, userID string, step int64) (bool, error)
 	// Delete removes the enrolment of one user. It returns ErrNotFound when
 	// the user holds no secret.
 	Delete(ctx context.Context, userID string) error

@@ -35,6 +35,7 @@ func Options(s store.Store) []authall.Option {
 		authall.WithBaseURL(BaseURL),
 		authall.WithEmailPassword(authall.EmailPasswordOptions{SendVerificationOnSignUp: true}),
 		authall.WithEmailSender(noopSender{}),
+		authall.WithTOTP(),
 		authall.WithProvider(github.New(
 			github.WithClientID("reference-client-id"),
 			github.WithClientSecret("reference-client-secret"),

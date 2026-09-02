@@ -123,6 +123,10 @@ func (a *Auth) registerCoreRoutes() {
 		a.registerAccountRoutes()
 	}
 
+	if a.cfg.totpEnabled {
+		a.registerTOTPRoutes()
+	}
+
 	if len(a.providers) > 0 {
 		a.registerOAuthRoutes()
 	}

@@ -1,0 +1,130 @@
+# Two-factor authentication with TOTP
+
+Auth-All supports the time-based one-time password of RFC 6238. A user reads a
+code from an authenticator application and supplies it at sign-in.
+
+Enable the second factor with one option:
+
+```go
+auth, err := authall.New(
+    authall.WithStore(postgres.New(db)),
+    authall.WithBaseURL("https://app.example.com"),
+    authall.WithEmailPassword(),
+    authall.WithTOTP(),
+)
+```
+
+The option adds three endpoints. It does not change the sign-in of a user who
+holds no second factor.
+
+`WithTOTP` accepts an issuer name. The authenticator application shows it. The
+default is the host of the base URL.
+
+```go
+authall.WithTOTP(authall.TOTPOptions{Issuer: "Example App"})
+```
+
+## Enrolment
+
+Enrolment has two steps. The first step creates a secret. The second step
+proves that the user can read a code from it.
+
+**Step one.** Call `POST /totp/enrol` with a session.
+
+```ts
+const { secret, uri } = await client.totp.enrol({})
+```
+
+`uri` is an `otpauth://` URL. Show it as a QR code. Show `secret` as text for a
+user who cannot scan.
+
+The secret is not live at this point. A user who stops here keeps the sign-in
+that they had before.
+
+**Step two.** Call `POST /totp/confirm` with one code.
+
+```ts
+await client.totp.confirm({ code: "123456" })
+```
+
+The second factor is active from this point.
+
+**The confirmation revokes the other sessions of the user.** A person who turns
+on a second factor often suspects that somebody else holds a session. Tell the
+user that their other devices must sign in again.
+
+A user who abandons step one can call `POST /totp/enrol` a second time. The new
+secret replaces the old one, and the old secret proves nothing.
+
+A user who already holds a confirmed second factor receives
+`TOTP_ALREADY_ENROLLED` from `POST /totp/enrol`. Remove the second factor
+first.
+
+## Remove the second factor
+
+`POST /totp/disable` takes one current code.
+
+```ts
+await client.totp.disable({ code: "123456" })
+```
+
+A code is required. A session alone must not remove the factor that protects
+the session.
+
+## One code authenticates one time
+
+Auth-All records the time step of every accepted code. A code that already
+authenticated is refused for the rest of its window.
+
+This stops a code that an attacker reads from a shoulder or from a phishing
+page. It has one visible effect: a user who confirms an enrolment and then
+disables it inside the same thirty seconds must wait for the next code.
+
+## The error codes
+
+| Code | Status | Meaning |
+| --- | --- | --- |
+| `INVALID_TOTP_CODE` | 400 | The code is wrong, expired, or already used. |
+| `TOTP_NOT_ENROLLED` | 400 | The user holds no secret. |
+| `TOTP_ALREADY_ENROLLED` | 409 | The user holds a confirmed secret. |
+
+`INVALID_TOTP_CODE` names no reason. A wrong code and a replayed code look
+equal, so the response discloses nothing.
+
+## Rate limits
+
+The three endpoints run under the operation `totp`, keyed by user. A six-digit
+code has one million values, and the accepted window offers three of them, so
+an endpoint with no limit is guessable. Configure a limiter.
+
+```go
+authall.WithRateLimiter(myLimiter)
+```
+
+## The secret at rest
+
+Auth-All stores the base32 secret in `auth_totp.secret`. It does not encrypt
+it.
+
+Auth-All holds no application key. A key that the library invents lives in the
+same database as the secret, so it adds no protection. An application that
+needs encryption at rest applies it at the column or at the volume.
+
+An attacker who reads the table can generate codes. Treat `auth_totp` with the
+same care as `auth_credentials`.
+
+## A lost device
+
+Auth-All ships no recovery codes yet. A user who loses their authenticator
+application cannot sign in without help.
+
+Supply a path of your own until recovery codes arrive. The application owns the
+store, so an administrator tool can remove the secret directly:
+
+```go
+// s is the store that the application passed to authall.WithStore.
+err := s.TOTP().Delete(ctx, userID)
+```
+
+Prove the identity of the person before you remove their second factor. Revoke
+their sessions at the same time.

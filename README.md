@@ -4,7 +4,8 @@ Auth-All is an authentication framework that runs inside a Go application.
 
 It provides the capabilities a developer normally assembles from several
 libraries: users, accounts, database-backed sessions, email and password
-authentication, email verification, password reset, magic links, OAuth,
+authentication, email verification, password reset, TOTP two-factor
+authentication, magic links, OAuth,
 account linking, plugins, schema tooling, an OpenAPI contract, and a generated
 TypeScript client.
 
@@ -68,7 +69,7 @@ go run github.com/alternayte/auth-all/cmd/auth-all migrate \
 - `net/http` native and framework agnostic.
 - The application owns the database. PostgreSQL and SQLite are supported.
 - Secure defaults. Opaque session tokens, hashed tokens at rest, Argon2id
-  password hashing, OAuth state validation, PKCE where the provider supports
+  password hashing, replay-proof TOTP codes, OAuth state validation, PKCE where the provider supports
   it, and conservative account linking.
 - Plugins are first class. The official Magic Link plugin uses the same public
   plugin API that a third-party plugin uses.
@@ -81,6 +82,7 @@ go run github.com/alternayte/auth-all/cmd/auth-all migrate \
 | [Getting started](docs/guides/getting-started.md) | The first integration, step by step. |
 | [Email and password](docs/guides/email-password.md) | Sign-up, sign-in, verification, and reset. |
 | [Sessions](docs/guides/sessions.md) | Session storage, cookies, and revocation. |
+| [Two-factor authentication](docs/guides/totp.md) | TOTP enrolment and sign-in. |
 | [Magic Link](docs/guides/magic-link.md) | The official sign-in link plugin. |
 | [GitHub OAuth](docs/guides/github-oauth.md) | GitHub sign-in. |
 | [Google OAuth](docs/guides/google-oauth.md) | Google sign-in. |

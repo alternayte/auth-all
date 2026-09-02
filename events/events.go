@@ -30,6 +30,8 @@ const (
 	OAuthCompleted     Name = "auth.oauth_completed"
 	AccountLinked      Name = "auth.account_linked"
 	AccountUnlinked    Name = "auth.account_unlinked"
+	TOTPEnabled        Name = "auth.totp_enabled"
+	TOTPDisabled       Name = "auth.totp_disabled"
 )
 
 // Event is one structured observability event.

@@ -123,6 +123,9 @@ type config struct {
 	// it, so a request never parses a configuration value.
 	proxyNets []netip.Prefix
 
+	totpEnabled bool
+	totp        TOTPOptions
+
 	emailPasswordEnabled bool
 	emailPassword        EmailPasswordOptions
 	passwordPolicy       PasswordPolicy
@@ -189,6 +192,26 @@ func WithEmailPassword(opts ...EmailPasswordOptions) Option {
 		c.emailPasswordEnabled = true
 		if len(opts) > 0 {
 			c.emailPassword = opts[0]
+		}
+	}
+}
+
+// TOTPOptions configures the time-based one-time password second factor.
+type TOTPOptions struct {
+	// Issuer is the name that the authenticator application shows. It defaults
+	// to the host of the base URL.
+	Issuer string
+}
+
+// WithTOTP enables the time-based one-time password second factor.
+//
+// The endpoints /totp/enrol, /totp/confirm, and /totp/disable appear. A user
+// who confirms an enrolment must supply a code at every later sign-in.
+func WithTOTP(opts ...TOTPOptions) Option {
+	return func(c *config) {
+		c.totpEnabled = true
+		if len(opts) > 0 {
+			c.totp = opts[0]
 		}
 	}
 }

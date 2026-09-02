@@ -32,6 +32,9 @@ const (
 	CodeOAuthStateInvalid    Code = "OAUTH_STATE_INVALID"
 	CodeOAuthFailed          Code = "OAUTH_FAILED"
 	CodeRateLimited          Code = "RATE_LIMITED"
+	CodeInvalidTOTPCode      Code = "INVALID_TOTP_CODE"
+	CodeTOTPNotEnrolled      Code = "TOTP_NOT_ENROLLED"
+	CodeTOTPAlreadyEnrolled  Code = "TOTP_ALREADY_ENROLLED"
 	CodeInternal             Code = "INTERNAL"
 )
 
@@ -99,7 +102,12 @@ var (
 	ErrOAuthStateInvalid    = New(CodeOAuthStateInvalid, http.StatusBadRequest, "The OAuth state is invalid or expired.")
 	ErrOAuthFailed          = New(CodeOAuthFailed, http.StatusBadRequest, "The provider did not complete authentication.")
 	ErrRateLimited          = New(CodeRateLimited, http.StatusTooManyRequests, "Too many requests.")
-	ErrInternal             = New(CodeInternal, http.StatusInternalServerError, "An internal error occurred.")
+	// ErrInvalidTOTPCode reports a code that does not authenticate. The message
+	// names no reason, so a wrong code and a replayed code look equal.
+	ErrInvalidTOTPCode     = New(CodeInvalidTOTPCode, http.StatusBadRequest, "The code is invalid.")
+	ErrTOTPNotEnrolled     = New(CodeTOTPNotEnrolled, http.StatusBadRequest, "No second factor is set up.")
+	ErrTOTPAlreadyEnrolled = New(CodeTOTPAlreadyEnrolled, http.StatusConflict, "A second factor is already set up.")
+	ErrInternal            = New(CodeInternal, http.StatusInternalServerError, "An internal error occurred.")
 )
 
 // Body is the serialized public error envelope.

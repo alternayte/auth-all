@@ -57,13 +57,33 @@ func (p *totpStore) Confirm(ctx context.Context, userID string, at time.Time) er
 	return requireAffected(res)
 }
 
-func (p *totpStore) SetLastStep(ctx context.Context, userID string, step int64) error {
+// AdvanceStep writes the step under a condition, so the comparison and the
+// write are one atomic operation.
+//
+// A read followed by a later write would let two concurrent requests that
+// carry one stolen code both pass the replay guard. The database performs the
+// comparison here, so exactly one of those requests changes the row.
+func (p *totpStore) AdvanceStep(ctx context.Context, userID string, step int64) (bool, error) {
 	res, err := p.s.exec(ctx,
-		"UPDATE "+schema.TableTOTP+" SET last_step = ? WHERE user_id = ?", step, userID)
+		"UPDATE "+schema.TableTOTP+" SET last_step = ? WHERE user_id = ? AND last_step < ?",
+		step, userID, step)
 	if err != nil {
-		return p.s.mapErr(err)
+		return false, p.s.mapErr(err)
 	}
-	return requireAffected(res)
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	if n > 0 {
+		return true, nil
+	}
+	// No row changed. The user holds no secret, or the step did not advance.
+	// The caller must tell those apart, so the absent row is read one time on
+	// this path only.
+	if _, err := p.Get(ctx, userID); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 func (p *totpStore) Delete(ctx context.Context, userID string) error {

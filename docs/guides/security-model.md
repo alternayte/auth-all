@@ -192,8 +192,46 @@ and stays out of the response.
 
 An event never carries a secret value.
 
+## The second factor
+
+A user who confirms a TOTP enrolment holds a second factor. See the
+[two-factor guide](totp.md).
+
+Auth-All records the time step of every accepted code and refuses a step that
+is not greater than the stored one. One code authenticates one time, so a code
+that an attacker reads from a shoulder or from a phishing page is worthless
+after the user spends it.
+
+The database performs that comparison and the write as one operation. An
+attacker who sends one stolen code over many parallel requests therefore wins
+at most one of them.
+
+`POST /totp/disable` needs a current code. A stolen session alone cannot remove
+the factor that protects the session.
+
+The confirmation revokes every other session of the user. A person who turns on
+a second factor often suspects a compromise, so a session that existed before
+the upgrade does not survive it.
+
+`INVALID_TOTP_CODE` names no reason, so a wrong code and a replayed code look
+equal.
+
+The three endpoints run under the rate-limit operation `totp`, keyed by user. A
+six-digit code has one million values, and the accepted window offers three of
+them. An unlimited endpoint is guessable, so a limiter is mandatory in
+production.
+
+Auth-All stores the base32 secret in plaintext. Auth-All holds no application
+key, and a key that the library invents lives in the same database as the
+secret. An attacker who reads `auth_totp` can generate codes, so protect that
+table like `auth_credentials`. Apply encryption at the column or at the volume
+when you need it.
+
+Auth-All ships no recovery codes. A user who loses their authenticator
+application needs an administrator. Supply that path in the application.
+
 ## What Auth-All does not do
 
-The following are outside v1: SAML, SCIM, enterprise single sign-on,
-passkeys, time-based one-time passwords, API keys, organizations, roles, and
-an administration interface.
+The following are outside v1: SAML, SCIM, enterprise single sign-on, passkeys,
+TOTP recovery codes, API keys, organizations, roles, and an administration
+interface.

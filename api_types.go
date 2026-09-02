@@ -170,6 +170,12 @@ func registerCoreSchemas(doc *openapi.Document) {
 			"success":              openapi.Bool(),
 			"confirmationRequired": openapi.Bool(),
 		}))
+	doc.AddSchema("TOTPEnrolResponse", openapi.Object(
+		[]string{"secret", "uri"},
+		map[string]*openapi.Schema{
+			"secret": openapi.String(),
+			"uri":    openapi.String(),
+		}))
 	doc.AddSchema("MessageResponse", openapi.Object(
 		[]string{"message"},
 		map[string]*openapi.Schema{"message": openapi.String()}))
@@ -199,6 +205,17 @@ func registerCoreSchemas(doc *openapi.Document) {
 	doc.AddSchema("LinkResponse", openapi.Object(
 		[]string{"url"},
 		map[string]*openapi.Schema{"url": openapi.String()}))
+}
+
+// totpEnrolResponse is the body of a started enrolment.
+type totpEnrolResponse struct {
+	Secret string `json:"secret"`
+	URI    string `json:"uri"`
+}
+
+// totpCodeRequest is the body of an endpoint that takes one code.
+type totpCodeRequest struct {
+	Code string `json:"code"`
 }
 
 // errorResponses returns the standard error responses of an operation.

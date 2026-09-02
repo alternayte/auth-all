@@ -44,7 +44,8 @@ func Run(t *testing.T, newStore Factory) {
 		{"OAuthState", testOAuthState},
 		{"TOTP", testTOTP},
 		{"TOTPConfirm", testTOTPConfirm},
-		{"TOTPLastStep", testTOTPLastStep},
+		{"TOTPAdvanceStep", testTOTPAdvanceStep},
+		{"ConcurrentTOTPAdvanceStep", testConcurrentTOTPAdvanceStep},
 		{"TOTPUpsertReplacesAnUnconfirmedSecret", testTOTPUpsertReplaces},
 		{"TOTPIsRemovedWithTheUser", testTOTPUserDelete},
 		{"TransactionCommit", testTransactionCommit},
@@ -730,13 +731,12 @@ func testTOTPConfirm(t *testing.T, s store.Store) {
 	}
 }
 
-// testTOTPLastStep covers the value that the sign-in gate uses to refuse a
-// replay of one code.
-func testTOTPLastStep(t *testing.T, s store.Store) {
+// testTOTPAdvanceStep covers the guard that refuses a replayed code.
+func testTOTPAdvanceStep(t *testing.T, s store.Store) {
 	c := ctx(t)
 	u := mustCreateUser(t, s, "step@example.com")
 
-	if err := s.TOTP().SetLastStep(c, u.ID, 42); !errors.Is(err, store.ErrNotFound) {
+	if _, err := s.TOTP().AdvanceStep(c, u.ID, 42); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("expected ErrNotFound for a step with no row, got %v", err)
 	}
 
@@ -744,20 +744,42 @@ func testTOTPLastStep(t *testing.T, s store.Store) {
 	if err := s.TOTP().Upsert(c, rec); err != nil {
 		t.Fatalf("upsert: %v", err)
 	}
-	if err := s.TOTP().SetLastStep(c, u.ID, 58351370); err != nil {
-		t.Fatalf("set last step: %v", err)
+
+	ok, err := s.TOTP().AdvanceStep(c, u.ID, 58351370)
+	if err != nil || !ok {
+		t.Fatalf("the first step was refused: %v %v", ok, err)
 	}
 	got, err := s.TOTP().Get(c, u.ID)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	// The step counter passes two thousand million in the year 2038, so the
-	// column must hold a 64-bit value.
 	if got.LastStep != 58351370 {
 		t.Fatalf("the last step is %d", got.LastStep)
 	}
-	if err := s.TOTP().SetLastStep(c, u.ID, 3000000000); err != nil {
-		t.Fatalf("set a large last step: %v", err)
+
+	// The same step is a replay. It never advances.
+	ok, err = s.TOTP().AdvanceStep(c, u.ID, 58351370)
+	if err != nil {
+		t.Fatalf("a repeated step returned an error: %v", err)
+	}
+	if ok {
+		t.Fatal("a repeated step advanced the counter")
+	}
+
+	// An older step is a replay of an older code.
+	ok, err = s.TOTP().AdvanceStep(c, u.ID, 58351369)
+	if err != nil {
+		t.Fatalf("an older step returned an error: %v", err)
+	}
+	if ok {
+		t.Fatal("an older step advanced the counter")
+	}
+
+	// The step counter passes two thousand million in the year 2038, so the
+	// column must hold a 64-bit value.
+	ok, err = s.TOTP().AdvanceStep(c, u.ID, 3000000000)
+	if err != nil || !ok {
+		t.Fatalf("a large step was refused: %v %v", ok, err)
 	}
 	got, err = s.TOTP().Get(c, u.ID)
 	if err != nil {
@@ -765,6 +787,40 @@ func testTOTPLastStep(t *testing.T, s store.Store) {
 	}
 	if got.LastStep != 3000000000 {
 		t.Fatalf("the large last step is %d", got.LastStep)
+	}
+}
+
+// testConcurrentTOTPAdvanceStep covers the replay defence under concurrency.
+//
+// An attacker who holds one stolen code can send it many times at once. The
+// guard is worthless when a read and a later write let two of those requests
+// pass, so exactly one caller must win.
+func testConcurrentTOTPAdvanceStep(t *testing.T, s store.Store) {
+	c := ctx(t)
+	u := mustCreateUser(t, s, "race-totp@example.com")
+	rec := &store.TOTP{UserID: u.ID, Secret: "JBSWY3DPEHPK3PXP", CreatedAt: now(), UpdatedAt: now()}
+	if err := s.TOTP().Upsert(c, rec); err != nil {
+		t.Fatal(err)
+	}
+
+	const n = 8
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	winners := 0
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if ok, err := s.TOTP().AdvanceStep(c, u.ID, 58351370); err == nil && ok {
+				mu.Lock()
+				winners++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if winners != 1 {
+		t.Fatalf("expected exactly one accepted code, got %d", winners)
 	}
 }
 
@@ -781,8 +837,8 @@ func testTOTPUpsertReplaces(t *testing.T, s store.Store) {
 	if err := s.TOTP().Confirm(c, u.ID, now()); err != nil {
 		t.Fatalf("confirm: %v", err)
 	}
-	if err := s.TOTP().SetLastStep(c, u.ID, 99); err != nil {
-		t.Fatalf("set last step: %v", err)
+	if ok, err := s.TOTP().AdvanceStep(c, u.ID, 99); err != nil || !ok {
+		t.Fatalf("advance the step: %v %v", ok, err)
 	}
 
 	second := &store.TOTP{UserID: u.ID, Secret: "BBBBBBBBBBBBBBBB", CreatedAt: now(), UpdatedAt: now()}

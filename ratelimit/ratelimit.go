@@ -21,6 +21,7 @@ const (
 	OpPasswordChange   Operation = "password-change"
 	OpEmailChange      Operation = "email-change"
 	OpUserDelete       Operation = "user-delete"
+	OpTOTP             Operation = "totp"
 )
 
 // Key identifies one rate-limited attempt. Fields are set when relevant.

@@ -71,6 +71,11 @@ export interface SuccessResponse {
   success: boolean
 }
 
+export interface TOTPEnrolResponse {
+  secret: string
+  uri: string
+}
+
 export interface User {
   createdAt: string
   email: string
@@ -138,6 +143,17 @@ export interface SignUpEmailBody {
   email: string
   name?: string
   password: string
+}
+
+export interface TotpConfirmBody {
+  code: string
+}
+
+export interface TotpDisableBody {
+  code: string
+}
+
+export interface TotpEnrolBody {
 }
 
 export interface UserDeleteBody {
@@ -313,6 +329,15 @@ export class AuthAllClient {
   readonly signUp = {
     /** Create an account with an email address and a password. */
     email: (body: SignUpEmailBody): Promise<AuthResponse> => this.http.request("POST", `/api/auth/sign-up/email`, body, undefined),
+  }
+
+  readonly totp = {
+    /** Complete the enrolment of a second factor. */
+    confirm: (body: TotpConfirmBody): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/totp/confirm`, body, undefined),
+    /** Remove the second factor of the current user. */
+    disable: (body: TotpDisableBody): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/totp/disable`, body, undefined),
+    /** Start the enrolment of a second factor. */
+    enrol: (body: TotpEnrolBody): Promise<TOTPEnrolResponse> => this.http.request("POST", `/api/auth/totp/enrol`, body, undefined),
   }
 
   readonly user = {
