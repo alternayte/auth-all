@@ -2,7 +2,10 @@ package sqlstore
 
 import (
 	"context"
+	"fmt"
 	"time"
+
+	"github.com/google/uuid"
 
 	"github.com/alternayte/auth-all/schema"
 	"github.com/alternayte/auth-all/store"
@@ -92,4 +95,72 @@ func (p *totpStore) Delete(ctx context.Context, userID string) error {
 		return p.s.mapErr(err)
 	}
 	return requireAffected(res)
+}
+
+type recoveryCodeStore struct{ s *Store }
+
+// ReplaceAll writes a new set inside one transaction, so a failed regeneration
+// never leaves a user with no codes.
+func (p *recoveryCodeStore) ReplaceAll(ctx context.Context, userID string, hashes []string) error {
+	return p.s.Transaction(ctx, func(tx store.Store) error {
+		inner, ok := tx.(*Store)
+		if !ok {
+			return fmt.Errorf("authall/sqlstore: unexpected transaction store %T", tx)
+		}
+		if _, err := inner.exec(ctx,
+			"DELETE FROM "+schema.TableTOTPRecovery+" WHERE user_id = ?", userID); err != nil {
+			return inner.mapErr(err)
+		}
+		now := time.Now().UTC()
+		for _, h := range hashes {
+			if _, err := inner.exec(ctx,
+				"INSERT INTO "+schema.TableTOTPRecovery+" (id, user_id, code_hash, created_at) VALUES (?, ?, ?, ?)",
+				uuid.NewString(), userID, h, inner.bindTime(now)); err != nil {
+				return inner.mapErr(err)
+			}
+		}
+		return nil
+	})
+}
+
+// Consume removes one code under a condition on the owner and the hash, so the
+// match and the removal are one atomic operation.
+//
+// The user is named in the statement, so a code of one user never authenticates
+// another user.
+func (p *recoveryCodeStore) Consume(ctx context.Context, userID, codeHash string) (bool, error) {
+	res, err := p.s.exec(ctx,
+		"DELETE FROM "+schema.TableTOTPRecovery+" WHERE user_id = ? AND code_hash = ?",
+		userID, codeHash)
+	if err != nil {
+		return false, p.s.mapErr(err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+func (p *recoveryCodeStore) CountByUser(ctx context.Context, userID string) (int, error) {
+	row := p.s.queryRow(ctx,
+		"SELECT COUNT(*) FROM "+schema.TableTOTPRecovery+" WHERE user_id = ?", userID)
+	var n int
+	if err := row.Scan(&n); err != nil {
+		return 0, p.s.mapErr(err)
+	}
+	return n, nil
+}
+
+func (p *recoveryCodeStore) DeleteByUser(ctx context.Context, userID string) (int, error) {
+	res, err := p.s.exec(ctx,
+		"DELETE FROM "+schema.TableTOTPRecovery+" WHERE user_id = ?", userID)
+	if err != nil {
+		return 0, p.s.mapErr(err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), nil
 }

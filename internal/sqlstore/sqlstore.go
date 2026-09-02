@@ -70,6 +70,9 @@ func (s *Store) OAuthStates() store.OAuthStateStore { return &oauthStateStore{s}
 // TOTP implements store.Store.
 func (s *Store) TOTP() store.TOTPStore { return &totpStore{s} }
 
+// RecoveryCodes implements store.Store.
+func (s *Store) RecoveryCodes() store.RecoveryCodeStore { return &recoveryCodeStore{s} }
+
 // Migrator implements store.Store.
 func (s *Store) Migrator() store.Migrator { return &migrator{s} }
 

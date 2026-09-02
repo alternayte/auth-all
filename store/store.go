@@ -191,6 +191,30 @@ type TOTPStore interface {
 	Delete(ctx context.Context, userID string) error
 }
 
+// RecoveryCodeStore holds the recovery codes of the second factor.
+//
+// A recovery code is a first factor and a second factor at once, so the store
+// keeps only the SHA-256 hash. A recovery code carries about 49 bits from a
+// random source, so it needs no slow password hash.
+type RecoveryCodeStore interface {
+	// ReplaceAll removes every code of the user and writes the supplied
+	// hashes. It runs in one transaction, so a failure never leaves the user
+	// with no codes.
+	ReplaceAll(ctx context.Context, userID string, hashes []string) error
+	// Consume removes one code of one user and reports whether a row matched.
+	//
+	// The match and the removal are one atomic operation. Two concurrent calls
+	// that carry the same code must produce at most one true, because a
+	// recovery code carries a complete sign-in.
+	//
+	// An unknown code reports false and no error.
+	Consume(ctx context.Context, userID, codeHash string) (bool, error)
+	// CountByUser returns the number of unused codes of one user.
+	CountByUser(ctx context.Context, userID string) (int, error)
+	// DeleteByUser removes every code of one user and returns the count.
+	DeleteByUser(ctx context.Context, userID string) (int, error)
+}
+
 // OAuthStateStore holds pending OAuth authorization requests.
 type OAuthStateStore interface {
 	Create(ctx context.Context, s *OAuthState) error
@@ -221,6 +245,7 @@ type Store interface {
 	Tokens() TokenStore
 	OAuthStates() OAuthStateStore
 	TOTP() TOTPStore
+	RecoveryCodes() RecoveryCodeStore
 
 	// Transaction runs fn inside one database transaction. The Store passed to
 	// fn performs every operation inside that transaction.

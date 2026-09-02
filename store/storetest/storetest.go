@@ -48,6 +48,10 @@ func Run(t *testing.T, newStore Factory) {
 		{"ConcurrentTOTPAdvanceStep", testConcurrentTOTPAdvanceStep},
 		{"TOTPUpsertReplacesAnUnconfirmedSecret", testTOTPUpsertReplaces},
 		{"TOTPIsRemovedWithTheUser", testTOTPUserDelete},
+		{"RecoveryCodes", testRecoveryCodes},
+		{"RecoveryCodeConsumeIsScopedToTheUser", testRecoveryCodeScope},
+		{"RecoveryCodesAreRemovedWithTheUser", testRecoveryCodeUserDelete},
+		{"ConcurrentRecoveryCodeConsume", testConcurrentRecoveryCodeConsume},
 		{"TransactionCommit", testTransactionCommit},
 		{"TransactionRollback", testTransactionRollback},
 		{"ConcurrentSignUpSameEmail", testConcurrentSignUp},
@@ -877,5 +881,140 @@ func testTOTPUserDelete(t *testing.T, s store.Store) {
 	}
 	if _, err := s.TOTP().Get(c, u.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("the secret outlived the user: %v", err)
+	}
+}
+
+// testRecoveryCodes covers the replace, consume, and count path.
+func testRecoveryCodes(t *testing.T, s store.Store) {
+	c := ctx(t)
+	u := mustCreateUser(t, s, "recovery@example.com")
+
+	n, err := s.RecoveryCodes().CountByUser(c, u.ID)
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("a new user holds %d codes", n)
+	}
+
+	hashes := []string{"hash-a", "hash-b", "hash-c"}
+	if err := s.RecoveryCodes().ReplaceAll(c, u.ID, hashes); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+	if n, err = s.RecoveryCodes().CountByUser(c, u.ID); err != nil || n != 3 {
+		t.Fatalf("the user holds %d codes: %v", n, err)
+	}
+
+	ok, err := s.RecoveryCodes().Consume(c, u.ID, "hash-b")
+	if err != nil || !ok {
+		t.Fatalf("the consume failed: %v %v", ok, err)
+	}
+	if n, err = s.RecoveryCodes().CountByUser(c, u.ID); err != nil || n != 2 {
+		t.Fatalf("the user holds %d codes after one consume: %v", n, err)
+	}
+
+	// A consumed code never works a second time.
+	ok, err = s.RecoveryCodes().Consume(c, u.ID, "hash-b")
+	if err != nil {
+		t.Fatalf("the second consume returned an error: %v", err)
+	}
+	if ok {
+		t.Fatal("a consumed code worked a second time")
+	}
+
+	// An unknown code reports no success and no error.
+	ok, err = s.RecoveryCodes().Consume(c, u.ID, "hash-unknown")
+	if err != nil {
+		t.Fatalf("an unknown code returned an error: %v", err)
+	}
+	if ok {
+		t.Fatal("an unknown code was consumed")
+	}
+
+	// ReplaceAll drops the old set, so a spent list cannot come back.
+	if err := s.RecoveryCodes().ReplaceAll(c, u.ID, []string{"hash-x"}); err != nil {
+		t.Fatalf("second replace: %v", err)
+	}
+	if n, err = s.RecoveryCodes().CountByUser(c, u.ID); err != nil || n != 1 {
+		t.Fatalf("the user holds %d codes after the replacement: %v", n, err)
+	}
+	if ok, err := s.RecoveryCodes().Consume(c, u.ID, "hash-a"); err != nil || ok {
+		t.Fatal("a code of the replaced set still works")
+	}
+
+	removed, err := s.RecoveryCodes().DeleteByUser(c, u.ID)
+	if err != nil || removed != 1 {
+		t.Fatalf("the delete removed %d rows: %v", removed, err)
+	}
+	if n, err = s.RecoveryCodes().CountByUser(c, u.ID); err != nil || n != 0 {
+		t.Fatalf("the user holds %d codes after the delete: %v", n, err)
+	}
+}
+
+// testRecoveryCodeScope covers the owner check. A code of one user must never
+// authenticate another user.
+func testRecoveryCodeScope(t *testing.T, s store.Store) {
+	c := ctx(t)
+	owner := mustCreateUser(t, s, "owner@example.com")
+	other := mustCreateUser(t, s, "other@example.com")
+
+	if err := s.RecoveryCodes().ReplaceAll(c, owner.ID, []string{"shared-hash"}); err != nil {
+		t.Fatal(err)
+	}
+	ok, err := s.RecoveryCodes().Consume(c, other.ID, "shared-hash")
+	if err != nil {
+		t.Fatalf("the foreign consume returned an error: %v", err)
+	}
+	if ok {
+		t.Fatal("a code of one user authenticated another user")
+	}
+	if n, err := s.RecoveryCodes().CountByUser(c, owner.ID); err != nil || n != 1 {
+		t.Fatalf("the foreign consume removed the code of the owner: %d %v", n, err)
+	}
+}
+
+// testRecoveryCodeUserDelete covers the promise of UserStore.Delete.
+func testRecoveryCodeUserDelete(t *testing.T, s store.Store) {
+	c := ctx(t)
+	u := mustCreateUser(t, s, "recovery-cascade@example.com")
+	if err := s.RecoveryCodes().ReplaceAll(c, u.ID, []string{"cascade-hash"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Users().Delete(c, u.ID); err != nil {
+		t.Fatalf("delete user: %v", err)
+	}
+	if n, err := s.RecoveryCodes().CountByUser(c, u.ID); err != nil || n != 0 {
+		t.Fatalf("%d codes outlived the user: %v", n, err)
+	}
+}
+
+// testConcurrentRecoveryCodeConsume covers the consume under concurrency. A
+// recovery code carries a full sign-in, so two parallel requests that both
+// succeed would authenticate one code two times.
+func testConcurrentRecoveryCodeConsume(t *testing.T, s store.Store) {
+	c := ctx(t)
+	u := mustCreateUser(t, s, "race-recovery@example.com")
+	if err := s.RecoveryCodes().ReplaceAll(c, u.ID, []string{"race-hash"}); err != nil {
+		t.Fatal(err)
+	}
+
+	const n = 8
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	winners := 0
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if ok, err := s.RecoveryCodes().Consume(c, u.ID, "race-hash"); err == nil && ok {
+				mu.Lock()
+				winners++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if winners != 1 {
+		t.Fatalf("expected exactly one accepted code, got %d", winners)
 	}
 }

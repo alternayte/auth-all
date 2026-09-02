@@ -2,13 +2,14 @@ package schema
 
 // Core table names.
 const (
-	TableUsers       = "auth_users"
-	TableCredentials = "auth_credentials"
-	TableAccounts    = "auth_accounts"
-	TableSessions    = "auth_sessions"
-	TableTokens      = "auth_tokens"
-	TableOAuthStates = "auth_oauth_states"
-	TableTOTP        = "auth_totp"
+	TableUsers        = "auth_users"
+	TableCredentials  = "auth_credentials"
+	TableAccounts     = "auth_accounts"
+	TableSessions     = "auth_sessions"
+	TableTokens       = "auth_tokens"
+	TableOAuthStates  = "auth_oauth_states"
+	TableTOTP         = "auth_totp"
+	TableTOTPRecovery = "auth_totp_recovery"
 )
 
 // Core returns the core Auth-All schema.
@@ -135,6 +136,24 @@ func Core() []Table {
 				{Name: "last_step", Type: TypeInt},
 				{Name: "created_at", Type: TypeTimestamp},
 				{Name: "updated_at", Type: TypeTimestamp},
+			},
+			ForeignKeys: []ForeignKey{
+				{Column: "user_id", RefTable: TableUsers, RefColumn: "id", OnDelete: "CASCADE"},
+			},
+		},
+		{
+			Name: TableTOTPRecovery,
+			Columns: []Column{
+				{Name: "id", Type: TypeText, PrimaryKey: true},
+				{Name: "user_id", Type: TypeText},
+				// The hash is SHA-256. A recovery code carries about 49 bits
+				// from a random source, so it needs no slow password hash.
+				{Name: "code_hash", Type: TypeText},
+				{Name: "created_at", Type: TypeTimestamp},
+			},
+			Indexes: []Index{
+				{Name: "auth_totp_recovery_code_hash_key", Columns: []string{"code_hash"}, Unique: true},
+				{Name: "auth_totp_recovery_user_idx", Columns: []string{"user_id"}},
 			},
 			ForeignKeys: []ForeignKey{
 				{Column: "user_id", RefTable: TableUsers, RefColumn: "id", OnDelete: "CASCADE"},
