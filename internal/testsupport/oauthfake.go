@@ -105,6 +105,15 @@ type FakeGoogle struct {
 	expectedChallenge string
 	issuerOverride    string
 	expiryOffset      time.Duration
+	// discoveryIssuer overrides the issuer field of the discovery document. A
+	// test uses it to make the document disagree with the configuration.
+	discoveryIssuer string
+	// discoveryTokenURL overrides the token endpoint of the discovery
+	// document. A test uses it to serve a plain HTTP endpoint.
+	discoveryTokenURL string
+	// discoveryCount counts the fetches of the discovery document, so a test
+	// can prove that the provider caches it.
+	discoveryCount int
 }
 
 // NewFakeGoogle starts a fake Google server for one client id.
@@ -127,6 +136,26 @@ func NewFakeGoogle(t *testing.T, clientID string) *FakeGoogle {
 			"n": base64.RawURLEncoding.EncodeToString(f.key.N.Bytes()),
 			"e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(f.key.E)).Bytes()),
 		}}})
+	})
+	mux.HandleFunc("GET /.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.discoveryCount++
+		issuer := f.discoveryIssuer
+		tokenURL := f.discoveryTokenURL
+		f.mu.Unlock()
+		if issuer == "" {
+			issuer = f.Server.URL
+		}
+		if tokenURL == "" {
+			tokenURL = f.Server.URL + "/token"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer":                 issuer,
+			"authorization_endpoint": f.Server.URL + "/authorize",
+			"token_endpoint":         tokenURL,
+			"jwks_uri":               f.Server.URL + "/certs",
+		})
 	})
 	mux.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
@@ -184,6 +213,30 @@ func (f *FakeGoogle) SetIssuer(v string) {
 	defer f.mu.Unlock()
 	f.issuerOverride = v
 }
+
+// SetDiscoveryIssuer overrides the issuer field of the discovery document.
+func (f *FakeGoogle) SetDiscoveryIssuer(v string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.discoveryIssuer = v
+}
+
+// SetDiscoveryTokenURL overrides the token endpoint of the discovery document.
+func (f *FakeGoogle) SetDiscoveryTokenURL(v string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.discoveryTokenURL = v
+}
+
+// DiscoveryCount returns the number of discovery document fetches.
+func (f *FakeGoogle) DiscoveryCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.discoveryCount
+}
+
+// Issuer returns the base URL of the fake issuer.
+func (f *FakeGoogle) Issuer() string { return f.Server.URL }
 
 // SetExpiryOffset changes how long the identity token stays valid.
 func (f *FakeGoogle) SetExpiryOffset(d time.Duration) {

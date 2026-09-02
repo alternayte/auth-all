@@ -58,8 +58,8 @@ db-down:
 
 # Run the unit tests of the library packages.
 test-unit:
-    go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/...
-    @just _record "unit tests" "go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/..."
+    go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/...
+    @just _record "unit tests" "go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/..."
 
 # Run the storage contract suite against PostgreSQL.
 test-postgres:
@@ -73,7 +73,7 @@ test-sqlite:
 
 # Run the HTTP integration and acceptance tests.
 test-http:
-    {{pg}} go test -run 'TestAUTH|TestPLUG|TestAPI|TestMIG|TestPostgres|TestMagicLink|TestOAuth|TestAccount|TestUnlink|TestUnknown|TestProvider|TestVerified|TestAutoLink|TestGeneration|TestDuplicate|TestConfig|TestPassword|TestStable|TestPlugin|TestTOTP|TestSignInWith|TestConfirmReturns|TestRecoveryCode|TestWrongRecoveryCode|TestRegenerate|TestRequireAuth|TestLoadSession' .
+    {{pg}} go test -run 'TestAUTH|TestPLUG|TestAPI|TestMIG|TestPostgres|TestMagicLink|TestOAuth|TestAccount|TestUnlink|TestUnknown|TestProvider|TestVerified|TestAutoLink|TestGeneration|TestDuplicate|TestConfig|TestPassword|TestStable|TestPlugin|TestTOTP|TestSignInWith|TestConfirmReturns|TestRecoveryCode|TestWrongRecoveryCode|TestRegenerate|TestRequireAuth|TestLoadSession|TestOIDC|TestTwoIssuers' .
     @just _record "HTTP integration tests" "just test-http"
 
 # Run the security regression tests.
