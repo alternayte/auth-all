@@ -119,9 +119,13 @@ generate-check: generate
 # client. The build proves that the published package compiles.
 ts-verify:
     npm ci
+    # The client builds first. The React example imports the package by its
+    # name, and the package entry points name ./dist, so a typecheck before the
+    # build cannot resolve it. A local checkout hides this, because dist
+    # survives from an earlier run.
+    npm run build -w clients/typescript
     npm run typecheck
     npm test
-    npm run build -w clients/typescript
     @just _record "TypeScript client typecheck and tests" "npm run typecheck && npm test"
     @just _record "TypeScript client package build" "npm run build -w clients/typescript"
 
