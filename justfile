@@ -43,9 +43,12 @@ vet:
     @just _record "go vet" "go vet ./..."
 
 # Run the configured static analysis.
+# The tools live in tools.go.mod, so the library go.mod never requires them. A
+# tool directive there would raise the minimum Go version of every application
+# that imports Auth-All.
 lint:
-    go tool staticcheck ./...
-    @just _record "static analysis" "go tool staticcheck ./..."
+    go tool -modfile=tools.go.mod staticcheck ./...
+    @just _record "static analysis" "go tool -modfile=tools.go.mod staticcheck ./..."
 
 # Start the test databases and wait until they are ready.
 db-up:

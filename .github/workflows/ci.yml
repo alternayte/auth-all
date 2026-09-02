@@ -34,3 +34,40 @@ jobs:
         with:
           name: v1-verification
           path: artifacts/v1-verification.md
+
+  minimum-go:
+    name: the declared minimum Go version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The go directive of go.mod names the oldest Go that Auth-All supports.
+      # An application that imports Auth-All cannot use an older toolchain, so a
+      # raise of this value is a breaking change for every such application.
+      # This job builds and tests with that exact version, so a raise cannot
+      # arrive by accident through a dependency or a tool.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Read the declared minimum
+        id: minimum
+        run: |
+          version="$(go mod edit -json | jq -r .Go)"
+          echo "the declared minimum is $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Set up the declared minimum Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "${{ steps.minimum.outputs.version }}"
+
+      - name: Refuse a toolchain upgrade
+        run: echo "GOTOOLCHAIN=local" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test without the databases
+        run: go test ./internal/... ./oauth/... ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./store/sqlite/...

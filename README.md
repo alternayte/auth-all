@@ -14,9 +14,15 @@ HTTP server, and its user interface.
 
 ## Install
 
+Auth-All needs Go 1.25 or newer.
+
 ```bash
 go get github.com/alternayte/auth-all
 ```
+
+Auth-All pulls no database driver that the application does not use. An
+application that imports `store/postgres` gets `pgx` and no SQLite, and the
+reverse holds too.
 
 The TypeScript client is a separate npm package:
 

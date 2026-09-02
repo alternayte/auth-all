@@ -1,5 +1,7 @@
 # Getting started
 
+Auth-All needs Go 1.25 or newer.
+
 This guide adds Auth-All to an existing Go application.
 
 ## 1. Install the module
