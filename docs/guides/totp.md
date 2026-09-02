@@ -136,6 +136,7 @@ disables it inside the same thirty seconds must wait for the next code.
 | `INVALID_TOTP_CODE` | 400 | The code is wrong, expired, or already used. |
 | `TOTP_NOT_ENROLLED` | 400 | The user holds no secret. |
 | `TOTP_ALREADY_ENROLLED` | 409 | The user holds a confirmed secret. |
+| `INVALID_RECOVERY_CODE` | 400 | The recovery code is wrong or already spent. |
 
 `INVALID_TOTP_CODE` names no reason. A wrong code and a replayed code look
 equal, so the response discloses nothing.
@@ -145,7 +146,7 @@ equal, so the response discloses nothing.
 | Event | Emitted |
 | --- | --- |
 | `auth.totp_enabled` | A user confirmed an enrolment. |
-| `auth.totp_disabled` | A user removed the second factor. |
+| `auth.totp_disabled` | A user removed the second factor. A recovery sets the reason to `recovery_code`. |
 | `auth.sign_in_failed` | A code was refused at `POST /totp/verify`. The reason is `invalid_totp_code`. |
 
 ```go
@@ -183,16 +184,69 @@ same care as `auth_credentials`. The
 
 ## A lost device
 
-Auth-All ships no recovery codes yet. A user who loses their authenticator
-application cannot sign in without help.
+Auth-All issues ten recovery codes when a user confirms an enrolment. Each code
+signs the user in one time.
 
-Supply a path of your own until recovery codes arrive. The application owns the
-store, so an administrator tool can remove the secret directly:
+```json
+{ "success": true, "recoveryCodes": ["abcde-fghij", "..."] }
+```
+
+**The codes appear one time.** Auth-All stores only the SHA-256 hash, so it
+cannot show them again. Tell the user to save them before they leave the page.
+
+A recovery code is a first factor and a second factor at the same time. Treat
+the list like a password.
+
+### Use a recovery code
+
+The sign-in returns the usual challenge. Send the challenge and one recovery
+code to `POST /totp/recovery` instead of `POST /totp/verify`.
+
+```ts
+const out = await client.signIn.email({ email, password })
+if (out.mfaRequired) {
+  await client.totp.recovery({ mfaToken: out.mfaToken, code: "abcde-fghij" })
+}
+```
+
+A redirect flow works the same way. The challenge cookie carries the token, so
+send the code alone.
+
+**A used recovery code removes the second factor.** The person who spent it lost
+their authenticator, so the account must not keep a factor that its owner cannot
+satisfy. Auth-All also removes every remaining code, so a leaked list is
+worthless afterwards.
+
+Send the user to enrolment again after a recovery. Their account holds no second
+factor until they do.
+
+### Replace the codes
+
+A user who spent several codes, or who believes the list leaked, calls
+`POST /totp/recovery-codes/regenerate` with a current TOTP code.
+
+```ts
+const { recoveryCodes } = await client.totp.regenerateRecoveryCodes({ code })
+```
+
+The old set stops working. A current code is required, because a stolen session
+must not replace the list that recovers the account.
+
+A user reads a code from paper, so Auth-All accepts any case and ignores the
+separator and the spaces. `ABCDE-FGHIJ`, `abcdefghij`, and `abcde fghij` all
+match `abcde-fghij`.
+
+### When a user has no codes left
+
+A user who loses their authenticator and their codes still needs an
+administrator. The application owns the store, so an administrator tool can
+remove the enrolment:
 
 ```go
 // s is the store that the application passed to authall.WithStore.
-err := s.TOTP().Delete(ctx, userID)
+_ = s.TOTP().Delete(ctx, userID)
+_, _ = s.RecoveryCodes().DeleteByUser(ctx, userID)
+_, _ = s.Sessions().DeleteByUser(ctx, userID)
 ```
 
-Prove the identity of the person before you remove their second factor. Revoke
-their sessions at the same time.
+Prove the identity of the person before you remove their second factor.

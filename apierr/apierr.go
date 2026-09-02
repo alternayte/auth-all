@@ -35,6 +35,7 @@ const (
 	CodeInvalidTOTPCode      Code = "INVALID_TOTP_CODE"
 	CodeTOTPNotEnrolled      Code = "TOTP_NOT_ENROLLED"
 	CodeTOTPAlreadyEnrolled  Code = "TOTP_ALREADY_ENROLLED"
+	CodeInvalidRecoveryCode  Code = "INVALID_RECOVERY_CODE"
 	CodeInternal             Code = "INTERNAL"
 )
 
@@ -107,6 +108,9 @@ var (
 	ErrInvalidTOTPCode     = New(CodeInvalidTOTPCode, http.StatusBadRequest, "The code is invalid.")
 	ErrTOTPNotEnrolled     = New(CodeTOTPNotEnrolled, http.StatusBadRequest, "No second factor is set up.")
 	ErrTOTPAlreadyEnrolled = New(CodeTOTPAlreadyEnrolled, http.StatusConflict, "A second factor is already set up.")
+	// ErrInvalidRecoveryCode reports a recovery code that does not match. The
+	// message names no reason, so a wrong code and a spent code look equal.
+	ErrInvalidRecoveryCode = New(CodeInvalidRecoveryCode, http.StatusBadRequest, "The recovery code is invalid.")
 	ErrInternal            = New(CodeInternal, http.StatusInternalServerError, "An internal error occurred.")
 )
 

@@ -1364,11 +1364,11 @@
         },
         "responses": {
           "200": {
-            "description": "The second factor is active",
+            "description": "The second factor is active and the recovery codes are returned",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SuccessResponse"
+                  "$ref": "#/components/schemas/TOTPConfirmResponse"
                 }
               }
             }
@@ -1575,6 +1575,165 @@
         "x-authall-client": {
           "namespace": "totp",
           "method": "enrol"
+        }
+      }
+    },
+    "/api/auth/totp/recovery": {
+      "post": {
+        "operationId": "totpRecovery",
+        "summary": "Complete a sign-in with a recovery code",
+        "tags": [
+          "totp"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "mfaToken": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The session is created and the second factor is removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "totp",
+          "method": "recovery"
+        }
+      }
+    },
+    "/api/auth/totp/recovery-codes/regenerate": {
+      "post": {
+        "operationId": "totpRegenerateRecoveryCodes",
+        "summary": "Replace the recovery codes of the current user",
+        "tags": [
+          "totp"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "A new set of recovery codes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryCodesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "totp",
+          "method": "regenerateRecoveryCodes"
         }
       }
     },
@@ -1931,6 +2090,20 @@
           "hasPassword"
         ]
       },
+      "RecoveryCodesResponse": {
+        "type": "object",
+        "properties": {
+          "recoveryCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "recoveryCodes"
+        ]
+      },
       "RevokeAllResponse": {
         "type": "object",
         "properties": {
@@ -2033,6 +2206,24 @@
         },
         "required": [
           "success"
+        ]
+      },
+      "TOTPConfirmResponse": {
+        "type": "object",
+        "properties": {
+          "recoveryCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "success": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "recoveryCodes"
         ]
       },
       "TOTPEnrolResponse": {

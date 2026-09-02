@@ -73,7 +73,7 @@ test-sqlite:
 
 # Run the HTTP integration and acceptance tests.
 test-http:
-    {{pg}} go test -run 'TestAUTH|TestPLUG|TestAPI|TestMIG|TestPostgres|TestMagicLink|TestOAuth|TestAccount|TestUnlink|TestUnknown|TestProvider|TestVerified|TestAutoLink|TestGeneration|TestDuplicate|TestConfig|TestPassword|TestStable|TestPlugin' .
+    {{pg}} go test -run 'TestAUTH|TestPLUG|TestAPI|TestMIG|TestPostgres|TestMagicLink|TestOAuth|TestAccount|TestUnlink|TestUnknown|TestProvider|TestVerified|TestAutoLink|TestGeneration|TestDuplicate|TestConfig|TestPassword|TestStable|TestPlugin|TestTOTP|TestSignInWith|TestConfirmReturns|TestRecoveryCode|TestWrongRecoveryCode|TestRegenerate|TestRequireAuth|TestLoadSession' .
     @just _record "HTTP integration tests" "just test-http"
 
 # Run the security regression tests.

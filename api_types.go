@@ -180,6 +180,17 @@ func registerCoreSchemas(doc *openapi.Document) {
 			"success":              openapi.Bool(),
 			"confirmationRequired": openapi.Bool(),
 		}))
+	doc.AddSchema("TOTPConfirmResponse", openapi.Object(
+		[]string{"success", "recoveryCodes"},
+		map[string]*openapi.Schema{
+			"success":       openapi.Bool(),
+			"recoveryCodes": {Type: "array", Items: openapi.String()},
+		}))
+	doc.AddSchema("RecoveryCodesResponse", openapi.Object(
+		[]string{"recoveryCodes"},
+		map[string]*openapi.Schema{
+			"recoveryCodes": {Type: "array", Items: openapi.String()},
+		}))
 	doc.AddSchema("TOTPEnrolResponse", openapi.Object(
 		[]string{"secret", "uri"},
 		map[string]*openapi.Schema{
@@ -221,6 +232,19 @@ func registerCoreSchemas(doc *openapi.Document) {
 type totpEnrolResponse struct {
 	Secret string `json:"secret"`
 	URI    string `json:"uri"`
+}
+
+// totpConfirmResponse is the body of a completed enrolment. It carries the
+// recovery codes one time.
+type totpConfirmResponse struct {
+	Success       bool     `json:"success"`
+	RecoveryCodes []string `json:"recoveryCodes"`
+}
+
+// recoveryCodesResponse carries a new set of recovery codes. The plaintext
+// values reach the user one time and never appear again.
+type recoveryCodesResponse struct {
+	RecoveryCodes []string `json:"recoveryCodes"`
 }
 
 // totpVerifyRequest is the body of a sign-in that completes a second factor.

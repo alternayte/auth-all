@@ -397,7 +397,7 @@ func ownedRowCounts(t *testing.T, h *testsupport.Harness, userID string) map[str
 	out := map[string]int{}
 	for _, table := range []string{
 		"auth_users", "auth_sessions", "auth_credentials", "auth_accounts", "auth_tokens",
-		"auth_totp",
+		"auth_totp", "auth_totp_recovery",
 	} {
 		out[table] = countUserRows(t, h, table, userID)
 	}
@@ -426,6 +426,9 @@ func seedOwnedRows(t *testing.T, h *testsupport.Harness, userID string) {
 		UserID: userID, Secret: "JBSWY3DPEHPK3PXP", CreatedAt: now, UpdatedAt: now,
 	}); err != nil {
 		t.Fatalf("seed a TOTP secret: %v", err)
+	}
+	if err := h.Store.RecoveryCodes().ReplaceAll(ctx, userID, []string{"seed-recovery-" + userID}); err != nil {
+		t.Fatalf("seed a recovery code: %v", err)
 	}
 }
 

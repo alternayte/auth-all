@@ -229,5 +229,7 @@ redirect.
 - [ ] The session lifetimes match the risk of the application.
 - [ ] The server clock runs NTP, because a drifted clock refuses every TOTP
       code.
-- [ ] The application supplies a recovery path for a lost authenticator, because
-      Auth-All ships no recovery codes.
+- [ ] The sign-up flow shows the recovery codes one time and tells the user to
+      save them.
+- [ ] An administrator tool can remove a second factor for a user who lost both
+      the authenticator and the codes.

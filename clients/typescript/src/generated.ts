@@ -42,6 +42,10 @@ export interface ProvidersResponse {
   }[]
 }
 
+export interface RecoveryCodesResponse {
+  recoveryCodes: string[]
+}
+
 export interface RevokeAllResponse {
   revoked: number
 }
@@ -70,6 +74,11 @@ export interface SessionResponse {
 }
 
 export interface SuccessResponse {
+  success: boolean
+}
+
+export interface TOTPConfirmResponse {
+  recoveryCodes: string[]
   success: boolean
 }
 
@@ -156,6 +165,15 @@ export interface TotpDisableBody {
 }
 
 export interface TotpEnrolBody {
+}
+
+export interface TotpRecoveryBody {
+  code: string
+  mfaToken?: string
+}
+
+export interface TotpRegenerateRecoveryCodesBody {
+  code: string
 }
 
 export interface TotpVerifyBody {
@@ -340,11 +358,15 @@ export class AuthAllClient {
 
   readonly totp = {
     /** Complete the enrolment of a second factor. */
-    confirm: (body: TotpConfirmBody): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/totp/confirm`, body, undefined),
+    confirm: (body: TotpConfirmBody): Promise<TOTPConfirmResponse> => this.http.request("POST", `/api/auth/totp/confirm`, body, undefined),
     /** Remove the second factor of the current user. */
     disable: (body: TotpDisableBody): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/totp/disable`, body, undefined),
     /** Start the enrolment of a second factor. */
     enrol: (body: TotpEnrolBody): Promise<TOTPEnrolResponse> => this.http.request("POST", `/api/auth/totp/enrol`, body, undefined),
+    /** Complete a sign-in with a recovery code. */
+    recovery: (body: TotpRecoveryBody): Promise<AuthResponse> => this.http.request("POST", `/api/auth/totp/recovery`, body, undefined),
+    /** Replace the recovery codes of the current user. */
+    regenerateRecoveryCodes: (body: TotpRegenerateRecoveryCodesBody): Promise<RecoveryCodesResponse> => this.http.request("POST", `/api/auth/totp/recovery-codes/regenerate`, body, undefined),
     /** Complete a sign-in with a second factor. */
     verify: (body: TotpVerifyBody): Promise<AuthResponse> => this.http.request("POST", `/api/auth/totp/verify`, body, undefined),
   }

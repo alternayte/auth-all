@@ -241,11 +241,24 @@ secret. An attacker who reads `auth_totp` can generate codes, so protect that
 table like `auth_credentials`. Apply encryption at the column or at the volume
 when you need it.
 
-Auth-All ships no recovery codes. A user who loses their authenticator
-application needs an administrator. Supply that path in the application.
+Auth-All issues ten recovery codes at the confirmation. A code signs the user in
+one time and then removes the second factor, so a person who lost their
+authenticator is not left with a factor that they cannot satisfy. The recovery
+also removes every remaining code, so a leaked list is worthless afterwards.
+
+A recovery code is a first factor and a second factor at the same time. The
+store keeps only the SHA-256 hash, so a leaked database row is not a sign-in.
+The hash is fast on purpose: a recovery code carries about 49 bits from a random
+source, so it needs no slow password hash, and ten slow verifications per attempt
+would give an attacker a cheap denial of service.
+
+`POST /totp/recovery` names the user through the challenge token and the
+statement, so a code of one user never authenticates another user. The match and
+the removal are one operation, so one code signs in one time.
+
+A user who loses the authenticator and the codes still needs an administrator.
 
 ## What Auth-All does not do
 
 The following are outside v1: SAML, SCIM, enterprise single sign-on, passkeys,
-TOTP recovery codes, API keys, organizations, roles, and an administration
-interface.
+API keys, organizations, roles, and an administration interface.

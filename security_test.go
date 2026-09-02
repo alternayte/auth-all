@@ -11,6 +11,7 @@ import (
 
 	authall "github.com/alternayte/auth-all"
 	"github.com/alternayte/auth-all/email"
+	"github.com/alternayte/auth-all/internal/crypto"
 	"github.com/alternayte/auth-all/internal/testsupport"
 	"github.com/alternayte/auth-all/plugins/magiclink"
 	"github.com/alternayte/auth-all/ratelimit"
@@ -802,4 +803,61 @@ func TestSEC015MagicLinkPostRejectsAnUntrustedOrigin(t *testing.T) {
 	if done := followMagicLink(t, h, msg.URL); done.Status != http.StatusSeeOther {
 		t.Fatalf("the rejected attempt consumed the token: %d %s", done.Status, string(done.Body))
 	}
+}
+
+// TestSECRecoveryCodesAreHashedAtRest checks that the database never holds a
+// recovery code in plaintext.
+//
+// A recovery code is a first factor and a second factor at the same time, so a
+// leaked database row would be a complete sign-in.
+func TestSECRecoveryCodesAreHashedAtRest(t *testing.T) {
+	h, clock := clockHarness(t)
+	h.SignUp("sec-recovery@example.com", testPassword)
+	_, codes := enrolWithRecovery(t, h, clock)
+	if len(codes) == 0 {
+		t.Fatal("the confirmation returned no recovery codes")
+	}
+
+	raw := rawDB(t, h)
+	for _, code := range codes {
+		assertColumnFree(t, raw, "auth_totp_recovery", []string{"id", "user_id", "code_hash"}, code)
+		// The normalized form must be absent as well, because that is the
+		// value that Auth-All hashes.
+		assertColumnFree(t, raw, "auth_totp_recovery",
+			[]string{"id", "user_id", "code_hash"}, crypto.NormalizeRecoveryCode(code))
+	}
+
+	// The stored hash covers the normalized code, so a retyped variant matches.
+	var count int
+	if err := raw.QueryRow("SELECT COUNT(*) FROM auth_totp_recovery WHERE code_hash = ?",
+		recoveryHash(codes[0])).Scan(&count); err != nil {
+		t.Fatalf("query the hash: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("the store holds %d rows for the hash of the first code", count)
+	}
+}
+
+// TestSECTOTPSecretIsAbsentFromTheTokenTable checks that the challenge token of
+// a pending second factor never carries the secret.
+func TestSECTOTPSecretIsAbsentFromTheTokenTable(t *testing.T) {
+	const address = "sec-challenge@example.com"
+	h, secret, _ := enrolledHarness(t, address)
+
+	resp := h.Do(http.MethodPost, "/sign-in/email",
+		map[string]any{"email": address, "password": testPassword})
+	var challenge mfaResult
+	resp.Decode(t, &challenge)
+	if challenge.MFAToken == "" {
+		t.Fatal("the sign-in returned no challenge")
+	}
+
+	raw := rawDB(t, h)
+	// The challenge token itself is stored as a hash, like every other
+	// one-time token.
+	assertColumnFree(t, raw, "auth_tokens",
+		[]string{"id", "kind", "identifier", "token_hash"}, challenge.MFAToken)
+	// The secret never reaches the token table.
+	assertColumnFree(t, raw, "auth_tokens",
+		[]string{"id", "kind", "identifier", "token_hash"}, secret)
 }

@@ -71,8 +71,9 @@ go run github.com/alternayte/auth-all/cmd/auth-all migrate \
 - Secure defaults. Opaque session tokens, hashed tokens at rest, Argon2id
   password hashing, OAuth state validation, PKCE where the provider supports
   it, and conservative account linking.
-- TOTP two-factor authentication. One code authenticates one time. The gate
-  covers the password, the magic link, and the OAuth callback.
+- TOTP two-factor authentication with recovery codes. One code authenticates
+  one time. The gate covers the password, the magic link, and the OAuth
+  callback.
 - Plugins are first class. The official Magic Link plugin uses the same public
   plugin API that a third-party plugin uses.
 - One OpenAPI contract produces the official TypeScript client.

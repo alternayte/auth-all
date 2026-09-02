@@ -8,6 +8,7 @@ import (
 
 	"github.com/alternayte/auth-all/apierr"
 	"github.com/alternayte/auth-all/events"
+	"github.com/alternayte/auth-all/internal/crypto"
 	"github.com/alternayte/auth-all/internal/totp"
 	"github.com/alternayte/auth-all/openapi"
 	"github.com/alternayte/auth-all/plugin"
@@ -30,7 +31,8 @@ func (a *Auth) registerTOTPRoutes() {
 		"totpConfirm", "Complete the enrolment of a second factor", tag,
 		openapi.JSONBody(openapi.Object([]string{"code"},
 			map[string]*openapi.Schema{"code": openapi.String()})),
-		"The second factor is active", openapi.Ref("SuccessResponse"),
+		"The second factor is active and the recovery codes are returned",
+		openapi.Ref("TOTPConfirmResponse"),
 		&openapi.ClientBinding{Namespace: "totp", Method: "confirm"},
 		"400", "401", "403", "429"))
 
@@ -44,6 +46,26 @@ func (a *Auth) registerTOTPRoutes() {
 		"The session is created", openapi.Ref("AuthResponse"),
 		&openapi.ClientBinding{Namespace: "totp", Method: "verify"},
 		"400", "401", "429"))
+
+	a.handle(http.MethodPost, "/totp/recovery", a.handleTOTPRecovery, operation(
+		"totpRecovery", "Complete a sign-in with a recovery code", tag,
+		openapi.JSONBody(openapi.Object([]string{"code"},
+			map[string]*openapi.Schema{
+				"code":     openapi.String(),
+				"mfaToken": openapi.String(),
+			})),
+		"The session is created and the second factor is removed",
+		openapi.Ref("AuthResponse"),
+		&openapi.ClientBinding{Namespace: "totp", Method: "recovery"},
+		"400", "401", "429"))
+
+	a.handle(http.MethodPost, "/totp/recovery-codes/regenerate", a.handleTOTPRegenerate, operation(
+		"totpRegenerateRecoveryCodes", "Replace the recovery codes of the current user", tag,
+		openapi.JSONBody(openapi.Object([]string{"code"},
+			map[string]*openapi.Schema{"code": openapi.String()})),
+		"A new set of recovery codes", openapi.Ref("RecoveryCodesResponse"),
+		&openapi.ClientBinding{Namespace: "totp", Method: "regenerateRecoveryCodes"},
+		"400", "401", "403", "429"))
 
 	a.handle(http.MethodPost, "/totp/disable", a.handleTOTPDisable, operation(
 		"totpDisable", "Remove the second factor of the current user", tag,
@@ -201,11 +223,19 @@ func (a *Auth) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, publicError(err))
 		return
 	}
+	// The codes arrive with the confirmation, so every enrolled user holds a
+	// way back by construction. A separate endpoint would let a user finish
+	// the enrolment and never call it.
+	codes, err := a.issueRecoveryCodes(ctx, user.ID)
+	if err != nil {
+		a.writeError(w, err)
+		return
+	}
 	// A user who turns on a second factor usually suspects a compromise, so a
 	// session that existed before the upgrade must not survive it.
 	a.revokeOtherSessions(ctx, user.ID, sess.ID)
 	a.emitter.Emit(ctx, events.TOTPEnabled, user.ID, nil)
-	a.writeJSON(w, http.StatusOK, successResponse{Success: true})
+	a.writeJSON(w, http.StatusOK, totpConfirmResponse{Success: true, RecoveryCodes: codes})
 }
 
 func (a *Auth) handleTOTPDisable(w http.ResponseWriter, r *http.Request) {
@@ -243,8 +273,34 @@ func (a *Auth) handleTOTPDisable(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, publicError(err))
 		return
 	}
+	// The codes belong to the enrolment, so they go with it. A list that
+	// outlives its enrolment would authenticate a later one.
+	if _, err := a.cfg.store.RecoveryCodes().DeleteByUser(ctx, user.ID); err != nil {
+		a.cfg.logger.Error("authall: cannot remove the recovery codes", "error", err.Error())
+	}
 	a.emitter.Emit(ctx, events.TOTPDisabled, user.ID, nil)
 	a.writeJSON(w, http.StatusOK, successResponse{Success: true})
+}
+
+// RecoveryCodeCount is the number of recovery codes of one enrolment.
+const RecoveryCodeCount = 10
+
+// issueRecoveryCodes writes a new set of recovery codes for a user and returns
+// the plaintext values. The plaintext exists only in the return value, and the
+// database keeps the SHA-256 hash.
+func (a *Auth) issueRecoveryCodes(ctx context.Context, userID string) ([]string, error) {
+	codes, err := crypto.NewRecoveryCodes(RecoveryCodeCount)
+	if err != nil {
+		return nil, apierr.ErrInternal.WithCause(err)
+	}
+	hashes := make([]string, 0, len(codes))
+	for _, c := range codes {
+		hashes = append(hashes, crypto.HashToken(crypto.NormalizeRecoveryCode(c)))
+	}
+	if err := a.cfg.store.RecoveryCodes().ReplaceAll(ctx, userID, hashes); err != nil {
+		return nil, publicError(err)
+	}
+	return codes, nil
 }
 
 // MFATokenKind names the one-time token of a pending second factor.
@@ -404,4 +460,118 @@ func (a *Auth) handleTOTPVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.writeJSON(w, http.StatusOK, authResponse{User: toUserDTO(user), Session: toSessionDTO(sess)})
+}
+
+func (a *Auth) handleTOTPRecovery(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if err := a.checkOrigin(r); err != nil {
+		a.writeError(w, err)
+		return
+	}
+	var req totpVerifyRequest
+	if err := a.decodeJSON(r, &req); err != nil {
+		a.writeError(w, err)
+		return
+	}
+	challenge := a.requestMFAToken(r, req.MFAToken)
+	if challenge == "" {
+		a.writeError(w, apierr.ErrInvalidToken)
+		return
+	}
+	if !a.allow(ctx, w, ratelimit.Key{
+		Operation: ratelimit.OpTOTP, IP: a.clientIP(r),
+	}) {
+		return
+	}
+	tok, err := a.consumeToken(ctx, MFATokenKind, challenge)
+	if err != nil {
+		a.clearMFACookie(w)
+		a.writeError(w, err)
+		return
+	}
+	a.clearMFACookie(w)
+	if tok.UserID == nil {
+		a.writeError(w, apierr.ErrInvalidToken)
+		return
+	}
+	user, err := a.cfg.store.Users().GetByID(ctx, *tok.UserID)
+	if err != nil {
+		a.writeError(w, publicError(err))
+		return
+	}
+	// The statement names the user, so a code of another user never matches.
+	// The match and the removal are one operation, so one code authenticates
+	// one time.
+	ok, err := a.cfg.store.RecoveryCodes().Consume(ctx, user.ID,
+		crypto.HashToken(crypto.NormalizeRecoveryCode(req.Code)))
+	if err != nil {
+		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		return
+	}
+	if !ok {
+		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{"reason": "invalid_recovery_code"})
+		a.writeError(w, apierr.ErrInvalidRecoveryCode)
+		return
+	}
+	// A person who spends a recovery code lost their authenticator. The
+	// enrolment goes with it, so the account is not left with a factor that
+	// the owner cannot satisfy. The remaining codes go too, so a leaked list
+	// is worthless afterwards.
+	if err := a.cfg.store.TOTP().Delete(ctx, user.ID); err != nil && !isNotFound(err) {
+		a.writeError(w, publicError(err))
+		return
+	}
+	if _, err := a.cfg.store.RecoveryCodes().DeleteByUser(ctx, user.ID); err != nil {
+		a.cfg.logger.Error("authall: cannot remove the recovery codes", "error", err.Error())
+	}
+	a.emitter.Emit(ctx, events.TOTPDisabled, user.ID, map[string]any{"reason": "recovery_code"})
+	sess, err := a.issueSession(ctx, w, r, user, "totp-recovery")
+	if err != nil {
+		a.writeError(w, err)
+		return
+	}
+	a.writeJSON(w, http.StatusOK, authResponse{User: toUserDTO(user), Session: toSessionDTO(sess)})
+}
+
+func (a *Auth) handleTOTPRegenerate(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if err := a.checkOrigin(r); err != nil {
+		a.writeError(w, err)
+		return
+	}
+	sess, user := a.requireSession(w, r)
+	if sess == nil {
+		return
+	}
+	var req totpCodeRequest
+	if err := a.decodeJSON(r, &req); err != nil {
+		a.writeError(w, err)
+		return
+	}
+	if !a.allow(ctx, w, ratelimit.Key{
+		Operation: ratelimit.OpTOTP, IP: a.clientIP(r), UserID: user.ID,
+	}) {
+		return
+	}
+	rec, secret, err := a.totpEnrolment(ctx, user.ID)
+	if err != nil {
+		a.writeError(w, err)
+		return
+	}
+	if rec.ConfirmedAt == nil {
+		a.writeError(w, apierr.ErrTOTPNotEnrolled)
+		return
+	}
+	// A current code proves the device. A session alone must not replace the
+	// list that recovers the account.
+	if err := a.verifyTOTPCode(ctx, rec, secret, req.Code); err != nil {
+		a.writeError(w, err)
+		return
+	}
+	codes, err := a.issueRecoveryCodes(ctx, user.ID)
+	if err != nil {
+		a.writeError(w, err)
+		return
+	}
+	a.writeJSON(w, http.StatusOK, recoveryCodesResponse{RecoveryCodes: codes})
 }
