@@ -1,17 +1,17 @@
 // Package google implements the Google OpenID Connect provider for Auth-All.
+//
+// Google is a conformant OpenID Connect issuer, so this package is a preset
+// over the generic provider in oauth/oidc. One code path carries the identity
+// token verification, so a defect is repaired one time.
 package google
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"net/http"
-	"net/url"
-	"strings"
 	"time"
 
-	"github.com/alternayte/auth-all/internal/jwt"
 	"github.com/alternayte/auth-all/oauth"
+	"github.com/alternayte/auth-all/oauth/oidc"
 )
 
 // ProviderID is the stable identifier of this provider.
@@ -27,60 +27,59 @@ const (
 
 // Provider is the Google OpenID Connect provider.
 type Provider struct {
-	clientID     string
-	clientSecret string
-	scopes       []string
-	authURL      string
-	tokenURL     string
-	issuer       string
-	client       *http.Client
-	keys         *jwt.KeySet
-	now          func() time.Time
+	opts  []oidc.Option
+	inner *oidc.Provider
 }
 
 // Option configures the provider.
 type Option func(*Provider)
 
 // WithClientID sets the OAuth client id.
-func WithClientID(v string) Option { return func(p *Provider) { p.clientID = v } }
+func WithClientID(v string) Option { return add(oidc.WithClientID(v)) }
 
 // WithClientSecret sets the OAuth client secret.
-func WithClientSecret(v string) Option { return func(p *Provider) { p.clientSecret = v } }
+func WithClientSecret(v string) Option { return add(oidc.WithClientSecret(v)) }
 
 // WithScopes replaces the requested scopes.
-func WithScopes(v ...string) Option { return func(p *Provider) { p.scopes = v } }
+func WithScopes(v ...string) Option { return add(oidc.WithScopes(v...)) }
 
 // WithHTTPClient sets the HTTP client used for provider calls.
-func WithHTTPClient(c *http.Client) Option { return func(p *Provider) { p.client = c } }
+func WithHTTPClient(c *http.Client) Option { return add(oidc.WithHTTPClient(c)) }
 
 // WithEndpoints overrides the provider endpoints and the expected issuer. Tests
 // use it to point at a deterministic fake Google server.
 func WithEndpoints(authURL, tokenURL, jwksURL, issuer string) Option {
 	return func(p *Provider) {
-		p.authURL, p.tokenURL, p.issuer = authURL, tokenURL, issuer
-		p.keys = jwt.NewKeySet(jwksURL, p.client)
+		p.opts = append(p.opts,
+			oidc.WithEndpoints(authURL, tokenURL, jwksURL),
+			oidc.WithIssuer(issuer))
 	}
 }
 
 // WithClock replaces the clock used for token expiry validation.
-func WithClock(now func() time.Time) Option { return func(p *Provider) { p.now = now } }
+func WithClock(now func() time.Time) Option { return add(oidc.WithClock(now)) }
+
+// add lifts a generic option into a Google option.
+func add(o oidc.Option) Option {
+	return func(p *Provider) { p.opts = append(p.opts, o) }
+}
 
 // New returns a Google provider.
+//
+// Google publishes a discovery document, and this preset names the endpoints
+// directly. The endpoints are stable and documented, so the first sign-in needs
+// no extra round trip.
 func New(opts ...Option) *Provider {
-	p := &Provider{
-		scopes:   []string{"openid", "email", "profile"},
-		authURL:  DefaultAuthURL,
-		tokenURL: DefaultTokenURL,
-		issuer:   DefaultIssuer,
-		client:   http.DefaultClient,
-		now:      time.Now,
-	}
+	p := &Provider{}
 	for _, o := range opts {
 		o(p)
 	}
-	if p.keys == nil {
-		p.keys = jwt.NewKeySet(DefaultJWKSURL, p.client)
+	base := []oidc.Option{
+		oidc.WithID(ProviderID),
+		oidc.WithIssuer(DefaultIssuer),
+		oidc.WithEndpoints(DefaultAuthURL, DefaultTokenURL, DefaultJWKSURL),
 	}
+	p.inner = oidc.New(append(base, p.opts...)...)
 	return p
 }
 
@@ -88,91 +87,18 @@ func New(opts ...Option) *Provider {
 func (p *Provider) ID() string { return ProviderID }
 
 // SupportsPKCE implements oauth.Provider.
-func (p *Provider) SupportsPKCE() bool { return true }
+func (p *Provider) SupportsPKCE() bool { return p.inner.SupportsPKCE() }
 
 // Validate reports missing configuration.
-func (p *Provider) Validate() error {
-	if p.clientID == "" || p.clientSecret == "" {
-		return fmt.Errorf("authall/oauth/google: the client id and the client secret are required")
-	}
-	return nil
-}
+func (p *Provider) Validate() error { return p.inner.Validate() }
 
 // AuthCodeURL implements oauth.Provider.
 func (p *Provider) AuthCodeURL(req oauth.AuthRequest) (string, error) {
-	if err := p.Validate(); err != nil {
-		return "", err
-	}
-	q := url.Values{}
-	q.Set("client_id", p.clientID)
-	q.Set("redirect_uri", req.RedirectURI)
-	q.Set("response_type", "code")
-	q.Set("scope", strings.Join(p.scopes, " "))
-	q.Set("state", req.State)
-	if req.Nonce != "" {
-		q.Set("nonce", req.Nonce)
-	}
-	if req.CodeChallenge != "" {
-		q.Set("code_challenge", req.CodeChallenge)
-		q.Set("code_challenge_method", "S256")
-	}
-	return p.authURL + "?" + q.Encode(), nil
-}
-
-type tokenResponse struct {
-	AccessToken string `json:"access_token"`
-	IDToken     string `json:"id_token"`
-	Error       string `json:"error"`
+	return p.inner.AuthCodeURL(req)
 }
 
 // Exchange implements oauth.Provider. It validates the issuer, the audience,
 // the nonce, the expiry, and the signature of the identity token.
 func (p *Provider) Exchange(ctx context.Context, req oauth.ExchangeRequest) (*oauth.Identity, error) {
-	if err := p.Validate(); err != nil {
-		return nil, err
-	}
-	form := url.Values{}
-	form.Set("client_id", p.clientID)
-	form.Set("client_secret", p.clientSecret)
-	form.Set("code", req.Code)
-	form.Set("redirect_uri", req.RedirectURI)
-	form.Set("grant_type", "authorization_code")
-	if req.CodeVerifier != "" {
-		form.Set("code_verifier", req.CodeVerifier)
-	}
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.tokenURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return nil, err
-	}
-	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	httpReq.Header.Set("Accept", "application/json")
-	resp, err := p.client.Do(httpReq)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	var token tokenResponse
-	if err := json.NewDecoder(resp.Body).Decode(&token); err != nil {
-		return nil, fmt.Errorf("%w: the token response is malformed", oauth.ErrProviderRejected)
-	}
-	if token.Error != "" || token.IDToken == "" {
-		return nil, fmt.Errorf("%w: the token exchange failed", oauth.ErrProviderRejected)
-	}
-	claims, err := p.keys.Verify(ctx, token.IDToken, jwt.Verification{
-		Issuer:   p.issuer,
-		Audience: p.clientID,
-		Nonce:    req.Nonce,
-		Now:      p.now(),
-		Leeway:   time.Minute,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s", oauth.ErrProviderRejected, "the identity token is invalid")
-	}
-	return &oauth.Identity{
-		ProviderAccountID: claims.Subject,
-		Email:             claims.Email,
-		EmailVerified:     claims.VerifiedEmail(),
-		DisplayName:       claims.Name,
-		ImageURL:          claims.Picture,
-	}, nil
+	return p.inner.Exchange(ctx, req)
 }
