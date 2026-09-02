@@ -4,6 +4,15 @@ on:
   push:
     tags:
       - "v*"
+  # A manual run publishes the client for a tag that already exists. The binary
+  # release runs only for a tag push, so a manual run never tries to create a
+  # GitHub release a second time.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "The existing tag to publish the client from, for example v0.2.0"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -11,6 +20,7 @@ permissions:
 jobs:
   goreleaser:
     name: Build and publish the release
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -34,30 +44,46 @@ jobs:
     name: Publish the TypeScript client
     runs-on: ubuntu-latest
     needs: goreleaser
+    # A manual run skips the binary release, so the client still publishes.
+    if: always() && needs.goreleaser.result != 'failure' && needs.goreleaser.result != 'cancelled'
     permissions:
       contents: read
+      # Trusted publishing proves the identity of this workflow to npm through
+      # OIDC, so the job needs no token.
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
 
+      # The job sets no registry-url. That option writes an .npmrc which expects
+      # an auth token, and an empty token there can defeat the OIDC exchange.
+      # The default registry is already registry.npmjs.org.
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
           node-version: "24"
-          registry-url: "https://registry.npmjs.org"
+
+      # Trusted publishing needs npm 11.5.1 or newer. The version that Node
+      # bundles is not guaranteed to be new enough, so the job pins it.
+      - name: Use an npm that supports trusted publishing
+        run: |
+          npm install -g npm@latest
+          npm --version
 
       - name: Install the dependencies
         run: npm ci
 
       - name: Take the version from the tag
         run: |
+          tag="${{ inputs.tag || github.ref_name }}"
           npm version --no-git-tag-version --allow-same-version \
-            "${GITHUB_REF_NAME#v}" -w clients/typescript
+            "${tag#v}" -w clients/typescript
 
       - name: Build the client
         run: npm run build -w clients/typescript
 
+      # No NODE_AUTH_TOKEN. npm resolves the trusted publisher of the package
+      # from the workflow identity, and it generates the provenance statement.
       - name: Publish the client
         run: npm publish -w clients/typescript --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
