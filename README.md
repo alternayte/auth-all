@@ -5,7 +5,7 @@ Auth-All is an authentication framework that runs inside a Go application.
 It provides the capabilities a developer normally assembles from several
 libraries: users, accounts, database-backed sessions, email and password
 authentication, email verification, password reset, TOTP two-factor
-authentication, magic links, OAuth,
+authentication, magic links, OAuth and OpenID Connect,
 account linking, plugins, schema tooling, an OpenAPI contract, and a generated
 TypeScript client.
 
@@ -88,6 +88,7 @@ go run github.com/alternayte/auth-all/cmd/auth-all migrate \
 | [Two-factor authentication](docs/guides/totp.md) | TOTP enrolment and sign-in. |
 | [Magic Link](docs/guides/magic-link.md) | The official sign-in link plugin. |
 | [GitHub OAuth](docs/guides/github-oauth.md) | GitHub sign-in. |
+| [Any OpenID Connect provider](docs/guides/oidc.md) | Keycloak, Auth0, Okta, Entra ID, and any conformant issuer. |
 | [Google OAuth](docs/guides/google-oauth.md) | Google sign-in. |
 | [Account management](docs/guides/account-management.md) | Password change, address change, and account delete. |
 | [Account linking](docs/guides/account-linking.md) | The linking policy and its threats. |

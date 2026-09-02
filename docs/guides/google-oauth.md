@@ -1,5 +1,9 @@
 # Google OAuth
 
+Google is a preset over the [generic OpenID Connect provider](oidc.md). The two
+share one identity token verification, so this package holds the endpoints and
+nothing else.
+
 ```go
 authall.WithBaseURL("https://app.example.com"),
 authall.WithProvider(

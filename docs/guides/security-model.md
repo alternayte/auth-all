@@ -90,14 +90,31 @@ out.
 - The authorization code flow is the only supported flow.
 - Auth-All stores a hashed, single-use, short-lived state value, and it binds
   the state to the provider that created it.
-- PKCE protects a provider that supports it. Google does. GitHub does not
-  accept a challenge on its OAuth app endpoint.
+- PKCE protects a provider that supports it. Every OpenID Connect provider
+  does, and Google is one of them. GitHub does not accept a challenge on its
+  OAuth app endpoint.
 - Auth-All always sends its own callback URL, so a provider cannot be told to
   redirect somewhere else.
 - A short-lived `HttpOnly` cookie binds the pending request to the browser that
   started it. A callback from another browser is rejected, so a state value
   that an attacker obtained cannot be completed in the browser of another
   person.
+
+## OpenID Connect
+
+- Auth-All verifies the RS256 signature of every identity token against the
+  published key set of the issuer, and it checks `iss`, `aud`, `exp`, and
+  `nonce`.
+- The discovery document must name the configured issuer, and every endpoint
+  it names must be HTTPS. A loopback host is the one exception, because a local
+  development issuer cannot hold a certificate. The document is
+  attacker-controlled input the moment the issuer is misconfigured.
+- `sub` keys the account and never the address.
+- A subject is unique inside one issuer and nowhere else, so the provider
+  identifier is part of the account key. Two issuers that report one subject
+  name two people, and they reach two accounts.
+- Auth-All refuses two providers that share an identifier, so a generic
+  provider cannot take over the accounts of a preset.
 - A provider link completes only when the callback request is authenticated as
   the user that started the link.
 - An OpenID Connect identity token is accepted only after Auth-All validates
