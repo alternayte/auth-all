@@ -200,6 +200,20 @@ the [migrations guide](migrations-cli.md).
 | A request fails with a schema error at startup. | The migration did not run. | Run `auth-all migrate` in the deploy step. |
 | A magic link stops working before the person opens it. | A mail scanner pre-fetched the link. | Keep the default confirmation step. See the [magic link guide](magic-link.md). |
 | A person loses their session after 7 quiet days. | The idle timeout fired. | Raise it with `WithSessionLifetime`. |
+| A sign-in returns 200 with no user and no session. | The account holds a second factor. | Read `mfaRequired` and call `POST /totp/verify`. See the [two-factor guide](totp.md). |
+| A code is refused right after it worked. | One code authenticates one time. | Wait for the next code. |
+| A provider sign-in returns to the application signed out. | The account holds a second factor. | Read `?mfa=required` and ask for a code. |
+| Every code is refused after a deploy to a second host. | The server clock drifted. | Auth-All accepts one step of skew, which is 30 seconds. Run NTP. |
+
+## The two-factor cookie
+
+A redirect flow that needs a second factor sets `<session cookie>.mfa`. It
+follows the `Domain` and the `Secure` attribute of the session cookie, so the
+same-site rules above apply to it without a separate decision.
+
+Its `SameSite` is always `Lax`, because the provider redirects the browser to
+your host from a different site. A `Strict` cookie would not survive that
+redirect.
 
 ## A production checklist
 
@@ -213,3 +227,7 @@ the [migrations guide](migrations-cli.md).
 - [ ] The deploy runs the migration, and startup calls `CheckSchema`.
 - [ ] A periodic job calls `Cleanup`.
 - [ ] The session lifetimes match the risk of the application.
+- [ ] The server clock runs NTP, because a drifted clock refuses every TOTP
+      code.
+- [ ] The application supplies a recovery path for a lost authenticator, because
+      Auth-All ships no recovery codes.

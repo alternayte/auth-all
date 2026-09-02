@@ -37,6 +37,12 @@ Auth-All also sets a short-lived cookie named `<session cookie>.oauth_state`
 while a provider sign-in is pending. It carries no session and disappears when
 the flow completes.
 
+A second cookie named `<session cookie>.mfa` appears when a redirect flow needs
+a second factor. It lives five minutes, it carries no session, and it grants
+only the right to attempt the code. See the
+[two-factor guide](totp.md). Both cookies use the name of the session cookie as
+their prefix, so a custom cookie name moves all three together.
+
 ## Lifetime
 
 A session has two deadlines. One value cannot serve both, because a stolen

@@ -97,6 +97,9 @@ authenticates nothing. It carries only the right to attempt the second step.
 The token never appears in the URL. A query parameter reaches the browser
 history, the server log, and any Referer header that the application leaks.
 
+The [sessions guide](sessions.md) describes the cookie beside the other two
+that Auth-All sets.
+
 Read the marker and ask for a code. Send no token, because the cookie carries
 it:
 
@@ -137,6 +140,24 @@ disables it inside the same thirty seconds must wait for the next code.
 `INVALID_TOTP_CODE` names no reason. A wrong code and a replayed code look
 equal, so the response discloses nothing.
 
+## Events
+
+| Event | Emitted |
+| --- | --- |
+| `auth.totp_enabled` | A user confirmed an enrolment. |
+| `auth.totp_disabled` | A user removed the second factor. |
+| `auth.sign_in_failed` | A code was refused at `POST /totp/verify`. The reason is `invalid_totp_code`. |
+
+```go
+authall.WithEventHandler(events.HandlerFunc(func(ctx context.Context, e events.Event) {
+    if e.Name == events.TOTPDisabled {
+        notifyTheOwner(ctx, e.UserID)
+    }
+}))
+```
+
+An event never carries the secret or a code.
+
 ## Rate limits
 
 The three endpoints run under the operation `totp`, keyed by user. A six-digit
@@ -157,7 +178,8 @@ same database as the secret, so it adds no protection. An application that
 needs encryption at rest applies it at the column or at the volume.
 
 An attacker who reads the table can generate codes. Treat `auth_totp` with the
-same care as `auth_credentials`.
+same care as `auth_credentials`. The
+[security model](security-model.md) states the complete threat position.
 
 ## A lost device
 
