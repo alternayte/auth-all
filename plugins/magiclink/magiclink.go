@@ -404,9 +404,19 @@ func (p *Plugin) completeVerify(w http.ResponseWriter, r *http.Request, token, c
 		httpSvc.WriteError(w, err)
 		return
 	}
-	if _, err := p.svc.Sessions().Issue(ctx, w, r, user, ID); err != nil {
+	// A used link proves the address. It does not prove the second factor, so
+	// a user who holds one reaches a challenge and no session. A gate that
+	// guards only the password path is not a gate.
+	challenge, mfaRequired, err := p.svc.MFA().Challenge(ctx, user)
+	if err != nil {
 		httpSvc.WriteError(w, err)
 		return
+	}
+	if !mfaRequired {
+		if _, err := p.svc.Sessions().Issue(ctx, w, r, user, ID); err != nil {
+			httpSvc.WriteError(w, err)
+			return
+		}
 	}
 	p.svc.Events().Emit(ctx, events.MagicLinkUsed, user.ID, nil)
 	fallback := p.callbackURL
@@ -416,6 +426,20 @@ func (p *Plugin) completeVerify(w http.ResponseWriter, r *http.Request, token, c
 	target := httpSvc.SafeRedirect(callbackURL, fallback)
 	if target == "" {
 		target = "/"
+	}
+	if mfaRequired {
+		if asJSON {
+			httpSvc.WriteJSON(w, http.StatusOK, map[string]any{
+				"mfaRequired": true,
+				"mfaToken":    challenge,
+				"redirectTo":  target,
+			})
+			return
+		}
+		// The redirect carries no token. The challenge cookie carries it.
+		p.svc.MFA().SetCookie(w, challenge)
+		http.Redirect(w, r, p.svc.MFA().MarkRedirect(target), http.StatusSeeOther)
+		return
 	}
 	if asJSON {
 		httpSvc.WriteJSON(w, http.StatusOK, map[string]string{"redirectTo": target})

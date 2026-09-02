@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"errors"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/google/uuid"
@@ -268,12 +269,27 @@ func (a *Auth) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, err)
 		return
 	}
+	// A user with a live second factor receives a challenge instead of a
+	// session. The redirect carries no token, because a query parameter
+	// reaches the browser history, the server log, and any Referer header
+	// that the application leaks. The challenge cookie carries it instead.
+	challenge, required, err := a.mfaChallenge(ctx, user)
+	if err != nil {
+		a.writeError(w, err)
+		return
+	}
+	target := a.safeRedirect(record.RedirectTo, a.cfg.baseURL)
+	if required {
+		a.setMFACookie(w, challenge)
+		http.Redirect(w, r, withMFAMarker(target), http.StatusFound)
+		return
+	}
 	if _, err := a.issueSession(ctx, w, r, user, p.ID()); err != nil {
 		a.writeError(w, err)
 		return
 	}
 	a.emitter.Emit(ctx, events.OAuthCompleted, user.ID, map[string]any{"provider": p.ID()})
-	http.Redirect(w, r, a.safeRedirect(record.RedirectTo, a.cfg.baseURL), http.StatusFound)
+	http.Redirect(w, r, target, http.StatusFound)
 }
 
 // resolveOAuthUser applies the account linking policy of Auth-All.
@@ -523,4 +539,17 @@ func (a *Auth) handleAccountUnlink(w http.ResponseWriter, r *http.Request) {
 	}
 	a.emitter.Emit(ctx, events.AccountUnlinked, user.ID, map[string]any{"provider": providerID})
 	a.writeJSON(w, http.StatusOK, successResponse{Success: true})
+}
+
+// withMFAMarker adds the marker that tells the application to ask for a code.
+// The marker names no token, so it is safe in a URL.
+func withMFAMarker(target string) string {
+	u, err := url.Parse(target)
+	if err != nil {
+		return target
+	}
+	q := u.Query()
+	q.Set("mfa", "required")
+	u.RawQuery = q.Encode()
+	return u.String()
 }

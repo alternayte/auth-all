@@ -4,11 +4,13 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/alternayte/auth-all/apierr"
 	"github.com/alternayte/auth-all/events"
 	"github.com/alternayte/auth-all/internal/totp"
 	"github.com/alternayte/auth-all/openapi"
+	"github.com/alternayte/auth-all/plugin"
 	"github.com/alternayte/auth-all/ratelimit"
 	"github.com/alternayte/auth-all/store"
 )
@@ -31,6 +33,17 @@ func (a *Auth) registerTOTPRoutes() {
 		"The second factor is active", openapi.Ref("SuccessResponse"),
 		&openapi.ClientBinding{Namespace: "totp", Method: "confirm"},
 		"400", "401", "403", "429"))
+
+	a.handle(http.MethodPost, "/totp/verify", a.handleTOTPVerify, operation(
+		"totpVerify", "Complete a sign-in with a second factor", tag,
+		openapi.JSONBody(openapi.Object([]string{"code"},
+			map[string]*openapi.Schema{
+				"code":     openapi.String(),
+				"mfaToken": openapi.String(),
+			})),
+		"The session is created", openapi.Ref("AuthResponse"),
+		&openapi.ClientBinding{Namespace: "totp", Method: "verify"},
+		"400", "401", "429"))
 
 	a.handle(http.MethodPost, "/totp/disable", a.handleTOTPDisable, operation(
 		"totpDisable", "Remove the second factor of the current user", tag,
@@ -232,4 +245,163 @@ func (a *Auth) handleTOTPDisable(w http.ResponseWriter, r *http.Request) {
 	}
 	a.emitter.Emit(ctx, events.TOTPDisabled, user.ID, nil)
 	a.writeJSON(w, http.StatusOK, successResponse{Success: true})
+}
+
+// MFATokenKind names the one-time token of a pending second factor.
+const MFATokenKind = "mfa"
+
+// mfaChallengeTTL is the lifetime of a pending second factor. It is short,
+// because the challenge stands between a proven password and a session.
+const mfaChallengeTTL = 5 * time.Minute
+
+// mfaCookieSuffix names the cookie that carries a challenge across a redirect
+// flow. The cookie holds no session and authenticates nothing. It carries only
+// the right to attempt the second step.
+const mfaCookieSuffix = ".mfa"
+
+// mfaCookieName returns the name of the challenge cookie.
+func (a *Auth) mfaCookieName() string { return a.cfg.cookie.Name + mfaCookieSuffix }
+
+// totpConfirmed reports whether a user holds a live second factor.
+func (a *Auth) totpConfirmed(ctx context.Context, userID string) (bool, error) {
+	if !a.cfg.totpEnabled {
+		return false, nil
+	}
+	rec, err := a.cfg.store.TOTP().Get(ctx, userID)
+	if err != nil {
+		if isNotFound(err) {
+			return false, nil
+		}
+		return false, apierr.ErrInternal.WithCause(err)
+	}
+	return rec.ConfirmedAt != nil, nil
+}
+
+// mfaChallenge reports whether a user must pass a second factor, and returns a
+// challenge token when so.
+//
+// The caller must not create a session while required is true. The challenge
+// token is a one-time token, so the store gives it a hash at rest and an
+// atomic single consume.
+func (a *Auth) mfaChallenge(ctx context.Context, user *store.User) (token string, required bool, err error) {
+	confirmed, err := a.totpConfirmed(ctx, user.ID)
+	if err != nil || !confirmed {
+		return "", false, err
+	}
+	userID := user.ID
+	plaintext, _, err := a.issueToken(ctx, plugin.IssueTokenInput{
+		Kind:   MFATokenKind,
+		UserID: &userID,
+		// One pending challenge per user. A second sign-in replaces the first,
+		// so an abandoned attempt cannot stay open for its full lifetime.
+		Identifier:      userID,
+		ReplaceExisting: true,
+		TTL:             mfaChallengeTTL,
+	})
+	if err != nil {
+		return "", false, err
+	}
+	return plaintext, true, nil
+}
+
+// setMFACookie writes the challenge cookie of a redirect flow.
+func (a *Auth) setMFACookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     a.mfaCookieName(),
+		Value:    token,
+		Path:     a.cfg.cookie.Path,
+		Domain:   a.cfg.cookie.Domain,
+		MaxAge:   int(mfaChallengeTTL.Seconds()),
+		HttpOnly: true,
+		Secure:   a.cookieSecure(),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// clearMFACookie removes the challenge cookie.
+func (a *Auth) clearMFACookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     a.mfaCookieName(),
+		Value:    "",
+		Path:     a.cfg.cookie.Path,
+		Domain:   a.cfg.cookie.Domain,
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   a.cookieSecure(),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// requestMFAToken returns the challenge token of a request. The body carries it
+// for a JSON flow, and the challenge cookie carries it for a redirect flow.
+func (a *Auth) requestMFAToken(r *http.Request, body string) string {
+	if body != "" {
+		return body
+	}
+	if c, err := r.Cookie(a.mfaCookieName()); err == nil {
+		return c.Value
+	}
+	return ""
+}
+
+func (a *Auth) handleTOTPVerify(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if err := a.checkOrigin(r); err != nil {
+		a.writeError(w, err)
+		return
+	}
+	var req totpVerifyRequest
+	if err := a.decodeJSON(r, &req); err != nil {
+		a.writeError(w, err)
+		return
+	}
+	challenge := a.requestMFAToken(r, req.MFAToken)
+	if challenge == "" {
+		a.writeError(w, apierr.ErrInvalidToken)
+		return
+	}
+	if !a.allow(ctx, w, ratelimit.Key{
+		Operation: ratelimit.OpTOTP, IP: a.clientIP(r),
+	}) {
+		return
+	}
+	// The challenge is consumed before the code is checked. A wrong code
+	// therefore costs the attacker the whole challenge, so the endpoint gives
+	// no unlimited guessing window against one stolen password.
+	tok, err := a.consumeToken(ctx, MFATokenKind, challenge)
+	if err != nil {
+		a.clearMFACookie(w)
+		a.writeError(w, err)
+		return
+	}
+	a.clearMFACookie(w)
+	if tok.UserID == nil {
+		a.writeError(w, apierr.ErrInvalidToken)
+		return
+	}
+	user, err := a.cfg.store.Users().GetByID(ctx, *tok.UserID)
+	if err != nil {
+		a.writeError(w, publicError(err))
+		return
+	}
+	rec, secret, err := a.totpEnrolment(ctx, user.ID)
+	if err != nil {
+		a.writeError(w, err)
+		return
+	}
+	if rec.ConfirmedAt == nil {
+		a.writeError(w, apierr.ErrTOTPNotEnrolled)
+		return
+	}
+	if err := a.verifyTOTPCode(ctx, rec, secret, req.Code); err != nil {
+		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{"reason": "invalid_totp_code"})
+		a.writeError(w, err)
+		return
+	}
+	sess, err := a.issueSession(ctx, w, r, user, "totp")
+	if err != nil {
+		a.writeError(w, err)
+		return
+	}
+	a.writeJSON(w, http.StatusOK, authResponse{User: toUserDTO(user), Session: toSessionDTO(sess)})
 }

@@ -305,6 +305,18 @@ func (a *Auth) handleSignInEmail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// The password is proven. A user with a live second factor receives a
+	// challenge instead of a session, so no cookie exists before the second
+	// proof.
+	challenge, required, err := a.mfaChallenge(ctx, user)
+	if err != nil {
+		a.writeError(w, err)
+		return
+	}
+	if required {
+		a.writeJSON(w, http.StatusOK, authResponse{MFARequired: true, MFAToken: challenge})
+		return
+	}
 	sess, err := a.issueSession(ctx, w, r, user, "email")
 	if err != nil {
 		a.writeError(w, err)

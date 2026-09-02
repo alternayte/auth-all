@@ -114,6 +114,9 @@ type Services interface {
 	Tokens() TokenService
 	// HTTP exposes the request helpers Auth-All uses for its own routes.
 	HTTP() HTTPService
+	// MFA exposes the second-factor gate. A plugin that authenticates a user
+	// must consult it before it issues a session.
+	MFA() MFAService
 }
 
 // CreateUserInput describes a new user.
@@ -154,6 +157,25 @@ type UserService interface {
 	// A plugin that proves control of an address must call this method before
 	// it issues a session.
 	ProveEmailOwnership(ctx context.Context, userID string) error
+}
+
+// MFAService is the second-factor gate.
+//
+// A plugin that authenticates a user calls Challenge before it issues a
+// session. A user with a live second factor must reach no session until they
+// prove one code, so a plugin that skips this leaves a bypass of the gate.
+type MFAService interface {
+	// Challenge reports whether the user must pass a second factor, and
+	// returns a single-use challenge token when so. The caller must issue no
+	// session while required is true.
+	Challenge(ctx context.Context, user *store.User) (token string, required bool, err error)
+	// SetCookie writes the challenge into the short-lived challenge cookie. A
+	// redirect flow uses it, because a token in a query parameter reaches the
+	// browser history, the server log, and any leaked Referer header.
+	SetCookie(w http.ResponseWriter, token string)
+	// MarkRedirect adds the marker that tells the application to ask for a
+	// code. The marker names no token, so it is safe in a URL.
+	MarkRedirect(target string) string
 }
 
 // SessionService exposes session operations.

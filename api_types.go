@@ -89,6 +89,12 @@ type authResponse struct {
 	// EmailVerificationRequired reports that the account must verify its email
 	// address before it can sign in.
 	EmailVerificationRequired bool `json:"emailVerificationRequired,omitempty"`
+	// MFARequired reports that a second factor stands between the proven first
+	// factor and a session. User and Session are null while it is true.
+	MFARequired bool `json:"mfaRequired,omitempty"`
+	// MFAToken is the single-use challenge of a pending second factor. A
+	// redirect flow leaves it empty and sets the challenge cookie instead.
+	MFAToken string `json:"mfaToken,omitempty"`
 }
 
 type messageResponse struct {
@@ -141,6 +147,10 @@ func registerCoreSchemas(doc *openapi.Document) {
 			"user":                      {Ref: "#/components/schemas/User", Nullable: true},
 			"session":                   {Ref: "#/components/schemas/Session", Nullable: true},
 			"emailVerificationRequired": openapi.Bool(),
+			// A sign-in of a user with a second factor returns these two and
+			// leaves user and session null.
+			"mfaRequired": openapi.Bool(),
+			"mfaToken":    openapi.String(),
 		}))
 	doc.AddSchema("SessionResponse", openapi.Object(
 		[]string{"user", "session"},
@@ -211,6 +221,14 @@ func registerCoreSchemas(doc *openapi.Document) {
 type totpEnrolResponse struct {
 	Secret string `json:"secret"`
 	URI    string `json:"uri"`
+}
+
+// totpVerifyRequest is the body of a sign-in that completes a second factor.
+// MFAToken is optional, because a redirect flow carries the challenge in the
+// challenge cookie instead.
+type totpVerifyRequest struct {
+	Code     string `json:"code"`
+	MFAToken string `json:"mfaToken"`
 }
 
 // totpCodeRequest is the body of an endpoint that takes one code.

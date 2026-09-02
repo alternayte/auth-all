@@ -206,6 +206,20 @@ The database performs that comparison and the write as one operation. An
 attacker who sends one stolen code over many parallel requests therefore wins
 at most one of them.
 
+A password sign-in of an enrolled user writes no session and sets no session
+cookie. It returns a five-minute single-use challenge instead, and only
+`POST /totp/verify` creates the session. No half-authenticated session cookie
+exists at any point.
+
+The challenge is consumed before the code is checked, so a wrong code costs the
+whole challenge. A stolen password buys no unlimited guessing window against
+the second factor.
+
+The magic link and the OAuth callback apply the same gate. A redirect flow
+carries the challenge in a short-lived HttpOnly cookie, never in a query
+parameter, because a URL reaches the browser history, the server log, and any
+leaked Referer header.
+
 `POST /totp/disable` needs a current code. A stolen session alone cannot remove
 the factor that protects the session.
 

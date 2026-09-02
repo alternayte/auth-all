@@ -1578,6 +1578,82 @@
         }
       }
     },
+    "/api/auth/totp/verify": {
+      "post": {
+        "operationId": "totpVerify",
+        "summary": "Complete a sign-in with a second factor",
+        "tags": [
+          "totp"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string"
+                  },
+                  "mfaToken": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The session is created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "totp",
+          "method": "verify"
+        }
+      }
+    },
     "/api/auth/user/delete": {
       "post": {
         "operationId": "userDelete",
@@ -1729,6 +1805,12 @@
         "properties": {
           "emailVerificationRequired": {
             "type": "boolean"
+          },
+          "mfaRequired": {
+            "type": "boolean"
+          },
+          "mfaToken": {
+            "type": "string"
           },
           "session": {
             "$ref": "#/components/schemas/Session",

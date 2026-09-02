@@ -69,11 +69,48 @@ TypeScript client, so `auth.notes.create(...)` exists without extra work.
 | `Tokens()` | Issue and atomically consume a one-time token. |
 | `Email()` | The configured sender. |
 | `HTTP()` | Origin checks, JSON helpers, safe redirects, the client IP. |
+| `MFA()` | The second-factor gate. |
 | `Events()` | The observability emitter. |
 | `RateLimiter()` | The configured limiter. |
 | `Logger()`, `Now()`, `BasePath()`, `BaseURL()` | Configuration and context. |
 
 A plugin receives no other access to Auth-All internals.
+
+## A plugin that authenticates a user
+
+Call `Services().MFA().Challenge` before you issue a session. A user with a
+live second factor must reach no session until they prove one code. A plugin
+that skips this step opens a bypass of the gate.
+
+```go
+challenge, required, err := p.svc.MFA().Challenge(ctx, user)
+if err != nil {
+    return err
+}
+if required {
+    // Issue no session. Return the challenge to the caller.
+    return httpSvc.WriteJSON(w, http.StatusOK, map[string]any{
+        "mfaRequired": true,
+        "mfaToken":    challenge,
+    })
+}
+session, err := p.svc.Sessions().Issue(ctx, w, r, user, MyPluginID)
+```
+
+A redirect flow must not put the token in the URL. A query parameter reaches
+the browser history, the server log, and any Referer header that the
+application leaks. Use the challenge cookie:
+
+```go
+p.svc.MFA().SetCookie(w, challenge)
+http.Redirect(w, r, p.svc.MFA().MarkRedirect(target), http.StatusSeeOther)
+```
+
+The application then calls `POST /totp/verify` with the code and no token. The
+cookie supplies the challenge.
+
+The official Magic Link plugin uses this path, so it serves as the worked
+example.
 
 ## Hooks
 

@@ -40,6 +40,7 @@ var v1Endpoints = []struct{ Method, Path string }{
 	{"POST", "/api/auth/totp/enrol"},
 	{"POST", "/api/auth/totp/confirm"},
 	{"POST", "/api/auth/totp/disable"},
+	{"POST", "/api/auth/totp/verify"},
 	{"POST", "/api/auth/magic-link/send"},
 	{"GET", "/api/auth/magic-link/verify"},
 	{"POST", "/api/auth/magic-link/verify"},

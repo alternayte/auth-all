@@ -29,6 +29,7 @@ func (s *services) Users() plugin.UserService       { return (*userService)(s) }
 func (s *services) Sessions() plugin.SessionService { return (*sessionService)(s) }
 func (s *services) Tokens() plugin.TokenService     { return (*tokenService)(s) }
 func (s *services) HTTP() plugin.HTTPService        { return (*httpService)(s) }
+func (s *services) MFA() plugin.MFAService          { return (*mfaService)(s) }
 
 type userService services
 
@@ -115,3 +116,15 @@ func (h *httpService) SafeRedirect(candidate, fallback string) string {
 }
 
 func (h *httpService) ClientIP(r *http.Request) string { return h.auth.clientIP(r) }
+
+type mfaService services
+
+func (m *mfaService) Challenge(ctx context.Context, user *store.User) (string, bool, error) {
+	return m.auth.mfaChallenge(ctx, user)
+}
+
+func (m *mfaService) SetCookie(w http.ResponseWriter, token string) {
+	m.auth.setMFACookie(w, token)
+}
+
+func (m *mfaService) MarkRedirect(target string) string { return withMFAMarker(target) }

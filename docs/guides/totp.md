@@ -60,6 +60,52 @@ A user who already holds a confirmed second factor receives
 `TOTP_ALREADY_ENROLLED` from `POST /totp/enrol`. Remove the second factor
 first.
 
+## Sign in with a second factor
+
+A user who holds a confirmed second factor never receives a session from a
+password alone. The sign-in returns a challenge instead.
+
+```ts
+const out = await client.signIn.email({ email, password })
+if (out.mfaRequired) {
+  // out.user and out.session are null. No session cookie exists yet.
+  const auth = await client.totp.verify({ mfaToken: out.mfaToken, code })
+  // The session cookie exists now, and auth.user names the signed-in user.
+}
+```
+
+The challenge token lives for five minutes and works one time. Auth-All
+consumes it before it checks the code, so a wrong code costs the whole
+challenge. The user restarts the sign-in.
+
+One challenge stands per user. A second sign-in replaces the first, so an
+abandoned attempt does not stay open.
+
+**The gate covers every entry point.** A second factor that guards only the
+password path is not a second factor, so the magic link and the OAuth callback
+apply the same rule.
+
+### The redirect flows
+
+The OAuth callback and the magic-link GET redirect to the application, so they
+carry no response body. Auth-All sets a short-lived cookie named
+`<session cookie>.mfa` and redirects to the target with `?mfa=required`.
+
+The cookie is `HttpOnly` and lives for five minutes. It holds no session and
+authenticates nothing. It carries only the right to attempt the second step.
+
+The token never appears in the URL. A query parameter reaches the browser
+history, the server log, and any Referer header that the application leaks.
+
+Read the marker and ask for a code. Send no token, because the cookie carries
+it:
+
+```ts
+if (new URLSearchParams(location.search).get("mfa") === "required") {
+  await client.totp.verify({ code })
+}
+```
+
 ## Remove the second factor
 
 `POST /totp/disable` takes one current code.

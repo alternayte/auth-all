@@ -3,6 +3,8 @@
 
 export interface AuthResponse {
   emailVerificationRequired?: boolean
+  mfaRequired?: boolean
+  mfaToken?: string
   session: Session | null
   user: User | null
 }
@@ -154,6 +156,11 @@ export interface TotpDisableBody {
 }
 
 export interface TotpEnrolBody {
+}
+
+export interface TotpVerifyBody {
+  code: string
+  mfaToken?: string
 }
 
 export interface UserDeleteBody {
@@ -338,6 +345,8 @@ export class AuthAllClient {
     disable: (body: TotpDisableBody): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/totp/disable`, body, undefined),
     /** Start the enrolment of a second factor. */
     enrol: (body: TotpEnrolBody): Promise<TOTPEnrolResponse> => this.http.request("POST", `/api/auth/totp/enrol`, body, undefined),
+    /** Complete a sign-in with a second factor. */
+    verify: (body: TotpVerifyBody): Promise<AuthResponse> => this.http.request("POST", `/api/auth/totp/verify`, body, undefined),
   }
 
   readonly user = {
