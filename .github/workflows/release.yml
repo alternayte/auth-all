@@ -18,8 +18,57 @@ permissions:
   contents: write
 
 jobs:
+  # Nothing is published until this job passes. A release has two publishing
+  # steps, and an npm version can never be replaced, so a failure that arrives
+  # after the first step leaves a half-released version. This job runs every
+  # check that carries no side effect, so the common failures land here instead.
+  preflight:
+    name: Check the release before anything is published
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      # An npm version cannot be replaced. A publish of a version that already
+      # exists always fails, so the run stops here and names the reason.
+      - name: The client version must be free
+        run: |
+          version="${TAG#v}"
+          if npm view "@alternayte/auth-all-client@$version" version >/dev/null 2>&1; then
+            echo "::error::@alternayte/auth-all-client@$version is already published. An npm version cannot be replaced. Use a new tag."
+            exit 1
+          fi
+          echo "the client version $version is free"
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+
+      - name: The binaries must build
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          version: "~> v2"
+          args: build --snapshot --clean
+
+      - name: The client must build and pack
+        run: |
+          npm ci
+          npm run build -w clients/typescript
+          npm pack -w clients/typescript --dry-run
+
   goreleaser:
     name: Build and publish the release
+    needs: preflight
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
@@ -43,9 +92,11 @@ jobs:
   npm:
     name: Publish the TypeScript client
     runs-on: ubuntu-latest
-    needs: goreleaser
-    # A manual run skips the binary release, so the client still publishes.
-    if: always() && needs.goreleaser.result != 'failure' && needs.goreleaser.result != 'cancelled'
+    needs: [preflight, goreleaser]
+    # The client publishes last, because an npm version can never be replaced.
+    # A manual run skips the binary release, so a skipped dependency is allowed
+    # and a failed one is not.
+    if: always() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     permissions:
       contents: read
       # Trusted publishing proves the identity of this workflow to npm through
