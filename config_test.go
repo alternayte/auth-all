@@ -13,6 +13,8 @@ import (
 	"github.com/alternayte/auth-all/apierr"
 	"github.com/alternayte/auth-all/internal/testsupport"
 	"github.com/alternayte/auth-all/oauth/github"
+	"github.com/alternayte/auth-all/oauth/google"
+	"github.com/alternayte/auth-all/oauth/oidc"
 	"github.com/alternayte/auth-all/ratelimit"
 )
 
@@ -298,5 +300,59 @@ func TestConfigCookieSameSite(t *testing.T) {
 		authall.WithCookieSameSite(http.SameSiteLaxMode),
 	); err != nil {
 		t.Fatalf("local development over HTTP was rejected: %v", err)
+	}
+}
+
+// TestConfigRefusesTwoProvidersWithOneID covers the guard that keeps the
+// account table honest. Two providers that share an identifier share the rows
+// of auth_accounts, so one issuer could take over the accounts of another.
+func TestConfigRefusesTwoProvidersWithOneID(t *testing.T) {
+	_, err := authall.New(
+		authall.WithStore(testsupport.NewSQLite(t)),
+		authall.WithBaseURL("https://app.example.com"),
+		authall.WithProvider(oidc.New(
+			oidc.WithIssuer("https://first.example.com"),
+			oidc.WithID("shared"),
+			oidc.WithClientID("id-1"),
+			oidc.WithClientSecret("secret-1"),
+		)),
+		authall.WithProvider(oidc.New(
+			oidc.WithIssuer("https://second.example.com"),
+			oidc.WithID("shared"),
+			oidc.WithClientID("id-2"),
+			oidc.WithClientSecret("secret-2"),
+		)),
+	)
+	if err == nil {
+		t.Fatal("two providers with one identifier were accepted")
+	}
+	if !strings.Contains(err.Error(), "registered twice") {
+		t.Fatalf("the error does not name the cause: %v", err)
+	}
+}
+
+// TestConfigRefusesAnOIDCProviderThatClaimsAPreset covers the same guard for
+// the case that matters most: a generic provider that takes the identifier of
+// a first-party preset.
+func TestConfigRefusesAnOIDCProviderThatClaimsAPreset(t *testing.T) {
+	_, err := authall.New(
+		authall.WithStore(testsupport.NewSQLite(t)),
+		authall.WithBaseURL("https://app.example.com"),
+		authall.WithProvider(google.New(
+			google.WithClientID("google-id"),
+			google.WithClientSecret("google-secret"),
+		)),
+		authall.WithProvider(oidc.New(
+			oidc.WithIssuer("https://impostor.example.com"),
+			oidc.WithID("google"),
+			oidc.WithClientID("id"),
+			oidc.WithClientSecret("secret"),
+		)),
+	)
+	if err == nil {
+		t.Fatal("a generic provider took the identifier of a preset")
+	}
+	if !strings.Contains(err.Error(), "registered twice") {
+		t.Fatalf("the error does not name the cause: %v", err)
 	}
 }
