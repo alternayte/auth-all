@@ -3,6 +3,7 @@ package authall_test
 import (
 	"context"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	authall "github.com/alternayte/auth-all"
 	"github.com/alternayte/auth-all/email"
 	"github.com/alternayte/auth-all/internal/testsupport"
+	"github.com/alternayte/auth-all/plugins/magiclink"
 )
 
 // mfaResult is the decoded body of a sign-in that needs a second factor.
@@ -439,5 +441,83 @@ func TestMagicLinkWithoutTOTPIsUnchanged(t *testing.T) {
 	}
 	if got := h.GetSession(); got.User == nil {
 		t.Fatal("the magic link opened no session")
+	}
+}
+
+// TestMagicLinkGetWithTOTPSetsTheChallengeCookie covers the redirect path of
+// the magic link. That is the path a user clicks from the message, so it must
+// carry the gate as well as the JSON path does.
+func TestMagicLinkGetWithTOTPSetsTheChallengeCookie(t *testing.T) {
+	at := time.Now().UTC()
+	h := testsupport.NewHarness(t,
+		authall.WithEmailPassword(),
+		authall.WithTOTP(),
+		authall.WithClock(func() time.Time { return at }),
+		authall.WithPlugins(magiclink.New(
+			magiclink.WithTTL(15*time.Minute),
+			// The confirmation page needs a form submit. This test covers the
+			// direct completion, which is the redirect path.
+			magiclink.WithoutConfirmation(),
+		)),
+	)
+	const address = "magicget@example.com"
+	h.SignUp(address, testPassword)
+
+	out := enrol(t, h)
+	if resp := h.Do(http.MethodPost, "/totp/confirm",
+		map[string]any{"code": codeAt(t, out.Secret, at)}); resp.Status != http.StatusOK {
+		t.Fatalf("the confirmation returned %d: %s", resp.Status, string(resp.Body))
+	}
+	at = at.Add(2 * time.Minute)
+	h.ClearCookies()
+	h.Mail.Reset()
+
+	sendMagicLink(t, h, address)
+	msg, ok := h.Mail.Find(email.IntentMagicLink)
+	if !ok {
+		t.Fatal("no magic-link message was produced")
+	}
+
+	resp := h.Do(http.MethodGet, "/magic-link/verify?token="+url.QueryEscape(msg.Token), nil)
+	if resp.Status != http.StatusSeeOther {
+		t.Fatalf("the link returned %d: %s", resp.Status, string(resp.Body))
+	}
+	if got := h.GetSession(); got.User != nil {
+		t.Fatal("the magic link authenticated the user with no second factor")
+	}
+
+	// The redirect names the requirement and carries no token.
+	location := resp.Location()
+	if testsupport.QueryParam(t, location, "mfa") != "required" {
+		t.Fatalf("the redirect carries no marker: %s", location)
+	}
+	if strings.Contains(location, "mfaToken") || strings.Contains(location, msg.Token) {
+		t.Fatalf("the redirect carries a token: %s", location)
+	}
+
+	// The challenge cookie is set, and no session cookie is.
+	var challenge *http.Cookie
+	for _, c := range resp.Cookies {
+		if c.Name == authall.DefaultCookieName+".mfa" {
+			challenge = c
+		}
+		if c.Name == authall.DefaultCookieName && c.Value != "" {
+			t.Fatal("the link set a session cookie before the second factor")
+		}
+	}
+	if challenge == nil {
+		t.Fatalf("the link set no challenge cookie: %+v", resp.Cookies)
+	}
+	if !challenge.HttpOnly {
+		t.Fatal("the challenge cookie is readable by a script")
+	}
+
+	// The cookie completes the sign-in with no token in the body.
+	verify := h.Do(http.MethodPost, "/totp/verify", map[string]any{"code": codeAt(t, out.Secret, at)})
+	if verify.Status != http.StatusOK {
+		t.Fatalf("the exchange returned %d: %s", verify.Status, string(verify.Body))
+	}
+	if got := h.GetSession(); got.User == nil {
+		t.Fatal("the exchange opened no session")
 	}
 }
