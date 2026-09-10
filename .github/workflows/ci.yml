@@ -32,8 +32,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: v1-verification
-          path: artifacts/v1-verification.md
+          name: v1.1-verification
+          path: artifacts/v1.1-verification.md
 
   minimum-go:
     name: the declared minimum Go version

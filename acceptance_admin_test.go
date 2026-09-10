@@ -567,3 +567,157 @@ func newAdmin(t *testing.T, s store.Store, address string) string {
 	}
 	return user.ID
 }
+
+// TestTheAdminListRouteAnswersEveryFilter covers the list route and its
+// guards.
+func TestTheAdminListRouteAnswersEveryFilter(t *testing.T) {
+	h, _ := adminHarness(t)
+	signInAsAdmin(t, h)
+	for i := range 5 {
+		createUser(t, h, fmt.Sprintf("list%02d@example.com", i))
+	}
+	target := createUser(t, h, "listed-operator@example.com")
+	if got := h.Do(http.MethodPost, "/admin/users/"+target+"/role",
+		map[string]any{"role": "operator"}); got.Status != http.StatusOK {
+		t.Fatalf("role: %d", got.Status)
+	}
+	if got := h.Do(http.MethodPost, "/admin/users/"+target+"/disable", nil); got.Status != http.StatusOK {
+		t.Fatalf("disable: %d", got.Status)
+	}
+
+	type listBody struct {
+		Users      []adminUser `json:"users"`
+		NextCursor string      `json:"nextCursor"`
+	}
+	read := func(query string) listBody {
+		t.Helper()
+		resp := h.Do(http.MethodGet, "/admin/users"+query, nil)
+		if resp.Status != http.StatusOK {
+			t.Fatalf("the list %q returned %d: %s", query, resp.Status, string(resp.Body))
+		}
+		var body listBody
+		resp.Decode(t, &body)
+		return body
+	}
+
+	if got := read("?email=list0"); len(got.Users) != 5 {
+		t.Fatalf("the prefix filter returned %d users", len(got.Users))
+	}
+	if got := read("?role=operator"); len(got.Users) != 1 || got.Users[0].ID != target {
+		t.Fatalf("the role filter returned %+v", got.Users)
+	}
+	if got := read("?disabled=true"); len(got.Users) != 1 || got.Users[0].ID != target {
+		t.Fatalf("the disabled filter returned %+v", got.Users)
+	}
+
+	// The cursor walks the pages.
+	first := read("?limit=2")
+	if len(first.Users) != 2 || first.NextCursor == "" {
+		t.Fatalf("the first page is %+v", first)
+	}
+	second := read("?limit=2&cursor=" + first.NextCursor)
+	if len(second.Users) != 2 {
+		t.Fatalf("the second page is %+v", second)
+	}
+	if second.Users[0].ID == first.Users[0].ID {
+		t.Fatal("the second page repeats the first user")
+	}
+
+	// The guards refuse an unusable query.
+	for _, query := range []string{"?limit=0", "?limit=201", "?limit=many", "?disabled=maybe"} {
+		if got := h.Do(http.MethodGet, "/admin/users"+query, nil); got.Status != http.StatusBadRequest {
+			t.Fatalf("the query %q returned %d", query, got.Status)
+		}
+	}
+	if got := h.Do(http.MethodGet, "/admin/users?role=ghost", nil); got.Status != http.StatusBadRequest {
+		t.Fatalf("the unknown role returned %d", got.Status)
+	}
+	if got := h.Do(http.MethodGet, "/admin/users?cursor=not-base64!", nil); got.Status != http.StatusBadRequest {
+		t.Fatalf("the invalid cursor returned %d", got.Status)
+	}
+}
+
+// TestTheAdminRoutesAnswerAnUnknownUser covers the error paths of the write
+// routes.
+func TestTheAdminRoutesAnswerAnUnknownUser(t *testing.T) {
+	h, adm := adminHarness(t)
+	signInAsAdmin(t, h)
+	const missing = "11111111-1111-1111-1111-111111111111"
+	for _, path := range []string{"/disable", "/enable", "/password"} {
+		if got := h.Do(http.MethodPost, "/admin/users/"+missing+path, nil); got.Status != http.StatusNotFound {
+			t.Fatalf("the route %s returned %d", path, got.Status)
+		}
+	}
+	if got := h.Do(http.MethodPost, "/admin/users/"+missing+"/role",
+		map[string]any{"role": "viewer"}); got.Status != http.StatusNotFound {
+		t.Fatalf("the role route returned %d", got.Status)
+	}
+
+	// A duplicate address conflicts.
+	createUser(t, h, "twice@example.com")
+	if got := h.Do(http.MethodPost, "/admin/users",
+		map[string]any{"email": "twice@example.com"}); got.Status != http.StatusConflict {
+		t.Fatalf("the duplicate returned %d: %s", got.Status, string(got.Body))
+	}
+	// An unknown role fails the creation.
+	if got := h.Do(http.MethodPost, "/admin/users",
+		map[string]any{"email": "ghost-role@example.com", "role": "ghost"}); got.Status != http.StatusBadRequest {
+		t.Fatalf("the unknown role returned %d", got.Status)
+	}
+
+	// The enable route answers an enabled user with no change.
+	id := createUser(t, h, "already-enabled@example.com")
+	if got := h.Do(http.MethodPost, "/admin/users/"+id+"/enable", nil); got.Status != http.StatusOK {
+		t.Fatalf("the enable returned %d", got.Status)
+	}
+	// A role change to the current role changes nothing.
+	if got := h.Do(http.MethodPost, "/admin/users/"+id+"/role",
+		map[string]any{"role": "viewer"}); got.Status != http.StatusOK {
+		t.Fatalf("the same role returned %d", got.Status)
+	}
+	// A second disable of a disabled user changes nothing.
+	if got := h.Do(http.MethodPost, "/admin/users/"+id+"/disable", nil); got.Status != http.StatusOK {
+		t.Fatalf("the first disable returned %d", got.Status)
+	}
+	if got := h.Do(http.MethodPost, "/admin/users/"+id+"/disable", nil); got.Status != http.StatusOK {
+		t.Fatalf("the second disable returned %d", got.Status)
+	}
+	if adm.AdminRoleName() != "admin" {
+		t.Fatalf("the administrator role is %q", adm.AdminRoleName())
+	}
+}
+
+// TestThePluginRefusesAnUnusableConfiguration covers the registration guards.
+func TestThePluginRefusesAnUnusableConfiguration(t *testing.T) {
+	s := testsupport.NewSQLite(t)
+	// The admin plugin needs the roles plugin.
+	if _, err := authall.New(authall.WithStore(s), authall.WithPlugins(admin.New())); err == nil {
+		t.Fatal("the admin plugin registered with no roles plugin")
+	}
+	// The administrator role must be part of the hierarchy.
+	if _, err := authall.New(authall.WithStore(s), authall.WithPlugins(
+		roles.New(roles.Hierarchy("viewer", "editor")), admin.New(admin.AdminRole("root")),
+	)); err == nil {
+		t.Fatal("an administrator role outside the hierarchy was accepted")
+	}
+	// A plugin that never registered answers an error instead of a panic.
+	adm := admin.New()
+	if _, err := adm.Bootstrap(context.Background(), admin.Credentials{Email: "a@example.com"}); err == nil {
+		t.Fatal("an unregistered plugin ran the bootstrap")
+	}
+	if _, _, err := adm.CreateUser(context.Background(), admin.CreateUserInput{}); err == nil {
+		t.Fatal("an unregistered plugin created a user")
+	}
+	if _, err := adm.SetRole(context.Background(), "id", "viewer"); err == nil {
+		t.Fatal("an unregistered plugin changed a role")
+	}
+	if _, err := adm.Disable(context.Background(), "id"); err == nil {
+		t.Fatal("an unregistered plugin disabled a user")
+	}
+	if _, err := adm.Enable(context.Background(), "id"); err == nil {
+		t.Fatal("an unregistered plugin enabled a user")
+	}
+	if _, err := adm.ResetPassword(context.Background(), "id", admin.ResetOptions{}); err == nil {
+		t.Fatal("an unregistered plugin reset a password")
+	}
+}

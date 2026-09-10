@@ -99,6 +99,9 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 	p.store = svc.Store()
 	p.users = svc.Users()
 	p.now = svc.Now
+	if len(p.roles.Names()) == 0 {
+		return errors.New("authall/admin: the roles plugin must be enabled before the admin plugin")
+	}
 	if p.roles.Rank(p.adminRole) < 0 {
 		return fmt.Errorf("authall/admin: the administrator role %q is not in the role hierarchy", p.adminRole)
 	}
@@ -392,6 +395,22 @@ func (p *Plugin) toDTO(u *store.User) userDTO {
 // responses.
 func operation(id, summary string, tag []string, body *openapi.RequestBody,
 	okSchema *openapi.Schema, method string, codes ...string) *openapi.Operation {
+	return withParameters(id, summary, tag, body, okSchema, method, nil, codes...)
+}
+
+// userOperation builds one operation that names a user in the path.
+func userOperation(id, summary string, tag []string, body *openapi.RequestBody,
+	okSchema *openapi.Schema, method string, codes ...string) *openapi.Operation {
+	parameters := []openapi.Parameter{
+		{Name: "id", In: "path", Required: true, Schema: openapi.String()},
+	}
+	return withParameters(id, summary, tag, body, okSchema, method, parameters, codes...)
+}
+
+// withParameters builds one operation with the standard error responses.
+func withParameters(id, summary string, tag []string, body *openapi.RequestBody,
+	okSchema *openapi.Schema, method string, parameters []openapi.Parameter,
+	codes ...string) *openapi.Operation {
 	responses := map[string]openapi.Response{
 		"200": openapi.JSONResponse("The operation succeeded", okSchema),
 	}
@@ -402,6 +421,7 @@ func operation(id, summary string, tag []string, body *openapi.RequestBody,
 		OperationID: id,
 		Summary:     summary,
 		Tags:        tag,
+		Parameters:  parameters,
 		RequestBody: body,
 		Responses:   responses,
 		Client:      &openapi.ClientBinding{Namespace: "admin", Method: method},
@@ -429,7 +449,7 @@ func roleOperation(tag []string) *openapi.Operation {
 	body := openapi.JSONBody(openapi.Object([]string{"role"}, map[string]*openapi.Schema{
 		"role": openapi.String(),
 	}))
-	return operation("adminSetUserRole", "Set the role of a user", tag, body,
+	return userOperation("adminSetUserRole", "Set the role of a user", tag, body,
 		openapi.Ref("AdminUserResponse"), "setUserRole", "400", "404", "409")
 }
 
@@ -438,10 +458,10 @@ func passwordOperation(tag []string) *openapi.Operation {
 		"password":  openapi.String(),
 		"temporary": openapi.Bool(),
 	}))
-	return operation("adminResetUserPassword", "Set a new password for a user", tag, body,
+	return userOperation("adminResetUserPassword", "Set a new password for a user", tag, body,
 		openapi.Ref("AdminPasswordResponse"), "resetUserPassword", "400", "404")
 }
 
 func simpleOperation(tag []string, id, summary, method string) *openapi.Operation {
-	return operation(id, summary, tag, nil, openapi.Ref("AdminUserResponse"), method+"User", "404", "409")
+	return userOperation(id, summary, tag, nil, openapi.Ref("AdminUserResponse"), method+"User", "404", "409")
 }

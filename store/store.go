@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/alternayte/auth-all/schema"
@@ -39,8 +40,56 @@ type User struct {
 	// MustChangePassword blocks every protected route until the user sets a
 	// new password.
 	MustChangePassword bool
-	// Extra holds the host-owned user fields. The key is the field name.
-	Extra map[string]any
+	// Extra holds the host-owned user fields. It is nil when the host declared
+	// no field.
+	//
+	// The field is a pointer, so a User value stays comparable. A v1
+	// application that compares two users keeps its behavior.
+	Extra *ExtraFields
+}
+
+// ExtraFields holds the host-owned fields of one user. The key is the field
+// name.
+type ExtraFields struct {
+	values map[string]any
+}
+
+// NewExtraFields returns a field set with the given values.
+func NewExtraFields(values map[string]any) *ExtraFields {
+	if values == nil {
+		values = map[string]any{}
+	}
+	return &ExtraFields{values: values}
+}
+
+// Get returns one value. The second result is false when the field is absent.
+func (e *ExtraFields) Get(name string) (any, bool) {
+	if e == nil {
+		return nil, false
+	}
+	value, ok := e.values[name]
+	return value, ok
+}
+
+// Set writes one value.
+func (e *ExtraFields) Set(name string, value any) {
+	if e.values == nil {
+		e.values = map[string]any{}
+	}
+	e.values[name] = value
+}
+
+// Names returns every field name in a deterministic order.
+func (e *ExtraFields) Names() []string {
+	if e == nil {
+		return nil
+	}
+	out := make([]string, 0, len(e.values))
+	for name := range e.values {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Credential is the password credential of one user.

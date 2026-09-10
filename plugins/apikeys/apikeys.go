@@ -143,6 +143,9 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 	}
 	p.svc = svc
 	p.roles = reader.Roles()
+	if len(p.roles.Names()) == 0 {
+		return errors.New("authall/apikeys: the roles plugin must be enabled before the API keys plugin")
+	}
 	p.principals = principals.Principals()
 	p.protect = protector.Protect
 	p.hooks = r.Hooks()

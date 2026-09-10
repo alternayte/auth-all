@@ -20,7 +20,7 @@ default:
     @just --list
 
 # Run every required v1 check. A failed check stops the run.
-verify: _reset db-up fmt-check vet lint test-unit test-postgres test-pgbouncer test-sqlite test-http test-security test-concurrency test-race test-huma generate-check ts-verify examples-build evidence
+verify: _reset db-up fmt-check vet lint test-unit test-postgres test-pgbouncer test-sqlite test-http test-security test-concurrency test-race test-huma test-latency coverage apidiff generate-check ts-verify examples-build evidence
     @echo ""
     @echo "just verify: every required check passed."
 
@@ -111,6 +111,37 @@ test-huma:
     cd humaauth && go vet ./... && go test -race ./...
     @just _record "huma adapter module" "cd humaauth && go test -race ./..."
 
+# Measure the credential resolution latency. NFR-02 asks for a p99 below 2 ms.
+# The step runs alone, because another test on the same database changes the
+# measurement. AUTHALL_BENCH_FULL=1 uses the full volume of the requirement.
+test-latency:
+    {{pg}} AUTHALL_LATENCY=1 go test -count 1 -run TestNFR002 -v .
+    @just _record "credential resolution latency" "just test-latency"
+
+# Compare the exported API with the v1 release. NFR-09 asks for no
+# incompatible change.
+apidiff:
+    ./tools/apidiff.sh
+    @just _record "apidiff against v1" "./tools/apidiff.sh"
+
+# Check the statement coverage of the packages that the v1.1 release adds.
+# NFR-05 asks for 85 percent of statements in every new package.
+coverage:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export AUTHALL_REQUIRE_POSTGRES=1
+    export AUTHALL_POSTGRES_DSN="{{postgres_dsn}}"
+    profile="$(mktemp)"
+    go test -count 1 -coverpkg=./plugins/...,./ratelimit/storelimit/...,./migrations/... \
+        -coverprofile="$profile" ./... > /dev/null
+    go run ./tools/coverage --profile "$profile" --minimum 85 \
+        --package github.com/alternayte/auth-all/plugins/roles \
+        --package github.com/alternayte/auth-all/plugins/apikeys \
+        --package github.com/alternayte/auth-all/plugins/admin \
+        --package github.com/alternayte/auth-all/ratelimit/storelimit \
+        --package github.com/alternayte/auth-all/migrations
+    just _record "new package coverage" "go run ./tools/coverage --minimum 85"
+
 # Regenerate the OpenAPI contract and the TypeScript client.
 generate:
     go run ./cmd/auth-all openapi --out api/openapi.json
@@ -151,10 +182,10 @@ examples-build:
     go build -o "$(mktemp -d)/" ./examples/...
     @just _record "example compilation" "go build -o \\$(mktemp -d)/ ./examples/..."
 
-# Write the v1 verification evidence.
+# Write the verification evidence.
 evidence:
-    {{pg}} go run ./tools/evidence --checks {{checks}} --out artifacts/v1-verification.md
-    @echo "Evidence written to artifacts/v1-verification.md"
+    {{pg}} go run ./tools/evidence --checks {{checks}} --out artifacts/v1.1-verification.md
+    @echo "Evidence written to artifacts/v1.1-verification.md"
 
 # Remove the recorded check results.
 _reset:

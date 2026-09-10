@@ -25,7 +25,7 @@ func Field[T any](user *store.User, name string) (T, error) {
 	if user == nil {
 		return zero, fmt.Errorf("authall: the user is nil")
 	}
-	raw, ok := user.Extra[name]
+	raw, ok := user.Extra.Get(name)
 	if !ok {
 		return zero, fmt.Errorf("authall: the user field %q is not declared. Use authall.WithUserFields", name)
 	}

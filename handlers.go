@@ -247,7 +247,7 @@ func (a *Auth) handleSignUpEmail(w http.ResponseWriter, r *http.Request) {
 	user, err := a.createUser(ctx, CreateUserInput{
 		Email:       strings.TrimSpace(req.Email),
 		DisplayName: strings.TrimSpace(req.Name),
-		Extra:       extra,
+		Extra:       store.NewExtraFields(extra),
 	}, hash)
 	if err != nil {
 		a.writeError(w, r, err)

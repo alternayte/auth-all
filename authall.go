@@ -696,7 +696,9 @@ type CreateUserInput struct {
 	EmailVerified bool
 	// Extra holds the host-owned user fields. A field that the host did not
 	// declare is dropped.
-	Extra map[string]any
+	//
+	// The field is a pointer, so a CreateUserInput value stays comparable.
+	Extra *store.ExtraFields
 }
 
 // CreateUser creates a user, and a password credential when a password is

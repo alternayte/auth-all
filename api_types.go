@@ -70,7 +70,7 @@ func (a *Auth) toUserDTO(u *store.User) *userDTO {
 	}
 	// A field with Returned false never leaves the server.
 	for _, f := range a.returnedFields() {
-		value, ok := u.Extra[f.Name]
+		value, ok := u.Extra.Get(f.Name)
 		if !ok {
 			continue
 		}
