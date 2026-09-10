@@ -72,7 +72,7 @@ func (p *Plugin) registerRoutes(r *plugin.Registry) {
 	})
 	r.Route(plugin.Route{
 		Method: http.MethodPost, Path: "/api-keys/{id}/revoke", Handler: p.guard(p.handleRevoke),
-		Operation: operation("revokeAPIKey", "Revoke an API key", tag, nil,
+		Operation: keyOperation("revokeAPIKey", "Revoke an API key", tag, nil,
 			openapi.Ref("SuccessResponse"), "revokeKey", "404"),
 	})
 }
@@ -80,6 +80,22 @@ func (p *Plugin) registerRoutes(r *plugin.Registry) {
 // operation builds one key operation with the standard error responses.
 func operation(id, summary string, tag []string, body *openapi.RequestBody,
 	okSchema *openapi.Schema, method string, codes ...string) *openapi.Operation {
+	return withParameters(id, summary, tag, body, okSchema, method, nil, codes...)
+}
+
+// keyOperation builds one operation that names a key in the path.
+func keyOperation(id, summary string, tag []string, body *openapi.RequestBody,
+	okSchema *openapi.Schema, method string, codes ...string) *openapi.Operation {
+	parameters := []openapi.Parameter{
+		{Name: "id", In: "path", Required: true, Schema: openapi.String()},
+	}
+	return withParameters(id, summary, tag, body, okSchema, method, parameters, codes...)
+}
+
+// withParameters builds one operation with the standard error responses.
+func withParameters(id, summary string, tag []string, body *openapi.RequestBody,
+	okSchema *openapi.Schema, method string, parameters []openapi.Parameter,
+	codes ...string) *openapi.Operation {
 	responses := map[string]openapi.Response{
 		"200": openapi.JSONResponse("The operation succeeded", okSchema),
 	}
@@ -90,6 +106,7 @@ func operation(id, summary string, tag []string, body *openapi.RequestBody,
 		OperationID: id,
 		Summary:     summary,
 		Tags:        tag,
+		Parameters:  parameters,
 		RequestBody: body,
 		Responses:   responses,
 		Client:      &openapi.ClientBinding{Namespace: "apiKeys", Method: method},

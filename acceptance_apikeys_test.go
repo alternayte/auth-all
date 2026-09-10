@@ -408,3 +408,91 @@ func TestSCNKEY011AKeyManagesNoKeyAndNoPassword(t *testing.T) {
 		t.Fatalf("the key read the sessions: %d", sessions.Status)
 	}
 }
+
+// TestTheKeyOptionsAndGuardsHold covers the option paths and the revoke guard.
+func TestTheKeyOptionsAndGuardsHold(t *testing.T) {
+	h, _ := keysHarness(t,
+		apikeys.MaxTTL(24*time.Hour),
+		apikeys.AllowNoExpiry(),
+		apikeys.TouchInterval(time.Millisecond),
+		apikeys.AdminRole("admin"),
+	)
+	const owner = "options@example.com"
+	h.SignUp(owner, testPassword)
+
+	// AllowNoExpiry accepts a key with no expiry beside a maximum.
+	resp, plaintext, key := createKey(t, h, map[string]any{"name": "endless"})
+	if resp.Status != http.StatusCreated || plaintext == "" {
+		t.Fatalf("the key returned %d: %s", resp.Status, string(resp.Body))
+	}
+	// An expiry in the past fails.
+	past := time.Now().UTC().Add(-time.Hour)
+	if got, _, _ := createKey(t, h, map[string]any{"name": "past", "expiresAt": past}); got.Status != http.StatusBadRequest {
+		t.Fatalf("the past expiry returned %d", got.Status)
+	}
+	// An unknown role fails.
+	if got, _, _ := createKey(t, h, map[string]any{"name": "ghost", "role": "ghost"}); got.Status != http.StatusBadRequest {
+		t.Fatalf("the unknown role returned %d", got.Status)
+	}
+
+	// Another user never revokes the key, and never lists the keys.
+	h.ClearCookies()
+	h.SignUp("stranger@example.com", testPassword)
+	if got := h.Do(http.MethodPost, "/api-keys/"+key.ID+"/revoke", nil); got.Status != http.StatusNotFound {
+		t.Fatalf("the stranger revoked the key: %d", got.Status)
+	}
+	if got := h.Do(http.MethodGet, "/api-keys?userId="+key.UserID, nil); got.Status != http.StatusForbidden {
+		t.Fatalf("the stranger listed the keys: %d", got.Status)
+	}
+	if got := h.Do(http.MethodPost, "/api-keys/11111111-1111-1111-1111-111111111111/revoke",
+		nil); got.Status != http.StatusNotFound {
+		t.Fatalf("an unknown key returned %d", got.Status)
+	}
+
+	// The owner revokes the key one time.
+	h.ClearCookies()
+	h.SignIn(owner, testPassword)
+	if got := h.Do(http.MethodPost, "/api-keys/"+key.ID+"/revoke", nil); got.Status != http.StatusOK {
+		t.Fatalf("the revoke returned %d", got.Status)
+	}
+	if got := h.Do(http.MethodPost, "/api-keys/"+key.ID+"/revoke", nil); got.Status != http.StatusNotFound {
+		t.Fatalf("the second revoke returned %d", got.Status)
+	}
+}
+
+// TestTheKeyPluginNeedsTheRolesPlugin covers the registration guard.
+func TestTheKeyPluginNeedsTheRolesPlugin(t *testing.T) {
+	s := testsupport.NewSQLite(t)
+	if _, err := authall.New(authall.WithStore(s), authall.WithPlugins(apikeys.New())); err == nil {
+		t.Fatal("the API keys plugin registered with no roles plugin")
+	}
+}
+
+// TestATouchedKeyWritesTheLastUseTimeAgain covers the touch interval.
+func TestATouchedKeyWritesTheLastUseTimeAgain(t *testing.T) {
+	h, _ := keysHarness(t, apikeys.TouchInterval(time.Nanosecond))
+	h.SignUp("touched@example.com", testPassword)
+	_, plaintext, key := createKey(t, h, map[string]any{"name": "touch"})
+	h.ClearCookies()
+	keys := h.Store.(store.APIKeyStore)
+	ctx := context.Background()
+
+	if got := h.DoURL(http.MethodGet, h.BaseURL+"/host/any", nil, withKey(plaintext)); got.Status != http.StatusNoContent {
+		t.Fatalf("the first request returned %d", got.Status)
+	}
+	first, err := keys.APIKeyByID(ctx, key.ID)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	time.Sleep(2 * time.Millisecond)
+	if got := h.DoURL(http.MethodGet, h.BaseURL+"/host/any", nil, withKey(plaintext)); got.Status != http.StatusNoContent {
+		t.Fatalf("the second request returned %d", got.Status)
+	}
+	second, err := keys.APIKeyByID(ctx, key.ID)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !second.LastUsedAt.After(*first.LastUsedAt) {
+		t.Fatal("the second request wrote no new last use time")
+	}
+}

@@ -59,7 +59,7 @@ func TestSCNSCH006TheInputAndOutputRulesHold(t *testing.T) {
 	}
 
 	// The host writes the team, and the session response returns it.
-	user.Extra["team"] = "platform"
+	user.Extra.Set("team", "platform")
 	if err := h.Store.Users().Update(context.Background(), user); err != nil {
 		t.Fatalf("update user: %v", err)
 	}

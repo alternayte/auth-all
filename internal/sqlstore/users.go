@@ -42,17 +42,18 @@ func (s *Store) collectExtra(m *store.User, extra []any) {
 	if len(s.fields) == 0 {
 		return
 	}
-	m.Extra = make(map[string]any, len(s.fields))
+	values := make(map[string]any, len(s.fields))
 	for i, f := range s.fields {
-		m.Extra[f.Name] = extra[i]
+		values[f.Name] = extra[i]
 	}
+	m.Extra = store.NewExtraFields(values)
 }
 
 // extraValues returns the bound values of the host-owned fields.
 func (s *Store) extraValues(m *store.User) []any {
 	out := make([]any, 0, len(s.fields))
 	for _, f := range s.fields {
-		value, ok := m.Extra[f.Name]
+		value, ok := m.Extra.Get(f.Name)
 		if !ok {
 			out = append(out, nil)
 			continue

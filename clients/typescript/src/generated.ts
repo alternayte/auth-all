@@ -379,15 +379,15 @@ export class AuthAllClient {
     /** Create a user. */
     createUser: (body: AdminCreateUserBody): Promise<AdminCreateUserResponse> => this.http.request("POST", `/api/auth/admin/users`, body, undefined),
     /** Disable a user. */
-    disableUser: (): Promise<AdminUserResponse> => this.http.request("POST", `/api/auth/admin/users/${id}/disable`, undefined, undefined),
+    disableUser: (id: string): Promise<AdminUserResponse> => this.http.request("POST", `/api/auth/admin/users/${id}/disable`, undefined, undefined),
     /** Enable a user. */
-    enableUser: (): Promise<AdminUserResponse> => this.http.request("POST", `/api/auth/admin/users/${id}/enable`, undefined, undefined),
+    enableUser: (id: string): Promise<AdminUserResponse> => this.http.request("POST", `/api/auth/admin/users/${id}/enable`, undefined, undefined),
     /** List the users. */
     listUsers: (): Promise<AdminUserListResponse> => this.http.request("GET", `/api/auth/admin/users`, undefined, undefined),
     /** Set a new password for a user. */
-    resetUserPassword: (body: AdminResetUserPasswordBody): Promise<AdminPasswordResponse> => this.http.request("POST", `/api/auth/admin/users/${id}/password`, body, undefined),
+    resetUserPassword: (id: string, body: AdminResetUserPasswordBody): Promise<AdminPasswordResponse> => this.http.request("POST", `/api/auth/admin/users/${id}/password`, body, undefined),
     /** Set the role of a user. */
-    setUserRole: (body: AdminSetUserRoleBody): Promise<AdminUserResponse> => this.http.request("POST", `/api/auth/admin/users/${id}/role`, body, undefined),
+    setUserRole: (id: string, body: AdminSetUserRoleBody): Promise<AdminUserResponse> => this.http.request("POST", `/api/auth/admin/users/${id}/role`, body, undefined),
   }
 
   readonly apiKeys = {
@@ -396,7 +396,7 @@ export class AuthAllClient {
     /** List the API keys. */
     listKeys: (): Promise<APIKeyListResponse> => this.http.request("GET", `/api/auth/api-keys`, undefined, undefined),
     /** Revoke an API key. */
-    revokeKey: (): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/api-keys/${id}/revoke`, undefined, undefined),
+    revokeKey: (id: string): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/api-keys/${id}/revoke`, undefined, undefined),
   }
 
   readonly email = {
