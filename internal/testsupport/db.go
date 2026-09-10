@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/alternayte/auth-all/schema"
 	"github.com/alternayte/auth-all/store"
@@ -148,4 +150,79 @@ func RawDB(t *testing.T, path string) *sql.DB {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	return db
+}
+
+// PgBouncerDSNEnv names the environment variable that points at the test
+// PgBouncer instance. The verification command sets it.
+const PgBouncerDSNEnv = "AUTHALL_PGBOUNCER_DSN"
+
+// PgBouncerRequiredEnv makes the PgBouncer run mandatory.
+const PgBouncerRequiredEnv = "AUTHALL_REQUIRE_PGBOUNCER"
+
+// PgBouncerDSN returns the configured PgBouncer DSN. It skips the test when no
+// DSN exists, and it fails when the run is mandatory.
+func PgBouncerDSN(t *testing.T) string {
+	t.Helper()
+	dsn := os.Getenv(PgBouncerDSNEnv)
+	if dsn != "" {
+		return dsn
+	}
+	if os.Getenv(PgBouncerRequiredEnv) != "" {
+		t.Fatalf("%s is set, but %s is not. Run the suite through: just verify",
+			PgBouncerRequiredEnv, PgBouncerDSNEnv)
+	}
+	t.Skipf("%s is not set. The PgBouncer tests need a pooler. Run: just verify", PgBouncerDSNEnv)
+	return ""
+}
+
+// NewPostgresPool returns a migrated store over a pgx pool that points at dsn.
+//
+// A transaction pooler gives one server connection for one transaction only, so
+// the test cannot own a private schema through the search path. Every store
+// gets a unique table prefix instead, and the cleanup drops those tables.
+func NewPostgresPool(t *testing.T, dsn string, o schema.Options, opts ...postgres.Option) store.Store {
+	t.Helper()
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatalf("parse pool config: %v", err)
+	}
+	// The exec mode must make no named prepared statement, because a
+	// transaction pooler gives another server connection for the next
+	// statement.
+	cfg.ConnConfig.DefaultQueryExecMode = pgx.QueryExecModeExec
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("open pool: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	s, err := postgres.NewPool(pool, opts...)
+	if err != nil {
+		t.Fatalf("new pool store: %v", err)
+	}
+	migrateOptions(t, s, o)
+	t.Cleanup(func() {
+		sc, err := schema.NewCoreWithOptions(o)
+		if err != nil {
+			return
+		}
+		names := append(tableNames(sc), sc.Names().Migrations)
+		for _, name := range names {
+			_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+name+" CASCADE")
+		}
+	})
+	return s
+}
+
+// UniquePrefix returns a table prefix that no other test uses.
+func UniquePrefix() string {
+	return "t" + strings.ReplaceAll(uuid.NewString(), "-", "")[:20] + "_"
+}
+
+func tableNames(sc *schema.Schema) []string {
+	tables := sc.Tables()
+	out := make([]string, 0, len(tables))
+	for _, t := range tables {
+		out = append(out, t.Name)
+	}
+	return out
 }

@@ -9,6 +9,9 @@ postgres_dsn := env_var_or_default("AUTHALL_POSTGRES_DSN", "postgres://authall:a
 # Verification makes the PostgreSQL run mandatory. A missing database fails the
 # check here, and skips outside of verification.
 pg := "AUTHALL_REQUIRE_POSTGRES=1 AUTHALL_POSTGRES_DSN=\"" + postgres_dsn + "\""
+pgbouncer_dsn := env_var_or_default("AUTHALL_PGBOUNCER_DSN", "postgres://authall:authall@127.0.0.1:56432/authall?sslmode=disable")
+# The pooler run is mandatory in verification, and it skips outside of it.
+bouncer := "AUTHALL_REQUIRE_PGBOUNCER=1 AUTHALL_PGBOUNCER_DSN=\"" + pgbouncer_dsn + "\""
 compose := "docker compose -p authall-test -f docker-compose.test.yml"
 checks := "artifacts/checks.tsv"
 
@@ -17,7 +20,7 @@ default:
     @just --list
 
 # Run every required v1 check. A failed check stops the run.
-verify: _reset db-up fmt-check vet lint test-unit test-postgres test-sqlite test-http test-security test-concurrency test-race generate-check ts-verify examples-build evidence
+verify: _reset db-up fmt-check vet lint test-unit test-postgres test-pgbouncer test-sqlite test-http test-security test-concurrency test-race generate-check ts-verify examples-build evidence
     @echo ""
     @echo "just verify: every required check passed."
 
@@ -68,6 +71,13 @@ test-unit:
 test-postgres:
     {{pg}} go test ./store/postgres/... ./migrations/...
     @just _record "PostgreSQL storage contract" "go test ./store/postgres/... ./migrations/..."
+
+# Run the storage contract suite through PgBouncer in transaction mode. The
+# pooler gives one server connection for one transaction only, so a statement
+# that needs a session fails here.
+test-pgbouncer:
+    {{bouncer}} go test -count 1 -run 'TestSCNPG003' ./store/postgres/...
+    @just _record "PgBouncer transaction pool contract" "go test -run TestSCNPG003 ./store/postgres/..."
 
 # Run the storage contract suite against SQLite.
 test-sqlite:
