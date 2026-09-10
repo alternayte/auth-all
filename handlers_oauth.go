@@ -183,13 +183,13 @@ func (a *Auth) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	p, err := a.provider(r.PathValue("provider"))
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	redirectTo := a.safeRedirect(r.URL.Query().Get("redirect_to"), a.cfg.baseURL)
 	url, err := a.startOAuth(ctx, w, p, redirectTo, nil)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	http.Redirect(w, r, url, http.StatusFound)
@@ -199,49 +199,49 @@ func (a *Auth) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	p, err := a.provider(r.PathValue("provider"))
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	query := r.URL.Query()
 	if providerErr := query.Get("error"); providerErr != "" {
-		a.writeError(w, apierr.ErrOAuthFailed)
+		a.writeError(w, r, apierr.ErrOAuthFailed)
 		return
 	}
 	state := query.Get("state")
 	code := query.Get("code")
 	if state == "" || code == "" {
-		a.writeError(w, apierr.ErrOAuthStateInvalid)
+		a.writeError(w, r, apierr.ErrOAuthStateInvalid)
 		return
 	}
 	// The browser that completes the flow must be the browser that started it.
 	if !a.requestBindsState(r, state) {
 		a.clearOAuthStateCookie(w)
-		a.writeError(w, apierr.ErrOAuthStateInvalid)
+		a.writeError(w, r, apierr.ErrOAuthStateInvalid)
 		return
 	}
 	a.clearOAuthStateCookie(w)
 	record, err := a.cfg.store.OAuthStates().Consume(ctx, crypto.HashToken(state), a.cfg.now())
 	if err != nil {
 		if isNotFound(err) {
-			a.writeError(w, apierr.ErrOAuthStateInvalid)
+			a.writeError(w, r, apierr.ErrOAuthStateInvalid)
 			return
 		}
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	if record.Provider != p.ID() {
-		a.writeError(w, apierr.ErrOAuthStateInvalid)
+		a.writeError(w, r, apierr.ErrOAuthStateInvalid)
 		return
 	}
 	if record.LinkUserID != nil {
 		// A link completes only for the authenticated user that started it.
 		_, current, err := a.resolveSession(ctx, r)
 		if err != nil {
-			a.writeError(w, err)
+			a.writeError(w, r, err)
 			return
 		}
 		if current == nil || current.ID != *record.LinkUserID {
-			a.writeError(w, apierr.ErrUnauthorized.WithMessage(
+			a.writeError(w, r, apierr.ErrUnauthorized.WithMessage(
 				"Sign in again and start the provider link from your account."))
 			return
 		}
@@ -254,19 +254,19 @@ func (a *Auth) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if errors.Is(err, oauth.ErrProviderRejected) {
-			a.writeError(w, apierr.ErrOAuthFailed.WithCause(err))
+			a.writeError(w, r, apierr.ErrOAuthFailed.WithCause(err))
 			return
 		}
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	if identity == nil || identity.ProviderAccountID == "" {
-		a.writeError(w, apierr.ErrOAuthFailed)
+		a.writeError(w, r, apierr.ErrOAuthFailed)
 		return
 	}
 	user, err := a.resolveOAuthUser(ctx, p.ID(), identity, record)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	// A user with a live second factor receives a challenge instead of a
@@ -275,7 +275,7 @@ func (a *Auth) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// that the application leaks. The challenge cookie carries it instead.
 	challenge, required, err := a.mfaChallenge(ctx, user)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	target := a.safeRedirect(record.RedirectTo, a.cfg.baseURL)
@@ -285,7 +285,7 @@ func (a *Auth) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := a.issueSession(ctx, w, r, user, p.ID()); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	a.emitter.Emit(ctx, events.OAuthCompleted, user.ID, map[string]any{"provider": p.ID()})
@@ -419,11 +419,11 @@ func (a *Auth) createUserWithAccount(ctx context.Context, identity *oauth.Identi
 func (a *Auth) requireUser(w http.ResponseWriter, r *http.Request) (*store.User, bool) {
 	_, user, err := a.resolveSession(r.Context(), r)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return nil, false
 	}
 	if user == nil {
-		a.writeError(w, apierr.ErrUnauthorized)
+		a.writeError(w, r, apierr.ErrUnauthorized)
 		return nil, false
 	}
 	return user, true
@@ -437,7 +437,7 @@ func (a *Auth) handleAccountProviders(w http.ResponseWriter, r *http.Request) {
 	}
 	list, err := a.cfg.store.Accounts().ListByUser(ctx, user.ID)
 	if err != nil {
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	entries := make([]providerEntry, 0, len(list))
@@ -456,7 +456,7 @@ func (a *Auth) handleAccountProviders(w http.ResponseWriter, r *http.Request) {
 func (a *Auth) handleAccountLink(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	user, ok := a.requireUser(w, r)
@@ -465,13 +465,13 @@ func (a *Auth) handleAccountLink(w http.ResponseWriter, r *http.Request) {
 	}
 	p, err := a.provider(r.PathValue("provider"))
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	redirectTo := a.safeRedirect(r.URL.Query().Get("redirect_to"), a.cfg.baseURL)
 	url, err := a.startOAuth(ctx, w, p, redirectTo, &user.ID)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	a.writeJSON(w, http.StatusOK, linkResponse{URL: url})
@@ -480,7 +480,7 @@ func (a *Auth) handleAccountLink(w http.ResponseWriter, r *http.Request) {
 func (a *Auth) handleAccountUnlink(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	user, ok := a.requireUser(w, r)
@@ -489,7 +489,7 @@ func (a *Auth) handleAccountUnlink(w http.ResponseWriter, r *http.Request) {
 	}
 	providerID := r.PathValue("provider")
 	if _, err := a.provider(providerID); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	// The check and the delete run in one transaction. The transaction first
@@ -531,10 +531,10 @@ func (a *Auth) handleAccountUnlink(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if isNotFound(err) {
-			a.writeError(w, apierr.ErrAccountNotLinked)
+			a.writeError(w, r, apierr.ErrAccountNotLinked)
 			return
 		}
-		a.writeError(w, publicError(err))
+		a.writeError(w, r, publicError(err))
 		return
 	}
 	a.emitter.Emit(ctx, events.AccountUnlinked, user.ID, map[string]any{"provider": providerID})

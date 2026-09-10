@@ -28,3 +28,11 @@ type CatalogInspector interface {
 	// the table is absent.
 	TableColumns(ctx context.Context, table string) ([]string, bool, error)
 }
+
+// SessionUserReader reads a session and its user in one round trip. A store
+// that does not implement it costs one more round trip for each request.
+type SessionUserReader interface {
+	// SessionWithUser returns the session of a token hash and its user. It
+	// returns ErrNotFound when no session matches.
+	SessionWithUser(ctx context.Context, tokenHash string) (*Session, *User, error)
+}

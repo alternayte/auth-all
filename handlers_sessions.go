@@ -62,11 +62,11 @@ func mergeResponses(first, second map[string]openapi.Response) map[string]openap
 func (a *Auth) requireSession(w http.ResponseWriter, r *http.Request) (*store.Session, *store.User) {
 	sess, user, err := a.resolveSession(r.Context(), r)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return nil, nil
 	}
 	if sess == nil || user == nil {
-		a.writeError(w, apierr.ErrUnauthorized)
+		a.writeError(w, r, apierr.ErrUnauthorized)
 		return nil, nil
 	}
 	return sess, user
@@ -79,7 +79,7 @@ func (a *Auth) handleListSessions(w http.ResponseWriter, r *http.Request) {
 	}
 	list, err := a.cfg.store.Sessions().ListByUser(r.Context(), sess.UserID)
 	if err != nil {
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	entries := make([]sessionEntryDTO, 0, len(list))
@@ -92,7 +92,7 @@ func (a *Auth) handleListSessions(w http.ResponseWriter, r *http.Request) {
 func (a *Auth) handleRevokeSession(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	sess, _ := a.requireSession(w, r)
@@ -102,7 +102,7 @@ func (a *Auth) handleRevokeSession(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	list, err := a.cfg.store.Sessions().ListByUser(ctx, sess.UserID)
 	if err != nil {
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	// The list holds only the sessions of the current user, so a session of
@@ -116,11 +116,11 @@ func (a *Auth) handleRevokeSession(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !owned {
-		a.writeError(w, apierr.ErrNotFound)
+		a.writeError(w, r, apierr.ErrNotFound)
 		return
 	}
 	if err := a.cfg.store.Sessions().Delete(ctx, id); err != nil && !isNotFound(err) {
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	a.hooks.RunAfterSignOut(ctx, &hook.SignOut{UserID: sess.UserID, SessionID: id})
@@ -140,7 +140,7 @@ type revokeAllRequest struct {
 func (a *Auth) handleRevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	sess, _ := a.requireSession(w, r)
@@ -150,13 +150,13 @@ func (a *Auth) handleRevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 	var req revokeAllRequest
 	if r.ContentLength != 0 {
 		if err := a.decodeJSON(r, &req); err != nil {
-			a.writeError(w, err)
+			a.writeError(w, r, err)
 			return
 		}
 	}
 	list, err := a.cfg.store.Sessions().ListByUser(ctx, sess.UserID)
 	if err != nil {
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	revoked := 0
@@ -165,7 +165,7 @@ func (a *Auth) handleRevokeAllSessions(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if err := a.cfg.store.Sessions().Delete(ctx, item.ID); err != nil && !isNotFound(err) {
-			a.writeError(w, apierr.ErrInternal.WithCause(err))
+			a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 			return
 		}
 		revoked++

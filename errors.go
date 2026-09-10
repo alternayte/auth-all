@@ -28,6 +28,16 @@ var (
 	// ErrNoPasswordCredential reports that the account has no password. An
 	// OAuth-only user reaches it.
 	ErrNoPasswordCredential = apierr.ErrNoPasswordCredential
+
+	// Re-exported errors of the v1.1 release.
+	ErrInsufficientRole       = apierr.ErrInsufficientRole
+	ErrRoleUnknown            = apierr.ErrRoleUnknown
+	ErrRoleNotAllowed         = apierr.ErrRoleNotAllowed
+	ErrUserDisabled           = apierr.ErrUserDisabled
+	ErrPasswordChangeRequired = apierr.ErrPasswordChangeRequired
+	ErrLastAdmin              = apierr.ErrLastAdmin
+	ErrAPIKeyExpiryTooLong    = apierr.ErrAPIKeyExpiryTooLong
+	ErrAPIKeyExpiryRequired   = apierr.ErrAPIKeyExpiryRequired
 )
 
 func isNotFound(err error) bool { return errors.Is(err, store.ErrNotFound) }

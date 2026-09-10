@@ -28,6 +28,17 @@ type User struct {
 	ImageURL        string
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
+	// Role is the role name of the user. An empty value means the default role
+	// of the roles plugin.
+	Role string
+	// DisabledAt blocks sign-in and every credential of the user when it is
+	// not nil.
+	DisabledAt *time.Time
+	// MustChangePassword blocks every protected route until the user sets a
+	// new password.
+	MustChangePassword bool
+	// Extra holds the host-owned user fields. The key is the field name.
+	Extra map[string]any
 }
 
 // Credential is the password credential of one user.

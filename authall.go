@@ -48,8 +48,14 @@ type Auth struct {
 	providers       map[string]oauth.Provider
 	providerOrder   []string
 	trustedOrigins  []string
-	svc             *services
-	routes          []RouteInfo
+	// resolvers hold the credential resolvers of the plugins, in registration
+	// order.
+	resolvers []plugin.CredentialResolver
+	// defaultRole names the role of a user whose role column is empty. The
+	// roles plugin sets it.
+	defaultRole string
+	svc         *services
+	routes      []RouteInfo
 	// registering names the plugin whose routes are mounted right now.
 	registering string
 
@@ -162,6 +168,17 @@ func New(opts ...Option) (*Auth, error) {
 				return nil, fmt.Errorf("authall: the plugin %q contributed an invalid table: %w", id, err)
 			}
 		}
+		for _, u := range reg.Units() {
+			if err := a.effectiveSchema.AddUnit(u); err != nil {
+				return nil, fmt.Errorf("authall: the plugin %q contributed an invalid migration unit: %w", id, err)
+			}
+		}
+		for _, e := range reg.Extensions() {
+			if err := a.effectiveSchema.Extend(e); err != nil {
+				return nil, fmt.Errorf("authall: the plugin %q contributed an invalid extension: %w", id, err)
+			}
+		}
+		a.resolvers = append(a.resolvers, reg.Resolvers()...)
 		for name, s := range reg.ComponentSchemas() {
 			a.doc.AddSchema(name, s)
 		}
@@ -201,6 +218,12 @@ func normalizeConfig(cfg *config) error {
 	}
 	if cfg.cookie.Name == "" {
 		cfg.cookie.Name = DefaultCookieName
+	}
+	if !validCookieName(cfg.cookie.Name) {
+		// A browser drops a cookie whose name is not a token, so the session
+		// would never come back.
+		return fmt.Errorf("authall: the cookie name %q is not a valid cookie token. "+
+			"Use letters, digits, and the characters !#$%%&'*+-.^_`|~", cfg.cookie.Name)
 	}
 	if cfg.cookie.Path == "" {
 		cfg.cookie.Path = "/"
@@ -256,6 +279,9 @@ func normalizeConfig(cfg *config) error {
 	}
 	if cfg.argon.KeyLength == 0 {
 		cfg.argon = crypto.DefaultArgon2Params()
+	}
+	if err := checkArgon2(cfg.argon); err != nil {
+		return err
 	}
 	cfg.basePath = "/" + strings.Trim(cfg.basePath, "/")
 	if cfg.basePath == "/" {
@@ -351,7 +377,7 @@ func (a *Auth) Handler() http.Handler {
 		defer func() {
 			if rec := recover(); rec != nil {
 				a.cfg.logger.Error("authall: a handler panicked", "panic", fmt.Sprint(rec))
-				apierr.Write(w, apierr.ErrInternal)
+				a.writeError(w, r, apierr.ErrInternal)
 			}
 		}()
 		inner.ServeHTTP(w, r)
@@ -361,6 +387,25 @@ func (a *Auth) Handler() http.Handler {
 // BasePath returns the configured base path.
 func (a *Auth) BasePath() string { return a.cfg.basePath }
 
+// HandlerStripped returns the Auth-All handler for a router that already
+// removed the base path.
+//
+//	mux.Handle("/api/auth/", http.StripPrefix("/api/auth", auth.HandlerStripped()))
+//
+// Handler removes the base path itself, so a router that also removes it would
+// leave no path for the route table.
+func (a *Auth) HandlerStripped() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				a.cfg.logger.Error("authall: a handler panicked", "panic", fmt.Sprint(rec))
+				a.writeError(w, r, apierr.ErrInternal)
+			}
+		}()
+		a.mux.ServeHTTP(w, r)
+	})
+}
+
 // Schema returns the effective schema of core plus every registered plugin.
 func (a *Auth) Schema() *schema.Schema { return a.effectiveSchema }
 
@@ -369,6 +414,49 @@ func (a *Auth) OpenAPI() *openapi.Document { return a.doc }
 
 // Hooks returns the lifecycle hook registry of the instance.
 func (a *Auth) Hooks() *hook.Hooks { return a.hooks }
+
+// minArgon2Memory is the lowest accepted memory cost in KiB. RFC 9106 names
+// 19 MiB as the low-memory parameter set.
+const minArgon2Memory = 19 * 1024
+
+// checkArgon2 refuses a cost that is below the accepted minimum.
+func checkArgon2(p crypto.Argon2Params) error {
+	if p.Memory < minArgon2Memory {
+		return fmt.Errorf("authall: the argon2id memory %d KiB is below the minimum of %d KiB. "+
+			"Use authall.WithArgon2Params with a higher memory", p.Memory, minArgon2Memory)
+	}
+	if p.Iterations < 1 {
+		return fmt.Errorf("authall: the argon2id time cost must be 1 or more")
+	}
+	if p.Parallelism < 1 {
+		return fmt.Errorf("authall: the argon2id parallelism must be 1 or more")
+	}
+	if p.SaltLength < 16 {
+		return fmt.Errorf("authall: the argon2id salt must be 16 bytes or more")
+	}
+	if p.KeyLength < 32 {
+		return fmt.Errorf("authall: the argon2id key must be 32 bytes or more")
+	}
+	return nil
+}
+
+// validCookieName reports whether name is an HTTP token. A browser drops every
+// other name.
+func validCookieName(name string) bool {
+	if name == "" {
+		return false
+	}
+	const separators = "!#$%&'*+-.^_`|~"
+	for _, c := range name {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case strings.ContainsRune(separators, c):
+		default:
+			return false
+		}
+	}
+	return true
+}
 
 // applySchemaOptions passes the physical options to a store that accepts them.
 // A store that ignores them must keep the v1 names, so a host that sets a

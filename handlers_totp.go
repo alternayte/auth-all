@@ -144,14 +144,14 @@ func (a *Auth) verifyTOTPCode(ctx context.Context, rec *store.TOTP, secret []byt
 func (a *Auth) handleTOTPEnrol(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	sess, user := a.requireSession(w, r)
 	if sess == nil {
 		return
 	}
-	if !a.allow(ctx, w, ratelimit.Key{
+	if !a.allow(ctx, w, r, ratelimit.Key{
 		Operation: ratelimit.OpTOTP, IP: a.clientIP(r), UserID: user.ID,
 	}) {
 		return
@@ -160,15 +160,15 @@ func (a *Auth) handleTOTPEnrol(w http.ResponseWriter, r *http.Request) {
 	// replacement would drop a working second factor.
 	switch existing, err := a.cfg.store.TOTP().Get(ctx, user.ID); {
 	case err != nil && !isNotFound(err):
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	case err == nil && existing.ConfirmedAt != nil:
-		a.writeError(w, apierr.ErrTOTPAlreadyEnrolled)
+		a.writeError(w, r, apierr.ErrTOTPAlreadyEnrolled)
 		return
 	}
 	secret, err := totp.NewSecret()
 	if err != nil {
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	now := a.cfg.now()
@@ -177,7 +177,7 @@ func (a *Auth) handleTOTPEnrol(w http.ResponseWriter, r *http.Request) {
 	if err := a.cfg.store.TOTP().Upsert(ctx, &store.TOTP{
 		UserID: user.ID, Secret: totp.EncodeSecret(secret), CreatedAt: now, UpdatedAt: now,
 	}); err != nil {
-		a.writeError(w, publicError(err))
+		a.writeError(w, r, publicError(err))
 		return
 	}
 	a.writeJSON(w, http.StatusOK, totpEnrolResponse{
@@ -189,7 +189,7 @@ func (a *Auth) handleTOTPEnrol(w http.ResponseWriter, r *http.Request) {
 func (a *Auth) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	sess, user := a.requireSession(w, r)
@@ -198,29 +198,29 @@ func (a *Auth) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	var req totpCodeRequest
 	if err := a.decodeJSON(r, &req); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
-	if !a.allow(ctx, w, ratelimit.Key{
+	if !a.allow(ctx, w, r, ratelimit.Key{
 		Operation: ratelimit.OpTOTP, IP: a.clientIP(r), UserID: user.ID,
 	}) {
 		return
 	}
 	rec, secret, err := a.totpEnrolment(ctx, user.ID)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	if rec.ConfirmedAt != nil {
-		a.writeError(w, apierr.ErrTOTPAlreadyEnrolled)
+		a.writeError(w, r, apierr.ErrTOTPAlreadyEnrolled)
 		return
 	}
 	if err := a.verifyTOTPCode(ctx, rec, secret, req.Code); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	if err := a.cfg.store.TOTP().Confirm(ctx, user.ID, a.cfg.now()); err != nil {
-		a.writeError(w, publicError(err))
+		a.writeError(w, r, publicError(err))
 		return
 	}
 	// The codes arrive with the confirmation, so every enrolled user holds a
@@ -228,7 +228,7 @@ func (a *Auth) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 	// the enrolment and never call it.
 	codes, err := a.issueRecoveryCodes(ctx, user.ID)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	// A user who turns on a second factor usually suspects a compromise, so a
@@ -241,7 +241,7 @@ func (a *Auth) handleTOTPConfirm(w http.ResponseWriter, r *http.Request) {
 func (a *Auth) handleTOTPDisable(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	sess, user := a.requireSession(w, r)
@@ -250,27 +250,27 @@ func (a *Auth) handleTOTPDisable(w http.ResponseWriter, r *http.Request) {
 	}
 	var req totpCodeRequest
 	if err := a.decodeJSON(r, &req); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
-	if !a.allow(ctx, w, ratelimit.Key{
+	if !a.allow(ctx, w, r, ratelimit.Key{
 		Operation: ratelimit.OpTOTP, IP: a.clientIP(r), UserID: user.ID,
 	}) {
 		return
 	}
 	rec, secret, err := a.totpEnrolment(ctx, user.ID)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	// A current code is required. A session alone must not remove the factor
 	// that protects the session.
 	if err := a.verifyTOTPCode(ctx, rec, secret, req.Code); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	if err := a.cfg.store.TOTP().Delete(ctx, user.ID); err != nil && !isNotFound(err) {
-		a.writeError(w, publicError(err))
+		a.writeError(w, r, publicError(err))
 		return
 	}
 	// The codes belong to the enrolment, so they go with it. A list that
@@ -403,20 +403,20 @@ func (a *Auth) requestMFAToken(r *http.Request, body string) string {
 func (a *Auth) handleTOTPVerify(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	var req totpVerifyRequest
 	if err := a.decodeJSON(r, &req); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	challenge := a.requestMFAToken(r, req.MFAToken)
 	if challenge == "" {
-		a.writeError(w, apierr.ErrInvalidToken)
+		a.writeError(w, r, apierr.ErrInvalidToken)
 		return
 	}
-	if !a.allow(ctx, w, ratelimit.Key{
+	if !a.allow(ctx, w, r, ratelimit.Key{
 		Operation: ratelimit.OpTOTP, IP: a.clientIP(r),
 	}) {
 		return
@@ -427,36 +427,36 @@ func (a *Auth) handleTOTPVerify(w http.ResponseWriter, r *http.Request) {
 	tok, err := a.consumeToken(ctx, MFATokenKind, challenge)
 	if err != nil {
 		a.clearMFACookie(w)
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	a.clearMFACookie(w)
 	if tok.UserID == nil {
-		a.writeError(w, apierr.ErrInvalidToken)
+		a.writeError(w, r, apierr.ErrInvalidToken)
 		return
 	}
 	user, err := a.cfg.store.Users().GetByID(ctx, *tok.UserID)
 	if err != nil {
-		a.writeError(w, publicError(err))
+		a.writeError(w, r, publicError(err))
 		return
 	}
 	rec, secret, err := a.totpEnrolment(ctx, user.ID)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	if rec.ConfirmedAt == nil {
-		a.writeError(w, apierr.ErrTOTPNotEnrolled)
+		a.writeError(w, r, apierr.ErrTOTPNotEnrolled)
 		return
 	}
 	if err := a.verifyTOTPCode(ctx, rec, secret, req.Code); err != nil {
 		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{"reason": "invalid_totp_code"})
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	sess, err := a.issueSession(ctx, w, r, user, "totp")
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	a.writeJSON(w, http.StatusOK, authResponse{User: toUserDTO(user), Session: toSessionDTO(sess)})
@@ -465,20 +465,20 @@ func (a *Auth) handleTOTPVerify(w http.ResponseWriter, r *http.Request) {
 func (a *Auth) handleTOTPRecovery(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	var req totpVerifyRequest
 	if err := a.decodeJSON(r, &req); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	challenge := a.requestMFAToken(r, req.MFAToken)
 	if challenge == "" {
-		a.writeError(w, apierr.ErrInvalidToken)
+		a.writeError(w, r, apierr.ErrInvalidToken)
 		return
 	}
-	if !a.allow(ctx, w, ratelimit.Key{
+	if !a.allow(ctx, w, r, ratelimit.Key{
 		Operation: ratelimit.OpTOTP, IP: a.clientIP(r),
 	}) {
 		return
@@ -486,17 +486,17 @@ func (a *Auth) handleTOTPRecovery(w http.ResponseWriter, r *http.Request) {
 	tok, err := a.consumeToken(ctx, MFATokenKind, challenge)
 	if err != nil {
 		a.clearMFACookie(w)
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	a.clearMFACookie(w)
 	if tok.UserID == nil {
-		a.writeError(w, apierr.ErrInvalidToken)
+		a.writeError(w, r, apierr.ErrInvalidToken)
 		return
 	}
 	user, err := a.cfg.store.Users().GetByID(ctx, *tok.UserID)
 	if err != nil {
-		a.writeError(w, publicError(err))
+		a.writeError(w, r, publicError(err))
 		return
 	}
 	// The statement names the user, so a code of another user never matches.
@@ -505,12 +505,12 @@ func (a *Auth) handleTOTPRecovery(w http.ResponseWriter, r *http.Request) {
 	ok, err := a.cfg.store.RecoveryCodes().Consume(ctx, user.ID,
 		crypto.HashToken(crypto.NormalizeRecoveryCode(req.Code)))
 	if err != nil {
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	if !ok {
 		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{"reason": "invalid_recovery_code"})
-		a.writeError(w, apierr.ErrInvalidRecoveryCode)
+		a.writeError(w, r, apierr.ErrInvalidRecoveryCode)
 		return
 	}
 	// A person who spends a recovery code lost their authenticator. The
@@ -518,7 +518,7 @@ func (a *Auth) handleTOTPRecovery(w http.ResponseWriter, r *http.Request) {
 	// the owner cannot satisfy. The remaining codes go too, so a leaked list
 	// is worthless afterwards.
 	if err := a.cfg.store.TOTP().Delete(ctx, user.ID); err != nil && !isNotFound(err) {
-		a.writeError(w, publicError(err))
+		a.writeError(w, r, publicError(err))
 		return
 	}
 	if _, err := a.cfg.store.RecoveryCodes().DeleteByUser(ctx, user.ID); err != nil {
@@ -527,7 +527,7 @@ func (a *Auth) handleTOTPRecovery(w http.ResponseWriter, r *http.Request) {
 	a.emitter.Emit(ctx, events.TOTPDisabled, user.ID, map[string]any{"reason": "recovery_code"})
 	sess, err := a.issueSession(ctx, w, r, user, "totp-recovery")
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	a.writeJSON(w, http.StatusOK, authResponse{User: toUserDTO(user), Session: toSessionDTO(sess)})
@@ -536,7 +536,7 @@ func (a *Auth) handleTOTPRecovery(w http.ResponseWriter, r *http.Request) {
 func (a *Auth) handleTOTPRegenerate(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	sess, user := a.requireSession(w, r)
@@ -545,32 +545,32 @@ func (a *Auth) handleTOTPRegenerate(w http.ResponseWriter, r *http.Request) {
 	}
 	var req totpCodeRequest
 	if err := a.decodeJSON(r, &req); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
-	if !a.allow(ctx, w, ratelimit.Key{
+	if !a.allow(ctx, w, r, ratelimit.Key{
 		Operation: ratelimit.OpTOTP, IP: a.clientIP(r), UserID: user.ID,
 	}) {
 		return
 	}
 	rec, secret, err := a.totpEnrolment(ctx, user.ID)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	if rec.ConfirmedAt == nil {
-		a.writeError(w, apierr.ErrTOTPNotEnrolled)
+		a.writeError(w, r, apierr.ErrTOTPNotEnrolled)
 		return
 	}
 	// A current code proves the device. A session alone must not replace the
 	// list that recovers the account.
 	if err := a.verifyTOTPCode(ctx, rec, secret, req.Code); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	codes, err := a.issueRecoveryCodes(ctx, user.ID)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	a.writeJSON(w, http.StatusOK, recoveryCodesResponse{RecoveryCodes: codes})

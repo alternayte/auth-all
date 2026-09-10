@@ -28,13 +28,20 @@ func (a *Auth) writeJSON(w http.ResponseWriter, status int, body any) {
 	}
 }
 
-// writeError writes the public error envelope and logs the private cause.
-func (a *Auth) writeError(w http.ResponseWriter, err error) {
+// writeError writes the public error envelope and logs the private cause. A
+// host writer replaces the envelope, and it never receives the private cause.
+func (a *Auth) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	e := apierr.From(err)
 	if cause := e.Unwrap(); cause != nil {
 		a.cfg.logger.Error("authall: request failed", "code", string(e.Code), "error", cause.Error())
 	}
-	apierr.Write(w, e)
+	if a.cfg.errorWriter == nil {
+		apierr.Write(w, e)
+		return
+	}
+	// The public error carries no cause, so the host cannot leak it.
+	public := apierr.New(e.Code, e.Status, e.Message)
+	a.cfg.errorWriter(w, r, public)
 }
 
 // decodeJSON reads a bounded JSON request body.

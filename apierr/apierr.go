@@ -37,6 +37,16 @@ const (
 	CodeTOTPAlreadyEnrolled  Code = "TOTP_ALREADY_ENROLLED"
 	CodeInvalidRecoveryCode  Code = "INVALID_RECOVERY_CODE"
 	CodeInternal             Code = "INTERNAL"
+
+	// Codes of the v1.1 release. A released code never changes its meaning.
+	CodeInsufficientRole       Code = "INSUFFICIENT_ROLE"
+	CodeRoleUnknown            Code = "ROLE_UNKNOWN"
+	CodeRoleNotAllowed         Code = "ROLE_NOT_ALLOWED"
+	CodeUserDisabled           Code = "USER_DISABLED"
+	CodePasswordChangeRequired Code = "PASSWORD_CHANGE_REQUIRED"
+	CodeLastAdmin              Code = "LAST_ADMIN"
+	CodeAPIKeyExpiryTooLong    Code = "API_KEY_EXPIRY_TOO_LONG"
+	CodeAPIKeyExpiryRequired   Code = "API_KEY_EXPIRY_REQUIRED"
 )
 
 // Error is a public Auth-All error. It carries a stable code, a safe public
@@ -112,7 +122,23 @@ var (
 	// message names no reason, so a wrong code and a spent code look equal.
 	ErrInvalidRecoveryCode = New(CodeInvalidRecoveryCode, http.StatusBadRequest, "The recovery code is invalid.")
 	ErrInternal            = New(CodeInternal, http.StatusInternalServerError, "An internal error occurred.")
+
+	// Errors of the v1.1 release.
+	ErrInsufficientRole = New(CodeInsufficientRole, http.StatusForbidden, "The role of the caller is too low.")
+	ErrRoleUnknown      = New(CodeRoleUnknown, http.StatusBadRequest, "The role is not configured.")
+	ErrRoleNotAllowed   = New(CodeRoleNotAllowed, http.StatusForbidden, "The role is above the role of the caller.")
+	// ErrUserDisabled appears only after a correct password, so it tells
+	// nothing to a caller without the password.
+	ErrUserDisabled           = New(CodeUserDisabled, http.StatusForbidden, "The account is disabled.")
+	ErrPasswordChangeRequired = New(CodePasswordChangeRequired, http.StatusForbidden, "The password must change before this operation.")
+	ErrLastAdmin              = New(CodeLastAdmin, http.StatusConflict, "The last enabled administrator cannot lose the role.")
+	ErrAPIKeyExpiryTooLong    = New(CodeAPIKeyExpiryTooLong, http.StatusBadRequest, "The expiry is above the maximum.")
+	ErrAPIKeyExpiryRequired   = New(CodeAPIKeyExpiryRequired, http.StatusBadRequest, "An expiry is required.")
 )
+
+// Writer replaces the public error envelope of Auth-All. The host receives the
+// public error only. The private cause stays in the Auth-All log.
+type Writer func(w http.ResponseWriter, r *http.Request, e *Error)
 
 // Body is the serialized public error envelope.
 type Body struct {

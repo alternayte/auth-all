@@ -65,12 +65,22 @@ func (a *Auth) resolveSession(ctx context.Context, r *http.Request) (*store.Sess
 	if token == "" {
 		return nil, nil, nil
 	}
-	sess, err := a.cfg.store.Sessions().GetByTokenHash(ctx, crypto.HashToken(token))
+	return a.lookupSession(ctx, crypto.HashToken(token))
+}
+
+// lookupSession returns the valid session and user of one token hash. It reads
+// the credential row and the user row in one round trip when the store
+// implements store.SessionUserReader.
+func (a *Auth) lookupSession(ctx context.Context, tokenHash string) (*store.Session, *store.User, error) {
+	sess, user, err := a.readSessionAndUser(ctx, tokenHash)
 	if err != nil {
 		if isNotFound(err) {
 			return nil, nil, nil
 		}
 		return nil, nil, apierr.ErrInternal.WithCause(err)
+	}
+	if sess == nil {
+		return nil, nil, nil
 	}
 	now := a.cfg.now()
 	// A session ends at the first of three deadlines. ExpiresAt carries the
@@ -84,19 +94,42 @@ func (a *Auth) resolveSession(ctx context.Context, r *http.Request) (*store.Sess
 		_ = a.cfg.store.Sessions().Delete(ctx, sess.ID)
 		return nil, nil, nil
 	}
-	user, err := a.cfg.store.Users().GetByID(ctx, sess.UserID)
-	if err != nil {
-		if isNotFound(err) {
-			return nil, nil, nil
-		}
-		return nil, nil, apierr.ErrInternal.WithCause(err)
-	}
 	if now.Sub(sess.LastSeenAt) >= a.cfg.session.TouchInterval {
 		// A revoked session returns ErrNotFound here, so a stale write cannot
 		// bring it back.
 		if err := a.cfg.store.Sessions().Touch(ctx, sess.ID, now); err == nil {
 			sess.LastSeenAt = now
 		}
+	}
+	return sess, user, nil
+}
+
+// readSessionAndUser returns the session row and the user row of one token
+// hash. It returns nil values when no session matches.
+func (a *Auth) readSessionAndUser(ctx context.Context, tokenHash string) (*store.Session, *store.User, error) {
+	if joined, ok := a.cfg.store.(store.SessionUserReader); ok {
+		sess, user, err := joined.SessionWithUser(ctx, tokenHash)
+		if err != nil {
+			if isNotFound(err) {
+				return nil, nil, nil
+			}
+			return nil, nil, apierr.ErrInternal.WithCause(err)
+		}
+		return sess, user, nil
+	}
+	sess, err := a.cfg.store.Sessions().GetByTokenHash(ctx, tokenHash)
+	if err != nil {
+		if isNotFound(err) {
+			return nil, nil, nil
+		}
+		return nil, nil, apierr.ErrInternal.WithCause(err)
+	}
+	user, err := a.cfg.store.Users().GetByID(ctx, sess.UserID)
+	if err != nil {
+		if isNotFound(err) {
+			return nil, nil, nil
+		}
+		return nil, nil, apierr.ErrInternal.WithCause(err)
 	}
 	return sess, user, nil
 }

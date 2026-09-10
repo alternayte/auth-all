@@ -69,16 +69,16 @@ type emailOnlyRequest struct {
 func (a *Auth) handlePasswordForgot(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	var req emailOnlyRequest
 	if err := a.decodeJSON(r, &req); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	normalized := email.Normalize(req.Email)
-	if !a.allow(ctx, w, ratelimit.Key{Operation: ratelimit.OpPasswordForgot, IP: a.clientIP(r), Email: normalized}) {
+	if !a.allow(ctx, w, r, ratelimit.Key{Operation: ratelimit.OpPasswordForgot, IP: a.clientIP(r), Email: normalized}) {
 		return
 	}
 	// The response never discloses whether the account exists.
@@ -133,35 +133,35 @@ type passwordResetRequest struct {
 func (a *Auth) handlePasswordReset(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	var req passwordResetRequest
 	if err := a.decodeJSON(r, &req); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	if err := a.checkPassword(req.Password); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	tok, err := a.consumeToken(ctx, tokenKindResetPassword, req.Token)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	if tok.UserID == nil {
-		a.writeError(w, apierr.ErrInvalidToken)
+		a.writeError(w, r, apierr.ErrInvalidToken)
 		return
 	}
 	user, err := a.cfg.store.Users().GetByID(ctx, *tok.UserID)
 	if err != nil {
-		a.writeError(w, publicError(err))
+		a.writeError(w, r, publicError(err))
 		return
 	}
 	hash, err := crypto.HashPassword(req.Password, a.cfg.argon)
 	if err != nil {
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	now := a.cfg.now()
@@ -171,7 +171,7 @@ func (a *Auth) handlePasswordReset(w http.ResponseWriter, r *http.Request) {
 		})
 	})
 	if err != nil {
-		a.writeError(w, publicError(err))
+		a.writeError(w, r, publicError(err))
 		return
 	}
 	// Every existing session ends, because the password owner can have lost
@@ -188,16 +188,16 @@ func (a *Auth) handlePasswordReset(w http.ResponseWriter, r *http.Request) {
 func (a *Auth) handleVerificationSend(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	var req emailOnlyRequest
 	if err := a.decodeJSON(r, &req); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	normalized := email.Normalize(req.Email)
-	if !a.allow(ctx, w, ratelimit.Key{Operation: ratelimit.OpEmailVerify, IP: a.clientIP(r), Email: normalized}) {
+	if !a.allow(ctx, w, r, ratelimit.Key{Operation: ratelimit.OpEmailVerify, IP: a.clientIP(r), Email: normalized}) {
 		return
 	}
 	defer a.writeJSON(w, http.StatusOK, messageResponse{Message: messageVerifySent})
@@ -224,12 +224,12 @@ type verificationVerifyRequest struct {
 func (a *Auth) handleVerificationVerify(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	var req verificationVerifyRequest
 	if err := a.decodeJSON(r, &req); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	// The proof revokes every session of the user, so the handler reads the
@@ -238,17 +238,17 @@ func (a *Auth) handleVerificationVerify(w http.ResponseWriter, r *http.Request) 
 	// and every session that predates the proof ends.
 	current, currentUser, err := a.resolveSession(ctx, r)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	user, err := a.VerifyEmailToken(ctx, req.Token)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	if current != nil && currentUser != nil && currentUser.ID == user.ID {
 		if _, err := a.issueSession(ctx, w, nil, user, "email-verification"); err != nil {
-			a.writeError(w, err)
+			a.writeError(w, r, err)
 			return
 		}
 	}
