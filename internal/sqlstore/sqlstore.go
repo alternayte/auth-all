@@ -29,6 +29,10 @@ type Dialect struct {
 	TextTime bool
 	// IsUniqueViolation reports whether err is a uniqueness constraint failure.
 	IsUniqueViolation func(err error) bool
+	// StringAgg returns the aggregate expression that joins the values of one
+	// column with a separator. PostgreSQL uses string_agg and SQLite uses
+	// group_concat.
+	StringAgg func(expr, separator string) string
 }
 
 type execer interface {

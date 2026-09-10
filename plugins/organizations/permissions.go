@@ -37,6 +37,11 @@ func (p *Plugin) permissionsOfMembership(ctx context.Context, s store.Store, m *
 	if err != nil {
 		return permission.Set{}, err
 	}
+	for _, role := range strings.Fields(m.TeamRoles) {
+		if teamSet, ok := p.PermissionsOf(role); ok {
+			set = set.Union(teamSet)
+		}
+	}
 	if m.Permissions != "" {
 		// The credential read resolved the extra statements of the membership.
 		extra, err := permission.NewSet(strings.Fields(m.Permissions)...)

@@ -32,9 +32,13 @@ type Membership struct {
 	Status   string
 	JoinedAt time.Time
 	// Permissions holds the statements that the credential read resolved for
-	// this membership, for a custom role and for every team role. It is empty
-	// for a membership that a plain read returned.
+	// this membership, for a custom role and for every custom team role. It is
+	// empty for a membership that a plain read returned.
 	Permissions string
+	// TeamRoles holds the space-separated role names of every team of the
+	// member. The effective permission set is the union of the organization
+	// role and of every team role.
+	TeamRoles string
 }
 
 // The status values of one membership. A suspended membership keeps the row,
@@ -179,6 +183,39 @@ type CustomRoleStore interface {
 	// DeleteCustomRole removes one role. It returns ErrNotFound when the role
 	// is absent.
 	DeleteCustomRole(ctx context.Context, orgID, name string) error
+}
+
+// Team groups members inside one organization.
+type Team struct {
+	ID    string
+	OrgID string
+	Name  string
+	// Role is the role of the team. An empty value carries no permission.
+	Role      string
+	CreatedAt time.Time
+}
+
+// TeamStore holds the teams of the organizations plugin.
+type TeamStore interface {
+	// CreateTeam inserts one team. It returns ErrConflict when the
+	// organization already holds a team of that name.
+	CreateTeam(ctx context.Context, t *Team) error
+	// TeamByID returns one team. It returns ErrNotFound when no team matches.
+	TeamByID(ctx context.Context, id string) (*Team, error)
+	// ListTeams returns every team of one organization, ordered by name.
+	ListTeams(ctx context.Context, orgID string) ([]Team, error)
+	// DeleteTeam removes one team and its team memberships. The organization
+	// memberships stay.
+	DeleteTeam(ctx context.Context, id string) error
+	// AddTeamMember puts one user in one team. It returns ErrConflict when the
+	// user is already a member of that team.
+	AddTeamMember(ctx context.Context, teamID, userID string) error
+	// RemoveTeamMember takes one user out of one team.
+	RemoveTeamMember(ctx context.Context, teamID, userID string) error
+	// ListTeamMembers returns the identifiers of the members of one team.
+	ListTeamMembers(ctx context.Context, teamID string) ([]string, error)
+	// TeamsOfUser returns every team of one user in one organization.
+	TeamsOfUser(ctx context.Context, orgID, userID string) ([]Team, error)
 }
 
 // SessionOrgReader reads a session, its user, the active organization, and the

@@ -27,6 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/alternayte/auth-all/apierr"
@@ -179,6 +180,9 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 	if _, err := customRoleStore(svc.Store()); err != nil {
 		return err
 	}
+	if _, err := teamStore(svc.Store()); err != nil {
+		return err
+	}
 	if _, ok := svc.Store().(store.ActiveOrganizationStore); !ok {
 		return errors.New("authall/organizations: the configured store holds no active organization")
 	}
@@ -218,11 +222,13 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 	registerSchemas(r)
 	registerInvitationSchemas(r)
 	registerRoleSchemas(r)
+	registerTeamSchemas(r)
 	p.registerRoutes(r)
 	p.registerMemberRoutes(r)
 	p.registerActiveRoutes(r)
 	p.registerInvitationRoutes(r)
 	p.registerRoleRoutes(r)
+	p.registerTeamRoutes(r)
 	p.writeErr = func(w http.ResponseWriter, r *http.Request, err error) {
 		if writer, ok := svc.HTTP().(interface {
 			WriteErrorFor(http.ResponseWriter, *http.Request, error)
@@ -350,6 +356,12 @@ func (p *Plugin) activePermissions(ctx context.Context) (permission.Set, bool) {
 		return permission.Set{}, true
 	}
 	set, _ := p.PermissionsOf(value.Membership.Role)
+	// The union holds every team role of the member.
+	for _, role := range strings.Fields(value.Membership.TeamRoles) {
+		if teamSet, ok := p.PermissionsOf(role); ok {
+			set = set.Union(teamSet)
+		}
+	}
 	if len(value.Permissions) > 0 {
 		// A statement of the store is data of the organization, so an invalid
 		// statement is dropped and never widens the set.

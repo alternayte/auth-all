@@ -19,6 +19,7 @@ var dialect = sqlstore.Dialect{
 	NumberedPlaceholders: false,
 	TextTime:             true,
 	IsUniqueViolation:    isUniqueViolation,
+	StringAgg:            func(expr, sep string) string { return "group_concat(" + expr + ", '" + sep + "')" },
 }
 
 // New returns a SQLite store over an application-owned database handle.

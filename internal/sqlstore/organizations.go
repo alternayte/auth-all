@@ -448,7 +448,7 @@ func (s *Store) SessionWithUserAndMembership(ctx context.Context, tokenHash stri
 	orgCols := prefixColumns("o", s.orgColumnList())
 	memberCols := prefixColumns("m", memberColumns)
 	query := "SELECT " + sessionCols + ", " + userCols + ", " + orgCols + ", " + memberCols +
-		", r.permissions" +
+		", r.permissions, " + s.teamRoleExpression() + ", " + s.teamPermissionExpression() +
 		" FROM " + s.n.Sessions + " s" +
 		" JOIN " + s.n.Users + " u ON u.id = s.user_id" +
 		" LEFT JOIN " + s.on.Organizations + " o ON o.id = s.active_org_id" +
@@ -472,7 +472,10 @@ func (s *Store) SessionWithUserAndMembership(ctx context.Context, tokenHash stri
 	targets = append(targets, org.targets(len(s.orgFields), orgExtra)...)
 	targets = append(targets, member.targets()...)
 	var permissions *string
-	targets = append(targets, nullStringScan{&permissions})
+	var teamRoles *string
+	var teamPermissions *string
+	targets = append(targets, nullStringScan{&permissions},
+		nullStringScan{&teamRoles}, nullStringScan{&teamPermissions})
 
 	if err := s.queryRow(ctx, query, tokenHash).Scan(targets...); err != nil {
 		return nil, nil, nil, nil, s.mapErr(err)
@@ -483,10 +486,48 @@ func (s *Store) SessionWithUserAndMembership(ctx context.Context, tokenHash stri
 		s.collectOrgExtra(out, orgExtra)
 	}
 	resolved := member.value()
-	if resolved != nil && permissions != nil {
-		resolved.Permissions = *permissions
+	if resolved != nil {
+		statements := []string{}
+		if permissions != nil {
+			statements = append(statements, *permissions)
+		}
+		if teamPermissions != nil {
+			statements = append(statements, *teamPermissions)
+		}
+		resolved.Permissions = strings.TrimSpace(strings.Join(statements, " "))
+		if teamRoles != nil {
+			resolved.TeamRoles = *teamRoles
+		}
 	}
 	return &sess, &user, out, resolved, nil
+}
+
+// teamRoleExpression returns the subquery that aggregates the role names of
+// every team of the member. The union of the organization role and of every
+// team role is the effective permission set, so one statement resolves it.
+func (s *Store) teamRoleExpression() string {
+	if s.d.StringAgg == nil {
+		return "NULL"
+	}
+	inner := "SELECT " + s.d.StringAgg("t.role", " ") +
+		" FROM " + s.on.Teams + " t" +
+		" JOIN " + s.on.TeamMembers + " tm ON tm.team_id = t.id" +
+		" WHERE t.org_id = s.active_org_id AND tm.user_id = s.user_id AND t.role IS NOT NULL"
+	return "(" + inner + ")"
+}
+
+// teamPermissionExpression returns the subquery that aggregates the statements
+// of every custom team role of the member.
+func (s *Store) teamPermissionExpression() string {
+	if s.d.StringAgg == nil {
+		return "NULL"
+	}
+	inner := "SELECT " + s.d.StringAgg("cr.permissions", " ") +
+		" FROM " + s.on.Teams + " t" +
+		" JOIN " + s.on.TeamMembers + " tm ON tm.team_id = t.id" +
+		" JOIN " + s.on.Roles + " cr ON cr.org_id = t.org_id AND cr.name = t.role" +
+		" WHERE t.org_id = s.active_org_id AND tm.user_id = s.user_id"
+	return "(" + inner + ")"
 }
 
 // nullableOrganization scans the organization columns of a left join.
@@ -731,4 +772,133 @@ func (s *Store) DeleteCustomRole(ctx context.Context, orgID, name string) error 
 		return s.mapErr(err)
 	}
 	return notFoundWhenNoRow(result)
+}
+
+// teamColumns are the columns of one team row.
+const teamColumns = "id, org_id, name, role, created_at"
+
+// readTeam scans one team row and keeps the nullable role.
+func readTeam(scan func(...any) error) (*store.Team, error) {
+	var t store.Team
+	var role *string
+	if err := scan(&t.ID, &t.OrgID, &t.Name, nullStringScan{&role}, timeScan{&t.CreatedAt}); err != nil {
+		return nil, err
+	}
+	if role != nil {
+		t.Role = *role
+	}
+	return &t, nil
+}
+
+// CreateTeam implements store.TeamStore.
+func (s *Store) CreateTeam(ctx context.Context, t *store.Team) error {
+	var role any
+	if t.Role != "" {
+		role = t.Role
+	}
+	_, err := s.exec(ctx,
+		"INSERT INTO "+s.on.Teams+" ("+teamColumns+") VALUES (?, ?, ?, ?, ?)",
+		t.ID, t.OrgID, t.Name, role, s.bindTime(t.CreatedAt))
+	return s.mapErr(err)
+}
+
+// TeamByID implements store.TeamStore.
+func (s *Store) TeamByID(ctx context.Context, id string) (*store.Team, error) {
+	row := s.queryRow(ctx, "SELECT "+teamColumns+" FROM "+s.on.Teams+" WHERE id = ?", id)
+	t, err := readTeam(row.Scan)
+	if err != nil {
+		return nil, s.mapErr(err)
+	}
+	return t, nil
+}
+
+// ListTeams implements store.TeamStore.
+func (s *Store) ListTeams(ctx context.Context, orgID string) ([]store.Team, error) {
+	rows, err := s.query(ctx,
+		"SELECT "+teamColumns+" FROM "+s.on.Teams+" WHERE org_id = ? ORDER BY name", orgID)
+	if err != nil {
+		return nil, s.mapErr(err)
+	}
+	defer rows.Close()
+	var out []store.Team
+	for rows.Next() {
+		t, err := readTeam(rows.Scan)
+		if err != nil {
+			return nil, s.mapErr(err)
+		}
+		out = append(out, *t)
+	}
+	return out, s.mapErr(rows.Err())
+}
+
+// DeleteTeam implements store.TeamStore.
+//
+// The team memberships go with the team. The organization memberships stay,
+// because a team is a group inside one organization.
+func (s *Store) DeleteTeam(ctx context.Context, id string) error {
+	if _, err := s.exec(ctx, "DELETE FROM "+s.on.TeamMembers+" WHERE team_id = ?", id); err != nil {
+		return s.mapErr(err)
+	}
+	result, err := s.exec(ctx, "DELETE FROM "+s.on.Teams+" WHERE id = ?", id)
+	if err != nil {
+		return s.mapErr(err)
+	}
+	return notFoundWhenNoRow(result)
+}
+
+// AddTeamMember implements store.TeamStore.
+func (s *Store) AddTeamMember(ctx context.Context, teamID, userID string) error {
+	_, err := s.exec(ctx,
+		"INSERT INTO "+s.on.TeamMembers+" (team_id, user_id) VALUES (?, ?)", teamID, userID)
+	return s.mapErr(err)
+}
+
+// RemoveTeamMember implements store.TeamStore.
+func (s *Store) RemoveTeamMember(ctx context.Context, teamID, userID string) error {
+	result, err := s.exec(ctx,
+		"DELETE FROM "+s.on.TeamMembers+" WHERE team_id = ? AND user_id = ?", teamID, userID)
+	if err != nil {
+		return s.mapErr(err)
+	}
+	return notFoundWhenNoRow(result)
+}
+
+// ListTeamMembers implements store.TeamStore.
+func (s *Store) ListTeamMembers(ctx context.Context, teamID string) ([]string, error) {
+	rows, err := s.query(ctx,
+		"SELECT user_id FROM "+s.on.TeamMembers+" WHERE team_id = ? ORDER BY user_id", teamID)
+	if err != nil {
+		return nil, s.mapErr(err)
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, s.mapErr(err)
+		}
+		out = append(out, id)
+	}
+	return out, s.mapErr(rows.Err())
+}
+
+// TeamsOfUser implements store.TeamStore.
+func (s *Store) TeamsOfUser(ctx context.Context, orgID, userID string) ([]store.Team, error) {
+	rows, err := s.query(ctx,
+		"SELECT "+prefixColumns("t", teamColumns)+" FROM "+s.on.Teams+" t"+
+			" JOIN "+s.on.TeamMembers+" tm ON tm.team_id = t.id"+
+			" WHERE t.org_id = ? AND tm.user_id = ? ORDER BY t.name", orgID, userID)
+	if err != nil {
+		return nil, s.mapErr(err)
+	}
+	defer rows.Close()
+	var out []store.Team
+	for rows.Next() {
+		t, err := readTeam(rows.Scan)
+		if err != nil {
+			return nil, s.mapErr(err)
+		}
+		out = append(out, *t)
+	}
+	return out, s.mapErr(rows.Err())
 }
