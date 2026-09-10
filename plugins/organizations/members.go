@@ -3,6 +3,7 @@ package organizations
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/alternayte/auth-all/apierr"
 	"github.com/alternayte/auth-all/events"
@@ -282,4 +283,35 @@ func (p *Plugin) clearActiveOrganization(ctx context.Context, tx store.Store, or
 		return nil
 	}
 	return sessions.ClearActiveOrganization(ctx, orgID, userID)
+}
+
+// guardMemberLimit refuses a change that passes the member limit.
+//
+// The count holds the active members and the pending invitations, and it runs
+// inside the write transaction. A batch of invitations therefore cannot pass
+// the limit together.
+func (p *Plugin) guardMemberLimit(ctx context.Context, tx store.Store, orgID string, now time.Time) error {
+	if p.maxMembers <= 0 {
+		return nil
+	}
+	_, members, err := orgStores(tx)
+	if err != nil {
+		return err
+	}
+	count, err := members.CountMembers(ctx, orgID)
+	if err != nil {
+		return err
+	}
+	invitations, err := invitationStore(tx)
+	if err != nil {
+		return err
+	}
+	pending, err := invitations.CountPendingInvitations(ctx, orgID, now)
+	if err != nil {
+		return err
+	}
+	if count+pending >= p.maxMembers {
+		return apierr.ErrMemberLimit
+	}
+	return nil
 }

@@ -554,3 +554,121 @@ func (n *nullableMembership) value() *store.Membership {
 	}
 	return out
 }
+
+// invitationColumns are the columns of one invitation row.
+const invitationColumns = "id, org_id, email_normalized, role, invited_by, token_hash, status, expires_at, created_at"
+
+func scanInvitation(i *store.Invitation) []any {
+	return []any{&i.ID, &i.OrgID, &i.EmailNormalized, &i.Role, &i.InvitedBy,
+		&i.TokenHash, &i.Status, timeScan{&i.ExpiresAt}, timeScan{&i.CreatedAt}}
+}
+
+// CreateInvitation implements store.InvitationStore.
+func (s *Store) CreateInvitation(ctx context.Context, i *store.Invitation) error {
+	_, err := s.exec(ctx,
+		"INSERT INTO "+s.on.Invitations+" ("+invitationColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		i.ID, i.OrgID, i.EmailNormalized, i.Role, i.InvitedBy, i.TokenHash, i.Status,
+		s.bindTime(i.ExpiresAt), s.bindTime(i.CreatedAt))
+	return s.mapErr(err)
+}
+
+// InvitationByTokenHash implements store.InvitationStore.
+func (s *Store) InvitationByTokenHash(ctx context.Context, tokenHash string) (*store.Invitation, error) {
+	return s.invitation(ctx, "token_hash = ?", tokenHash)
+}
+
+// InvitationByID implements store.InvitationStore.
+func (s *Store) InvitationByID(ctx context.Context, id string) (*store.Invitation, error) {
+	return s.invitation(ctx, "id = ?", id)
+}
+
+func (s *Store) invitation(ctx context.Context, where string, arg any) (*store.Invitation, error) {
+	row := s.queryRow(ctx, "SELECT "+invitationColumns+" FROM "+s.on.Invitations+" WHERE "+where, arg)
+	var i store.Invitation
+	if err := row.Scan(scanInvitation(&i)...); err != nil {
+		return nil, s.mapErr(err)
+	}
+	return &i, nil
+}
+
+// ConsumeInvitation implements store.InvitationStore.
+//
+// One conditional update changes the status, so two parallel acceptances of
+// one invitation never both pass.
+func (s *Store) ConsumeInvitation(ctx context.Context, tokenHash string, now time.Time) (*store.Invitation, error) {
+	result, err := s.exec(ctx,
+		"UPDATE "+s.on.Invitations+" SET status = ? WHERE token_hash = ? AND status = ? AND expires_at > ?",
+		store.InvitationAccepted, tokenHash, store.InvitationPending, s.bindTime(now))
+	if err != nil {
+		return nil, s.mapErr(err)
+	}
+	if err := notFoundWhenNoRow(result); err != nil {
+		return nil, err
+	}
+	return s.InvitationByTokenHash(ctx, tokenHash)
+}
+
+// SetInvitationStatus implements store.InvitationStore.
+func (s *Store) SetInvitationStatus(ctx context.Context, id, from, to string) error {
+	result, err := s.exec(ctx,
+		"UPDATE "+s.on.Invitations+" SET status = ? WHERE id = ? AND status = ?", to, id, from)
+	if err != nil {
+		return s.mapErr(err)
+	}
+	return notFoundWhenNoRow(result)
+}
+
+// ListInvitations implements store.InvitationStore.
+func (s *Store) ListInvitations(ctx context.Context, f store.InvitationFilter) ([]store.Invitation, string, error) {
+	limit := pageSize(f.Limit)
+	where := []string{"org_id = ?"}
+	args := []any{f.OrgID}
+	if f.Status != nil {
+		where = append(where, "status = ?")
+		args = append(args, *f.Status)
+	}
+	if f.Cursor != "" {
+		id, err := decodeSingleCursor(f.Cursor)
+		if err != nil {
+			return nil, "", err
+		}
+		where = append(where, "id > ?")
+		args = append(args, id)
+	}
+	query := "SELECT " + invitationColumns + " FROM " + s.on.Invitations +
+		" WHERE " + strings.Join(where, " AND ") + " ORDER BY id LIMIT ?"
+	args = append(args, limit+1)
+
+	rows, err := s.query(ctx, query, args...)
+	if err != nil {
+		return nil, "", s.mapErr(err)
+	}
+	defer rows.Close()
+	var out []store.Invitation
+	for rows.Next() {
+		var i store.Invitation
+		if err := rows.Scan(scanInvitation(&i)...); err != nil {
+			return nil, "", s.mapErr(err)
+		}
+		out = append(out, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", s.mapErr(err)
+	}
+	if len(out) > limit {
+		return out[:limit], encodeSingleCursor(out[limit-1].ID), nil
+	}
+	return out, "", nil
+}
+
+// CountPendingInvitations implements store.InvitationStore.
+func (s *Store) CountPendingInvitations(ctx context.Context, orgID string, now time.Time) (int, error) {
+	row := s.queryRow(ctx,
+		"SELECT COUNT(*) FROM "+s.on.Invitations+" WHERE org_id = ? AND status = ? AND expires_at > ?",
+		orgID, store.InvitationPending, s.bindTime(now))
+	var count int
+	if err := row.Scan(&count); err != nil {
+		return 0, s.mapErr(err)
+	}
+	return count, nil
+}

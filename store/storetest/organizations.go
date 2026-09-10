@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +30,8 @@ func runOrganizationTests(t *testing.T, newStore Factory, o schema.Options) {
 		{"SCNORG004ThePagesCoverEveryOrganization", testOrganizationPages},
 		{"SCNMEM001OneUserHoldsThreeMemberships", testMembershipInManyOrganizations},
 		{"SCNMEM002ASecondMembershipInOneOrganizationFails", testMembershipIsUniquePerOrganization},
+		{"Invitations", testInvitations},
+		{"SCNINV005TenParallelAcceptancesSpendOneInvitation", testConcurrentInvitationConsume},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -360,5 +363,137 @@ func testMembershipIsUniquePerOrganization(t *testing.T, s store.Store) {
 	err := members.CreateMembership(ctx(t), newMembership(o.ID, user.ID, "owner"))
 	if !errors.Is(err, store.ErrConflict) {
 		t.Fatalf("a second membership = %v, want ErrConflict", err)
+	}
+}
+
+// invitationStore returns the invitation store of the adapter.
+func invitationStore(t *testing.T, s store.Store) store.InvitationStore {
+	t.Helper()
+	invitations, ok := s.(store.InvitationStore)
+	if !ok {
+		t.Fatal("the adapter holds no invitation store")
+	}
+	return invitations
+}
+
+// newInvitation returns a valid invitation value for tests.
+func newInvitation(orgID, address, role, tokenHash string, expires time.Time) *store.Invitation {
+	return &store.Invitation{
+		ID: uuid.NewString(), OrgID: orgID, EmailNormalized: address, Role: role,
+		InvitedBy: uuid.NewString(), TokenHash: tokenHash,
+		Status: store.InvitationPending, ExpiresAt: expires, CreatedAt: now(),
+	}
+}
+
+func testInvitations(t *testing.T, s store.Store) {
+	orgs := orgStore(t, s)
+	invitations := invitationStore(t, s)
+	o := NewOrganization("Acme", uniqueSlug("acme"))
+	if err := orgs.CreateOrganization(ctx(t), o); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	hash := uniqueSlug("hash")
+	i := newInvitation(o.ID, "new@example.com", "member", hash, now().Add(time.Hour))
+	if err := invitations.CreateInvitation(ctx(t), i); err != nil {
+		t.Fatalf("create the invitation: %v", err)
+	}
+	if err := invitations.CreateInvitation(ctx(t),
+		newInvitation(o.ID, "other@example.com", "member", hash, now().Add(time.Hour))); !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("a duplicate digest = %v, want ErrConflict", err)
+	}
+	read, err := invitations.InvitationByTokenHash(ctx(t), hash)
+	if err != nil || read.ID != i.ID {
+		t.Fatalf("read by digest = %v, %v", read, err)
+	}
+	if byID, err := invitations.InvitationByID(ctx(t), i.ID); err != nil || byID.TokenHash != hash {
+		t.Fatalf("read by id = %v, %v", byID, err)
+	}
+	if _, err := invitations.InvitationByTokenHash(ctx(t), "absent"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("an unknown digest = %v, want ErrNotFound", err)
+	}
+
+	// The count holds the pending and unexpired invitations only.
+	count, err := invitations.CountPendingInvitations(ctx(t), o.ID, now())
+	if err != nil || count != 1 {
+		t.Fatalf("the pending count = %d, %v, want 1", count, err)
+	}
+	expired := newInvitation(o.ID, "old@example.com", "member", uniqueSlug("old"), now().Add(-time.Hour))
+	if err := invitations.CreateInvitation(ctx(t), expired); err != nil {
+		t.Fatalf("create the expired invitation: %v", err)
+	}
+	if count, err = invitations.CountPendingInvitations(ctx(t), o.ID, now()); err != nil || count != 1 {
+		t.Fatalf("the pending count with an expired row = %d, %v, want 1", count, err)
+	}
+	// An expired invitation is never consumed.
+	if _, err := invitations.ConsumeInvitation(ctx(t), expired.TokenHash, now()); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("an expired consume = %v, want ErrNotFound", err)
+	}
+
+	// The list pages the invitations of one organization.
+	page, next, err := invitations.ListInvitations(ctx(t), store.InvitationFilter{OrgID: o.ID, Limit: 10})
+	if err != nil || len(page) != 2 || next != "" {
+		t.Fatalf("the list = %d rows, %q, %v", len(page), next, err)
+	}
+	pending := store.InvitationPending
+	filtered, _, err := invitations.ListInvitations(ctx(t),
+		store.InvitationFilter{OrgID: o.ID, Status: &pending, Limit: 10})
+	if err != nil || len(filtered) != 2 {
+		t.Fatalf("the status filter = %d rows, %v", len(filtered), err)
+	}
+
+	// The revocation stops the invitation, and a second one fails.
+	if err := invitations.SetInvitationStatus(ctx(t), i.ID, store.InvitationPending, store.InvitationRevoked); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if err := invitations.SetInvitationStatus(ctx(t), i.ID,
+		store.InvitationPending, store.InvitationRevoked); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a second revocation = %v, want ErrNotFound", err)
+	}
+	if _, err := invitations.ConsumeInvitation(ctx(t), hash, now()); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a revoked consume = %v, want ErrNotFound", err)
+	}
+}
+
+// testConcurrentInvitationConsume proves SCN-INV-005 and REQ-INV-008. Ten
+// parallel acceptances of one invitation spend it one time.
+func testConcurrentInvitationConsume(t *testing.T, s store.Store) {
+	const attempts = 10
+	orgs := orgStore(t, s)
+	invitations := invitationStore(t, s)
+	o := NewOrganization("Acme", uniqueSlug("acme"))
+	if err := orgs.CreateOrganization(ctx(t), o); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	hash := uniqueSlug("hash")
+	if err := invitations.CreateInvitation(ctx(t),
+		newInvitation(o.ID, "new@example.com", "member", hash, now().Add(time.Hour))); err != nil {
+		t.Fatalf("create the invitation: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	accepted := 0
+	wg.Add(attempts)
+	for range attempts {
+		go func() {
+			defer wg.Done()
+			out, err := invitations.ConsumeInvitation(ctx(t), hash, now())
+			mu.Lock()
+			defer mu.Unlock()
+			if err == nil && out != nil {
+				accepted++
+			}
+		}()
+	}
+	wg.Wait()
+	if accepted != 1 {
+		t.Fatalf("%d of %d acceptances passed, want exactly one", accepted, attempts)
+	}
+	final, err := invitations.InvitationByTokenHash(ctx(t), hash)
+	if err != nil {
+		t.Fatalf("read the invitation: %v", err)
+	}
+	if final.Status != store.InvitationAccepted {
+		t.Fatalf("the status = %q, want accepted", final.Status)
 	}
 }

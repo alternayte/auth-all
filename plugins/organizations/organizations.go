@@ -72,6 +72,9 @@ type Plugin struct {
 	ownerRole        string
 	allowCustomRoles bool
 	maxMembers       int
+	// invitationLifetime is the accepted age of one invitation. A value of 0
+	// uses DefaultInvitationTTL.
+	invitationLifetime time.Duration
 
 	// declared holds the union of every built-in role, so Require answers the
 	// construction guard with no allocation.
@@ -115,6 +118,11 @@ func OwnerRole(name string) Option {
 // custom role never holds a permission that its creator lacks.
 func AllowCustomRoles(allow bool) Option {
 	return func(p *Plugin) { p.allowCustomRoles = allow }
+}
+
+// InvitationTTL sets the lifetime of one invitation. The default is 7 days.
+func InvitationTTL(d time.Duration) Option {
+	return func(p *Plugin) { p.invitationLifetime = d }
 }
 
 // MaxMembers limits the members of one organization. The count holds the
@@ -162,6 +170,12 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 	if err != nil {
 		return err
 	}
+	if _, err := invitationStore(svc.Store()); err != nil {
+		return err
+	}
+	if _, ok := svc.Store().(store.ActiveOrganizationStore); !ok {
+		return errors.New("authall/organizations: the configured store holds no active organization")
+	}
 	configurator, ok := svc.(plugin.OrganizationConfigurator)
 	if !ok {
 		return errors.New("authall/organizations: this Auth-All version has no organization service")
@@ -196,9 +210,11 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 		r.Unit(unit)
 	}
 	registerSchemas(r)
+	registerInvitationSchemas(r)
 	p.registerRoutes(r)
 	p.registerMemberRoutes(r)
 	p.registerActiveRoutes(r)
+	p.registerInvitationRoutes(r)
 	p.writeErr = func(w http.ResponseWriter, r *http.Request, err error) {
 		if writer, ok := svc.HTTP().(interface {
 			WriteErrorFor(http.ResponseWriter, *http.Request, error)

@@ -86,6 +86,71 @@ type OrganizationStore interface {
 	ListOrganizations(ctx context.Context, f OrganizationFilter) (orgs []Organization, next string, err error)
 }
 
+// Invitation invites one address into one organization.
+type Invitation struct {
+	ID    string
+	OrgID string
+	// EmailNormalized is the normalized address of the invited person. The
+	// acceptance compares it with the address of the signed-in user.
+	EmailNormalized string
+	Role            string
+	InvitedBy       string
+	// TokenHash is the SHA-256 hex digest of the token. The plaintext exists
+	// one time, in the return value of the invitation.
+	TokenHash string
+	// Status is one of InvitationPending, InvitationAccepted,
+	// InvitationRevoked, and InvitationExpired.
+	Status    string
+	ExpiresAt time.Time
+	CreatedAt time.Time
+}
+
+// The status values of one invitation.
+const (
+	InvitationPending  = "pending"
+	InvitationAccepted = "accepted"
+	InvitationRevoked  = "revoked"
+	InvitationExpired  = "expired"
+)
+
+// InvitationFilter selects and pages the invitations of one organization.
+type InvitationFilter struct {
+	OrgID string
+	// Status keeps the invitations of one status. A nil value keeps every
+	// status.
+	Status *string
+	Limit  int
+	Cursor string
+}
+
+// InvitationStore holds the invitations of the organizations plugin.
+type InvitationStore interface {
+	// CreateInvitation inserts one invitation. It returns ErrConflict when the
+	// digest exists already.
+	CreateInvitation(ctx context.Context, i *Invitation) error
+	// InvitationByTokenHash returns one invitation by its digest. It returns
+	// ErrNotFound when no invitation matches.
+	InvitationByTokenHash(ctx context.Context, tokenHash string) (*Invitation, error)
+	// InvitationByID returns one invitation by its identifier.
+	InvitationByID(ctx context.Context, id string) (*Invitation, error)
+	// ConsumeInvitation marks one pending and unexpired invitation as
+	// accepted, and it returns the row. It returns ErrNotFound when the
+	// invitation is unknown, used, revoked, or expired.
+	//
+	// One statement changes the status, so ten parallel acceptances of one
+	// invitation create one membership.
+	ConsumeInvitation(ctx context.Context, tokenHash string, now time.Time) (*Invitation, error)
+	// SetInvitationStatus writes the status of one invitation. It returns
+	// ErrNotFound when the invitation does not hold the expected status.
+	SetInvitationStatus(ctx context.Context, id, from, to string) error
+	// ListInvitations returns one page of the invitations of one
+	// organization, and the cursor of the next page.
+	ListInvitations(ctx context.Context, f InvitationFilter) (invitations []Invitation, next string, err error)
+	// CountPendingInvitations returns the number of pending and unexpired
+	// invitations of one organization.
+	CountPendingInvitations(ctx context.Context, orgID string, now time.Time) (int, error)
+}
+
 // SessionOrgReader reads a session, its user, the active organization, and the
 // membership of that organization in one round trip. A permission check then
 // costs no extra store access.
