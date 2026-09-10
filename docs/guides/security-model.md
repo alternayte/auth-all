@@ -282,8 +282,9 @@ API keys, organizations, roles, and an administration interface.
 
 ## Security invariants
 
-The v1.1 release states thirteen invariants. Each one has a test that proves
-it. The build ledger `docs/build/ledger.md` names the test of each invariant.
+The v0.3.0 release states thirteen invariants. Each one has a test that proves
+it. `just verify` writes the evidence file, which names the test of every
+scenario.
 
 | ID | Invariant |
 |---|---|

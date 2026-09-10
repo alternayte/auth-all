@@ -38,7 +38,7 @@ const (
 	CodeInvalidRecoveryCode  Code = "INVALID_RECOVERY_CODE"
 	CodeInternal             Code = "INTERNAL"
 
-	// Codes of the v1.1 release. A released code never changes its meaning.
+	// Codes of the v0.3.0 release. A released code never changes its meaning.
 	CodeInsufficientRole       Code = "INSUFFICIENT_ROLE"
 	CodeRoleUnknown            Code = "ROLE_UNKNOWN"
 	CodeRoleNotAllowed         Code = "ROLE_NOT_ALLOWED"
@@ -123,7 +123,7 @@ var (
 	ErrInvalidRecoveryCode = New(CodeInvalidRecoveryCode, http.StatusBadRequest, "The recovery code is invalid.")
 	ErrInternal            = New(CodeInternal, http.StatusInternalServerError, "An internal error occurred.")
 
-	// Errors of the v1.1 release.
+	// Errors of the v0.3.0 release.
 	ErrInsufficientRole = New(CodeInsufficientRole, http.StatusForbidden, "The role of the caller is too low.")
 	ErrRoleUnknown      = New(CodeRoleUnknown, http.StatusBadRequest, "The role is not configured.")
 	ErrRoleNotAllowed   = New(CodeRoleNotAllowed, http.StatusForbidden, "The role is above the role of the caller.")

@@ -33,7 +33,7 @@ const (
 	TOTPEnabled        Name = "auth.totp_enabled"
 	TOTPDisabled       Name = "auth.totp_disabled"
 
-	// Events of the v1.1 release.
+	// Events of the v0.3.0 release.
 	UserCreated          Name = "auth.user_created"
 	UserUpdated          Name = "auth.user_updated"
 	UserDisabled         Name = "auth.user_disabled"

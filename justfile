@@ -118,13 +118,13 @@ test-latency:
     {{pg}} AUTHALL_LATENCY=1 go test -count 1 -run TestNFR002 -v .
     @just _record "credential resolution latency" "just test-latency"
 
-# Compare the exported API with the v1 release. NFR-09 asks for no
+# Compare the exported API with the last release. NFR-09 asks for no
 # incompatible change.
 apidiff:
     ./tools/apidiff.sh
-    @just _record "apidiff against v1" "./tools/apidiff.sh"
+    @just _record "apidiff against the last release" "./tools/apidiff.sh"
 
-# Check the statement coverage of the packages that the v1.1 release adds.
+# Check the statement coverage of the packages that the v0.3.0 release adds.
 # NFR-05 asks for 85 percent of statements in every new package.
 coverage:
     #!/usr/bin/env bash
@@ -184,8 +184,8 @@ examples-build:
 
 # Write the verification evidence.
 evidence:
-    {{pg}} {{bouncer}} AUTHALL_LATENCY=1 go run ./tools/evidence --checks {{checks}} --out artifacts/v1.1-verification.md
-    @echo "Evidence written to artifacts/v1.1-verification.md"
+    {{pg}} {{bouncer}} AUTHALL_LATENCY=1 go run ./tools/evidence --checks {{checks}} --out artifacts/verification.md
+    @echo "Evidence written to artifacts/verification.md"
 
 # Remove the recorded check results.
 _reset:

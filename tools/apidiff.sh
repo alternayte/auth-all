@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Compare the exported API of every published package with the v1 release.
+# Compare the exported API of every published package with the last release.
 #
 # NFR-09 asks for no incompatible change. The script writes a snapshot of the
-# base commit in a temporary worktree, and compares the current tree with it.
+# base tag in a temporary worktree, and compares the current tree with it.
 set -euo pipefail
 
-base="${1:-4d945ab}"
+base="${1:-v0.2.0}"
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 work="$(mktemp -d)"
 snapshots="$(mktemp -d)"

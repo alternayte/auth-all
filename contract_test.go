@@ -48,7 +48,7 @@ var v1Endpoints = []struct{ Method, Path string }{
 	{"POST", "/api/auth/magic-link/verify"},
 }
 
-// nextEndpoints are the routes that the v1.1 release adds. The reference
+// nextEndpoints are the routes that the v0.3.0 release adds. The reference
 // configuration enables the plugins that serve them.
 var nextEndpoints = []struct{ Method, Path string }{
 	{"GET", "/api/auth/admin/users"},
