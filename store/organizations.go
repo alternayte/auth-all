@@ -86,6 +86,17 @@ type OrganizationStore interface {
 	ListOrganizations(ctx context.Context, f OrganizationFilter) (orgs []Organization, next string, err error)
 }
 
+// SessionOrgReader reads a session, its user, the active organization, and the
+// membership of that organization in one round trip. A permission check then
+// costs no extra store access.
+type SessionOrgReader interface {
+	// SessionWithUserAndMembership returns the session of a token hash, its
+	// user, the active organization, and the membership. The organization and
+	// the membership are nil when the session names no organization, or when
+	// the membership is gone.
+	SessionWithUserAndMembership(ctx context.Context, tokenHash string) (*Session, *User, *Organization, *Membership, error)
+}
+
 // ActiveOrganizationStore reads and writes the active organization of a
 // session. The active organization lives in the session row, so every instance
 // reads it, and a revocation removes it with the session.

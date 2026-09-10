@@ -3,14 +3,19 @@ package organizations
 import (
 	"context"
 
-	"github.com/alternayte/auth-all/plugins/organizations/permission"
+	"github.com/alternayte/auth-all/plugin"
+	"github.com/alternayte/auth-all/store"
 )
 
-// WithPermissions returns a context that carries an active organization with
-// the given permission set. A test of this package uses it to reach the check
-// with no HTTP server.
-func WithPermissions(ctx context.Context, set permission.Set) context.Context {
-	return withActive(ctx, active{permissions: set})
+// WithPermissions returns a context that carries an active organization whose
+// role holds the given statements. A test of this package uses it to reach the
+// check with no HTTP server.
+func WithPermissions(ctx context.Context, statements ...string) context.Context {
+	return plugin.WithOrganization(ctx, plugin.OrganizationContext{
+		Organization: &store.Organization{ID: "org"},
+		Membership:   &store.Membership{OrgID: "org", Status: store.MembershipActive},
+		Permissions:  statements,
+	})
 }
 
 // Validate runs the declaration guards of the plugin.

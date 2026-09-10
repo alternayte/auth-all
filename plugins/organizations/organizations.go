@@ -162,6 +162,13 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 	if err != nil {
 		return err
 	}
+	configurator, ok := svc.(plugin.OrganizationConfigurator)
+	if !ok {
+		return errors.New("authall/organizations: this Auth-All version has no organization service")
+	}
+	if err := configurator.EnableOrganizations(); err != nil {
+		return err
+	}
 	p.svc = svc
 	p.store = svc.Store()
 	p.orgs = orgs
@@ -191,6 +198,7 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 	registerSchemas(r)
 	p.registerRoutes(r)
 	p.registerMemberRoutes(r)
+	p.registerActiveRoutes(r)
 	p.writeErr = func(w http.ResponseWriter, r *http.Request, err error) {
 		if writer, ok := svc.HTTP().(interface {
 			WriteErrorFor(http.ResponseWriter, *http.Request, error)
@@ -271,12 +279,12 @@ func (p *Plugin) Require(statement string, next http.Handler) http.Handler {
 		panic(fmt.Sprintf("authall/organizations: no declared role holds the permission %q. Declared roles: %v", statement, p.RoleNames()))
 	}
 	gate := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		active, ok := fromContext(r.Context())
+		set, ok := p.activePermissions(r.Context())
 		if !ok {
 			p.writeErr(w, r, apierr.ErrNoActiveOrganization)
 			return
 		}
-		if !active.permissions.Covers(stmt) {
+		if !set.Covers(stmt) {
 			p.writeErr(w, r, apierr.ErrPermissionDenied)
 			return
 		}
@@ -297,31 +305,52 @@ func (p *Plugin) RequireFunc(statement string, next http.HandlerFunc) http.Handl
 // permission. It returns false when no organization is active, which is
 // default deny.
 func (p *Plugin) Can(ctx context.Context, statement string) bool {
-	active, ok := fromContext(ctx)
+	set, ok := p.activePermissions(ctx)
 	if !ok {
 		return false
 	}
-	return active.permissions.Allows(statement)
+	return set.Allows(statement)
 }
 
-// contextKey is the private context key type of this package.
-type contextKey int
-
-const activeContextKey contextKey = iota
-
-// active carries the organization of the request, its membership, and the
-// effective permission set.
-type active struct {
-	permissions permission.Set
+// activePermissions returns the effective permission set of the request.
+//
+// The set is the union of the organization role and of every statement that
+// the credential read resolved, which holds a custom role and every team role.
+// A suspended membership holds no permission.
+func (p *Plugin) activePermissions(ctx context.Context) (permission.Set, bool) {
+	value, ok := plugin.OrganizationFrom(ctx)
+	if !ok {
+		return permission.Set{}, false
+	}
+	if value.Membership.Status != store.MembershipActive {
+		return permission.Set{}, true
+	}
+	set, _ := p.PermissionsOf(value.Membership.Role)
+	if len(value.Permissions) > 0 {
+		// A statement of the store is data of the organization, so an invalid
+		// statement is dropped and never widens the set.
+		extra, err := permission.NewSet(value.Permissions...)
+		if err == nil {
+			set = set.Union(extra)
+		}
+	}
+	return set, true
 }
 
-// withActive returns a context that carries the active organization.
-func withActive(ctx context.Context, value active) context.Context {
-	return context.WithValue(ctx, activeContextKey, value)
+// Active carries the active organization of one request.
+type Active struct {
+	// Organization is the active organization of the session.
+	Organization *store.Organization
+	// Membership is the membership of that organization.
+	Membership *store.Membership
 }
 
-// fromContext returns the active organization of the context.
-func fromContext(ctx context.Context) (active, bool) {
-	value, ok := ctx.Value(activeContextKey).(active)
-	return value, ok
+// From returns the active organization and the membership of the request
+// context. The second result is false when no organization is active.
+func From(ctx context.Context) (Active, bool) {
+	value, ok := plugin.OrganizationFrom(ctx)
+	if !ok {
+		return Active{}, false
+	}
+	return Active{Organization: value.Organization, Membership: value.Membership}, true
 }

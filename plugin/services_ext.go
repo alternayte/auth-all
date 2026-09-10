@@ -61,6 +61,14 @@ type ProtectService interface {
 	Protect(next http.Handler) http.Handler
 }
 
+// OrganizationConfigurator turns the organization read on in the core. The
+// organizations plugin calls it during registration, so a credential read
+// loads the active organization and the membership in the same round trip.
+type OrganizationConfigurator interface {
+	// EnableOrganizations makes the credential read load the membership.
+	EnableOrganizations() error
+}
+
 // SchemaService reports the physical schema options of the instance. A plugin
 // that owns a table uses it, so the table takes the host table prefix.
 type SchemaService interface {

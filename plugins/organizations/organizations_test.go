@@ -9,7 +9,6 @@ import (
 
 	"github.com/alternayte/auth-all/apierr"
 	"github.com/alternayte/auth-all/plugins/organizations"
-	"github.com/alternayte/auth-all/plugins/organizations/permission"
 )
 
 // declared returns a plugin with the roles of the design document.
@@ -114,7 +113,7 @@ func TestRequireRefusesAMemberWithoutThePermission(t *testing.T) {
 	handler := declared().Require("project:write", next)
 
 	request := httptest.NewRequest(http.MethodPost, "/projects", nil)
-	viewer := organizations.WithPermissions(request.Context(), permission.MustNewSet("project:read"))
+	viewer := organizations.WithPermissions(request.Context(), "project:read")
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request.WithContext(viewer))
 	if reached {
@@ -128,7 +127,7 @@ func TestRequireRefusesAMemberWithoutThePermission(t *testing.T) {
 	}
 
 	request = httptest.NewRequest(http.MethodPost, "/projects", nil)
-	admin := organizations.WithPermissions(request.Context(), permission.MustNewSet("project:*"))
+	admin := organizations.WithPermissions(request.Context(), "project:*")
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, request.WithContext(admin))
 	if !reached {
@@ -147,7 +146,7 @@ func TestCanIsDefaultDeny(t *testing.T) {
 	if plugin.Can(context.Background(), "project:read") {
 		t.Fatal("a context with no organization holds no permission")
 	}
-	ctx := organizations.WithPermissions(context.Background(), permission.MustNewSet("project:read"))
+	ctx := organizations.WithPermissions(context.Background(), "project:read")
 	if !plugin.Can(ctx, "project:read") {
 		t.Fatal("Can must report the held permission")
 	}

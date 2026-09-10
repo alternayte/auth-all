@@ -434,3 +434,123 @@ func (s *Store) ClearActiveOrganization(ctx context.Context, orgID, userID strin
 		userID, orgID)
 	return s.mapErr(err)
 }
+
+// SessionWithUserAndMembership implements store.SessionOrgReader.
+//
+// One statement returns the session row, the user row, the organization row,
+// and the membership row. A permission check therefore costs no extra round
+// trip. The joins are left joins, so a session with no active organization
+// returns the same row shape.
+func (s *Store) SessionWithUserAndMembership(ctx context.Context, tokenHash string) (
+	*store.Session, *store.User, *store.Organization, *store.Membership, error) {
+	sessionCols := prefixColumns("s", sessionColumns)
+	userCols := prefixColumns("u", s.userColumnList())
+	orgCols := prefixColumns("o", s.orgColumnList())
+	memberCols := prefixColumns("m", memberColumns)
+	query := "SELECT " + sessionCols + ", " + userCols + ", " + orgCols + ", " + memberCols +
+		" FROM " + s.n.Sessions + " s" +
+		" JOIN " + s.n.Users + " u ON u.id = s.user_id" +
+		" LEFT JOIN " + s.on.Organizations + " o ON o.id = s.active_org_id" +
+		" LEFT JOIN " + s.on.Members + " m ON m.org_id = s.active_org_id AND m.user_id = s.user_id" +
+		" WHERE s.token_hash = ?"
+
+	var sess store.Session
+	var user store.User
+	// The left joins can return null in every column of the organization and
+	// of the membership, so the scan reads them into nullable holders.
+	var org nullableOrganization
+	var member nullableMembership
+	targets := []any{&sess.ID, &sess.UserID, &sess.TokenHash,
+		timeScan{&sess.CreatedAt}, timeScan{&sess.ExpiresAt}, timeScan{&sess.LastSeenAt}}
+	extra := make([]any, len(s.fields))
+	targets = append(targets, s.scanUserRow(&user, extra)...)
+	orgExtra := make([]any, len(s.orgFields))
+	targets = append(targets, org.targets(len(s.orgFields), orgExtra)...)
+	targets = append(targets, member.targets()...)
+
+	if err := s.queryRow(ctx, query, tokenHash).Scan(targets...); err != nil {
+		return nil, nil, nil, nil, s.mapErr(err)
+	}
+	s.collectExtra(&user, extra)
+	out := org.value()
+	if out != nil {
+		s.collectOrgExtra(out, orgExtra)
+	}
+	return &sess, &user, out, member.value(), nil
+}
+
+// nullableOrganization scans the organization columns of a left join.
+type nullableOrganization struct {
+	id        *string
+	name      *string
+	slug      *string
+	createdAt *time.Time
+	updatedAt *time.Time
+}
+
+func (n *nullableOrganization) targets(fields int, extra []any) []any {
+	out := []any{nullStringScan{&n.id}, nullStringScan{&n.name}, nullStringScan{&n.slug},
+		nullTimeScan{&n.createdAt}, nullTimeScan{&n.updatedAt}}
+	for i := range fields {
+		out = append(out, &extra[i])
+	}
+	return out
+}
+
+func (n *nullableOrganization) value() *store.Organization {
+	if n.id == nil {
+		return nil
+	}
+	out := &store.Organization{ID: *n.id}
+	if n.name != nil {
+		out.Name = *n.name
+	}
+	if n.slug != nil {
+		out.Slug = *n.slug
+	}
+	if n.createdAt != nil {
+		out.CreatedAt = *n.createdAt
+	}
+	if n.updatedAt != nil {
+		out.UpdatedAt = *n.updatedAt
+	}
+	return out
+}
+
+// nullableMembership scans the membership columns of a left join.
+type nullableMembership struct {
+	id       *string
+	orgID    *string
+	userID   *string
+	role     *string
+	status   *string
+	joinedAt *time.Time
+}
+
+func (n *nullableMembership) targets() []any {
+	return []any{nullStringScan{&n.id}, nullStringScan{&n.orgID}, nullStringScan{&n.userID},
+		nullStringScan{&n.role}, nullStringScan{&n.status}, nullTimeScan{&n.joinedAt}}
+}
+
+func (n *nullableMembership) value() *store.Membership {
+	if n.id == nil {
+		return nil
+	}
+	out := &store.Membership{ID: *n.id}
+	if n.orgID != nil {
+		out.OrgID = *n.orgID
+	}
+	if n.userID != nil {
+		out.UserID = *n.userID
+	}
+	if n.role != nil {
+		out.Role = *n.role
+	}
+	if n.status != nil {
+		out.Status = *n.status
+	}
+	if n.joinedAt != nil {
+		out.JoinedAt = *n.joinedAt
+	}
+	return out
+}
