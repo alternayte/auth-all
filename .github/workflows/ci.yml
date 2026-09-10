@@ -10,7 +10,11 @@ jobs:
     name: just verify
     runs-on: ubuntu-latest
     steps:
+      # The apidiff step reads the API of the last release tag, so the checkout
+      # needs the whole history and every tag.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
