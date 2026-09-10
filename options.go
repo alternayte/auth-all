@@ -148,6 +148,13 @@ type config struct {
 	// authenticated. normalizeConfig fills it, so the default is on.
 	hostOriginCheck *bool
 
+	// consistencyBound is the maximum time between a committed change and its
+	// effect on every instance.
+	consistencyBound time.Duration
+	// principalCacheTTL turns the bounded principal cache on. Zero keeps the
+	// cache off, so every request reads the store.
+	principalCacheTTL time.Duration
+
 	schemaOptions schema.Options
 	schemaCheck   SchemaCheckMode
 
@@ -200,6 +207,26 @@ func WithErrorWriter(f func(w http.ResponseWriter, r *http.Request, e *Error)) O
 // request. Auth-All writes a warn-level log entry when the check is off.
 func WithHostOriginCheck(on bool) Option {
 	return func(c *config) { c.hostOriginCheck = &on }
+}
+
+// WithConsistencyBound sets the maximum time between a committed change and
+// its effect on every instance. The default is 5 seconds.
+//
+// Auth-All keeps no authorization state in memory past this time.
+func WithConsistencyBound(d time.Duration) Option {
+	return func(c *config) { c.consistencyBound = d }
+}
+
+// WithPrincipalCache keeps a resolved principal in process memory for ttl.
+//
+// The cache saves one store round trip for each request. Construction fails
+// when ttl is above the consistency bound, because a longer entry would keep a
+// disabled user, a demoted user, or a revoked credential alive past the bound.
+//
+// The cache is off by default. With no cache, every request reads the store,
+// so the effective bound is zero.
+func WithPrincipalCache(ttl time.Duration) Option {
+	return func(c *config) { c.principalCacheTTL = ttl }
 }
 
 // SchemaCheckMode selects how CheckSchema reads the state of the database.
