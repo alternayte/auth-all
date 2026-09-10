@@ -400,7 +400,11 @@ func (a *Auth) createUserWithAccount(ctx context.Context, identity *oauth.Identi
 		if err := tx.Users().Create(ctx, user); err != nil {
 			return err
 		}
-		return tx.Accounts().Create(ctx, account)
+		if err := tx.Accounts().Create(ctx, account); err != nil {
+			return err
+		}
+		// The user row exists now, so a hook can write a row that names it.
+		return a.hooks.RunAfterUserInsert(ctx, ev)
 	})
 	if err != nil {
 		if isConflict(err) {

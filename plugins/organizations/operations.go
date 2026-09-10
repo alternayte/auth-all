@@ -241,6 +241,9 @@ func notFound(err error) error {
 	return err
 }
 
+// newID returns one new identifier.
+func newID() string { return uuid.NewString() }
+
 // actorID returns the identifier of the acting person, or an empty string.
 func actorID(actor *store.User) string {
 	if actor == nil {

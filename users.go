@@ -54,11 +54,14 @@ func (a *Auth) createUser(ctx context.Context, in CreateUserInput, passwordHash 
 			return err
 		}
 		if passwordHash != "" {
-			return tx.Users().SetCredential(ctx, &store.Credential{
+			if err := tx.Users().SetCredential(ctx, &store.Credential{
 				UserID: user.ID, PasswordHash: passwordHash, CreatedAt: now, UpdatedAt: now,
-			})
+			}); err != nil {
+				return err
+			}
 		}
-		return nil
+		// The user row exists now, so a hook can write a row that names it.
+		return a.hooks.RunAfterUserInsert(ctx, ev)
 	})
 	if err != nil {
 		if isConflict(err) {

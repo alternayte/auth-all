@@ -299,3 +299,51 @@ func TestSCNORG003TheDeletionRunsTheBeforeHook(t *testing.T) {
 		t.Fatal("the organization survived the deletion")
 	}
 }
+
+// TestSCNORG005ThePersonalOrganizationIsAnOption proves SCN-ORG-005 and
+// REQ-ORG-008.
+func TestSCNORG005ThePersonalOrganizationIsAnOption(t *testing.T) {
+	// With the option off a sign-up creates no organization.
+	off, _ := orgHarness(t)
+	_, first := off.SignUp("alice@example.com", testPassword)
+	list := off.Do(http.MethodGet, "/organizations", nil)
+	if list.Status != http.StatusOK {
+		t.Fatalf("the list got status %d: %s", list.Status, string(list.Body))
+	}
+	var page organizationListBody
+	list.Decode(t, &page)
+	if len(page.Organizations) != 0 {
+		t.Fatalf("the sign-up created %d organizations, want none", len(page.Organizations))
+	}
+	_ = first
+
+	// With the option on a sign-up creates one organization, and the person
+	// owns it.
+	on, _ := orgHarness(t, organizations.WithPersonalOrganizations())
+	_, second := on.SignUp("bob@example.com", testPassword)
+	list = on.Do(http.MethodGet, "/organizations", nil)
+	if list.Status != http.StatusOK {
+		t.Fatalf("the list got status %d: %s", list.Status, string(list.Body))
+	}
+	list.Decode(t, &page)
+	if len(page.Organizations) != 1 {
+		t.Fatalf("the sign-up created %d organizations, want one", len(page.Organizations))
+	}
+	m := membershipOf(t, on.Store, page.Organizations[0].ID, second.User.ID)
+	if m.Role != "owner" {
+		t.Fatalf("the person holds the role %q, want owner", m.Role)
+	}
+
+	// A second person gets an organization of its own, and the slugs differ.
+	on.ClearCookies()
+	on.SignUp("bob@other.example.com", testPassword)
+	list = on.Do(http.MethodGet, "/organizations", nil)
+	var other organizationListBody
+	list.Decode(t, &other)
+	if len(other.Organizations) != 1 {
+		t.Fatalf("the second person holds %d organizations, want one", len(other.Organizations))
+	}
+	if other.Organizations[0].Slug == page.Organizations[0].Slug {
+		t.Fatalf("two people share the slug %q", other.Organizations[0].Slug)
+	}
+}

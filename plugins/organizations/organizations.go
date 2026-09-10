@@ -76,6 +76,8 @@ type Plugin struct {
 	// invitationLifetime is the accepted age of one invitation. A value of 0
 	// uses DefaultInvitationTTL.
 	invitationLifetime time.Duration
+	// personal creates one organization for each new person.
+	personal bool
 
 	// declared holds the union of every built-in role, so Require answers the
 	// construction guard with no allocation.
@@ -229,6 +231,7 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 	p.registerInvitationRoutes(r)
 	p.registerRoleRoutes(r)
 	p.registerTeamRoutes(r)
+	p.registerPersonalOrganization(r.Hooks())
 	p.writeErr = func(w http.ResponseWriter, r *http.Request, err error) {
 		if writer, ok := svc.HTTP().(interface {
 			WriteErrorFor(http.ResponseWriter, *http.Request, error)
