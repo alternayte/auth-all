@@ -54,6 +54,9 @@ type Auth struct {
 	// crossOrigin refuses an unsafe cross-site request on a host route. It is
 	// nil when the host turned the check off.
 	crossOrigin *http.CrossOriginProtection
+	// roleHierarchy names the configured roles from the lowest to the highest.
+	// It is nil until the roles plugin installs it.
+	roleHierarchy []string
 	// defaultRole names the role of a user whose role column is empty. The
 	// roles plugin sets it.
 	defaultRole string

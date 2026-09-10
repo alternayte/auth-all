@@ -179,7 +179,7 @@ func (a *Auth) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	a.writeJSON(w, http.StatusOK, struct {
 		User    *userDTO    `json:"user"`
 		Session *sessionDTO `json:"session"`
-	}{User: toUserDTO(user), Session: toSessionDTO(sess)})
+	}{User: a.toUserDTO(user), Session: toSessionDTO(sess)})
 }
 
 func (a *Auth) handleSignOut(w http.ResponseWriter, r *http.Request) {
@@ -261,7 +261,7 @@ func (a *Auth) handleSignUpEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	if opts.RequireEmailVerification {
 		a.writeJSON(w, http.StatusCreated, authResponse{
-			User: toUserDTO(user), Session: nil, EmailVerificationRequired: true,
+			User: a.toUserDTO(user), Session: nil, EmailVerificationRequired: true,
 		})
 		return
 	}
@@ -270,7 +270,7 @@ func (a *Auth) handleSignUpEmail(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, r, err)
 		return
 	}
-	a.writeJSON(w, http.StatusCreated, authResponse{User: toUserDTO(user), Session: toSessionDTO(sess)})
+	a.writeJSON(w, http.StatusCreated, authResponse{User: a.toUserDTO(user), Session: toSessionDTO(sess)})
 }
 
 type signInEmailRequest struct {
@@ -355,5 +355,5 @@ func (a *Auth) handleSignInEmail(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, r, err)
 		return
 	}
-	a.writeJSON(w, http.StatusOK, authResponse{User: toUserDTO(user), Session: toSessionDTO(sess)})
+	a.writeJSON(w, http.StatusOK, authResponse{User: a.toUserDTO(user), Session: toSessionDTO(sess)})
 }
