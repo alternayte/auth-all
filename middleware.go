@@ -58,7 +58,7 @@ func (a *Auth) RequireAuth(next http.Handler) http.Handler {
 			a.writeError(w, r, err)
 			return
 		}
-		next.ServeHTTP(w, withPrincipal(r, p))
+		next.ServeHTTP(w, a.withPrincipal(r, p))
 	})
 }
 
@@ -91,7 +91,7 @@ func (a *Auth) LoadSession(next http.Handler) http.Handler {
 			a.writeError(w, r, err)
 			return
 		}
-		next.ServeHTTP(w, withPrincipal(r, p))
+		next.ServeHTTP(w, a.withPrincipal(r, p))
 	})
 }
 

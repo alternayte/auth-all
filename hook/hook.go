@@ -58,6 +58,38 @@ type PasswordChange struct {
 	User *store.User
 }
 
+// UserUpdate carries a user change.
+//
+// Before holds the user as it was, and User holds the user after the change. A
+// Before hook can change User, and it can reject the operation.
+//
+// Tx is the transactional store in a Before hook. Tx is nil in an After hook.
+type UserUpdate struct {
+	User   *store.User
+	Before *store.User
+	Tx     store.Store
+}
+
+// RoleChange carries a role change of one user.
+//
+// Tx is the transactional store in a Before hook. Tx is nil in an After hook.
+type RoleChange struct {
+	User *store.User
+	// From is the role before the change.
+	From string
+	// To is the role after the change.
+	To string
+	Tx store.Store
+}
+
+// APIKeyEvent carries a created or a revoked API key. The plaintext key is
+// never part of it.
+type APIKeyEvent struct {
+	Key  *store.APIKey
+	User *store.User
+	Tx   store.Store
+}
+
 // Hook function types.
 type (
 	// BeforeUserCreateFunc runs in the transaction and can reject.
@@ -76,6 +108,18 @@ type (
 	AfterAccountLinkFunc func(ctx context.Context, ev *AccountLink) error
 	// AfterPasswordChangeFunc runs after commit.
 	AfterPasswordChangeFunc func(ctx context.Context, ev *PasswordChange) error
+	// BeforeUserUpdateFunc runs in the transaction and can reject.
+	BeforeUserUpdateFunc func(ctx context.Context, ev *UserUpdate) error
+	// AfterUserUpdateFunc runs after commit.
+	AfterUserUpdateFunc func(ctx context.Context, ev *UserUpdate) error
+	// BeforeRoleChangeFunc runs in the transaction and can reject.
+	BeforeRoleChangeFunc func(ctx context.Context, ev *RoleChange) error
+	// AfterRoleChangeFunc runs after commit.
+	AfterRoleChangeFunc func(ctx context.Context, ev *RoleChange) error
+	// AfterAPIKeyCreateFunc runs after commit.
+	AfterAPIKeyCreateFunc func(ctx context.Context, ev *APIKeyEvent) error
+	// AfterAPIKeyRevokeFunc runs after commit.
+	AfterAPIKeyRevokeFunc func(ctx context.Context, ev *APIKeyEvent) error
 )
 
 // Hooks holds every registered lifecycle hook.
@@ -90,6 +134,12 @@ type Hooks struct {
 	afterSignOut        []AfterSignOutFunc
 	afterAccountLink    []AfterAccountLinkFunc
 	afterPasswordChange []AfterPasswordChangeFunc
+	beforeUserUpdate    []BeforeUserUpdateFunc
+	afterUserUpdate     []AfterUserUpdateFunc
+	beforeRoleChange    []BeforeRoleChangeFunc
+	afterRoleChange     []AfterRoleChangeFunc
+	afterAPIKeyCreate   []AfterAPIKeyCreateFunc
+	afterAPIKeyRevoke   []AfterAPIKeyRevokeFunc
 
 	onError func(ctx context.Context, name string, err error)
 }
@@ -246,4 +296,114 @@ func (h *Hooks) report(ctx context.Context, name string, err error) {
 		return
 	}
 	h.onError(ctx, name, err)
+}
+
+// OnBeforeUserUpdate registers a hook that runs in the transaction and can
+// reject.
+func (h *Hooks) OnBeforeUserUpdate(fn BeforeUserUpdateFunc) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.beforeUserUpdate = append(h.beforeUserUpdate, fn)
+}
+
+// OnAfterUserUpdate registers a hook that runs after commit.
+func (h *Hooks) OnAfterUserUpdate(fn AfterUserUpdateFunc) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.afterUserUpdate = append(h.afterUserUpdate, fn)
+}
+
+// OnBeforeRoleChange registers a hook that runs in the transaction and can
+// reject.
+func (h *Hooks) OnBeforeRoleChange(fn BeforeRoleChangeFunc) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.beforeRoleChange = append(h.beforeRoleChange, fn)
+}
+
+// OnAfterRoleChange registers a hook that runs after commit.
+func (h *Hooks) OnAfterRoleChange(fn AfterRoleChangeFunc) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.afterRoleChange = append(h.afterRoleChange, fn)
+}
+
+// OnAfterAPIKeyCreate registers a hook that runs after commit.
+func (h *Hooks) OnAfterAPIKeyCreate(fn AfterAPIKeyCreateFunc) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.afterAPIKeyCreate = append(h.afterAPIKeyCreate, fn)
+}
+
+// OnAfterAPIKeyRevoke registers a hook that runs after commit.
+func (h *Hooks) OnAfterAPIKeyRevoke(fn AfterAPIKeyRevokeFunc) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.afterAPIKeyRevoke = append(h.afterAPIKeyRevoke, fn)
+}
+
+// RunBeforeUserUpdate runs the registered hooks and stops at the first error.
+func (h *Hooks) RunBeforeUserUpdate(ctx context.Context, ev *UserUpdate) error {
+	h.mu.RLock()
+	fns := append([]BeforeUserUpdateFunc(nil), h.beforeUserUpdate...)
+	h.mu.RUnlock()
+	for _, fn := range fns {
+		if err := fn(ctx, ev); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RunAfterUserUpdate runs the registered hooks after commit.
+func (h *Hooks) RunAfterUserUpdate(ctx context.Context, ev *UserUpdate) {
+	h.mu.RLock()
+	fns := append([]AfterUserUpdateFunc(nil), h.afterUserUpdate...)
+	h.mu.RUnlock()
+	for _, fn := range fns {
+		h.report(ctx, "AfterUserUpdate", fn(ctx, ev))
+	}
+}
+
+// RunBeforeRoleChange runs the registered hooks and stops at the first error.
+func (h *Hooks) RunBeforeRoleChange(ctx context.Context, ev *RoleChange) error {
+	h.mu.RLock()
+	fns := append([]BeforeRoleChangeFunc(nil), h.beforeRoleChange...)
+	h.mu.RUnlock()
+	for _, fn := range fns {
+		if err := fn(ctx, ev); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// RunAfterRoleChange runs the registered hooks after commit.
+func (h *Hooks) RunAfterRoleChange(ctx context.Context, ev *RoleChange) {
+	h.mu.RLock()
+	fns := append([]AfterRoleChangeFunc(nil), h.afterRoleChange...)
+	h.mu.RUnlock()
+	for _, fn := range fns {
+		h.report(ctx, "AfterRoleChange", fn(ctx, ev))
+	}
+}
+
+// RunAfterAPIKeyCreate runs the registered hooks after commit.
+func (h *Hooks) RunAfterAPIKeyCreate(ctx context.Context, ev *APIKeyEvent) {
+	h.mu.RLock()
+	fns := append([]AfterAPIKeyCreateFunc(nil), h.afterAPIKeyCreate...)
+	h.mu.RUnlock()
+	for _, fn := range fns {
+		h.report(ctx, "AfterAPIKeyCreate", fn(ctx, ev))
+	}
+}
+
+// RunAfterAPIKeyRevoke runs the registered hooks after commit.
+func (h *Hooks) RunAfterAPIKeyRevoke(ctx context.Context, ev *APIKeyEvent) {
+	h.mu.RLock()
+	fns := append([]AfterAPIKeyRevokeFunc(nil), h.afterAPIKeyRevoke...)
+	h.mu.RUnlock()
+	for _, fn := range fns {
+		h.report(ctx, "AfterAPIKeyRevoke", fn(ctx, ev))
+	}
 }

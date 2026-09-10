@@ -310,7 +310,8 @@ func (a *Auth) handleSignInEmail(w http.ResponseWriter, r *http.Request) {
 		// The work is equal for a known and an unknown address, so the response
 		// time does not disclose whether the account exists.
 		_, _, _ = crypto.VerifyPassword(req.Password, a.dummyPasswordHash())
-		a.emitter.Emit(ctx, events.SignInFailed, "", map[string]any{"reason": "unknown_credential"})
+		a.emitter.Emit(ctx, events.SignInFailed, "", map[string]any{
+			"reason": "unknown_credential", "email_digest": crypto.HashToken(normalized)})
 		a.writeError(w, r, apierr.ErrInvalidCredentials)
 		return
 	}
@@ -320,12 +321,14 @@ func (a *Auth) handleSignInEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !ok {
-		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{"reason": "invalid_password"})
+		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{
+			"reason": "invalid_password", "email_digest": crypto.HashToken(normalized)})
 		a.writeError(w, r, apierr.ErrInvalidCredentials)
 		return
 	}
 	if a.cfg.emailPassword.RequireEmailVerification && user.EmailVerifiedAt == nil {
-		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{"reason": "email_not_verified"})
+		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{
+			"reason": "email_not_verified", "email_digest": crypto.HashToken(normalized)})
 		a.writeError(w, r, apierr.ErrEmailNotVerified)
 		return
 	}

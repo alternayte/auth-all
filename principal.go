@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/alternayte/auth-all/apierr"
+	"github.com/alternayte/auth-all/events"
 	"github.com/alternayte/auth-all/internal/crypto"
 	"github.com/alternayte/auth-all/plugin"
 	"github.com/alternayte/auth-all/store"
@@ -45,10 +46,20 @@ func PrincipalFrom(ctx context.Context) *Principal {
 
 // withPrincipal returns a request that carries the principal, the session, and
 // the user.
-func withPrincipal(r *http.Request, p *Principal) *http.Request {
+func (a *Auth) withPrincipal(r *http.Request, p *Principal) *http.Request {
 	ctx := context.WithValue(r.Context(), principalContextKey, p)
 	ctx = context.WithValue(ctx, sessionContextKey, p.Session)
 	ctx = context.WithValue(ctx, userContextKey, p.User)
+	// Every event of the request now names the caller.
+	actor, _ := events.ActorFrom(ctx)
+	if actor.IP == "" {
+		actor.IP = a.clientIP(r)
+	}
+	if p.User != nil {
+		actor.ID = p.User.ID
+	}
+	actor.Method = p.Method
+	ctx = events.WithActor(ctx, actor)
 	return r.WithContext(ctx)
 }
 

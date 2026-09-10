@@ -373,7 +373,7 @@ func (a *Auth) mount(method, path string, h http.Handler, op *openapi.Operation)
 		return fmt.Errorf("the route path %q must start with /", path)
 	}
 	method = strings.ToUpper(method)
-	a.mux.Handle(method+" "+path, h)
+	a.mux.Handle(method+" "+path, a.withAudit(h))
 	if op != nil {
 		a.doc.AddOperation(method, a.cfg.basePath+path, op)
 	}
@@ -384,6 +384,15 @@ func (a *Auth) mount(method, path string, h http.Handler, op *openapi.Operation)
 		Documented: op != nil,
 	})
 	return nil
+}
+
+// withAudit puts the client address of the request in the context, so every
+// event of the request carries it.
+func (a *Auth) withAudit(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := events.WithActor(r.Context(), events.Actor{IP: a.clientIP(r)})
+		h.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 // Routes returns every mounted route of the enabled API.
