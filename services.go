@@ -109,7 +109,17 @@ func (h *httpService) WriteJSON(w http.ResponseWriter, status int, body any) {
 	h.auth.writeJSON(w, status, body)
 }
 
-func (h *httpService) WriteError(w http.ResponseWriter, err error) { h.auth.writeError(w, err) }
+// WriteError implements the v1 plugin interface. It carries no request, so a
+// host error writer receives a nil request for a v1 plugin route.
+func (h *httpService) WriteError(w http.ResponseWriter, err error) {
+	h.auth.writeError(w, nil, err)
+}
+
+// WriteErrorFor writes the public error envelope of one request. A plugin that
+// wants the host error writer to see the request calls it.
+func (h *httpService) WriteErrorFor(w http.ResponseWriter, r *http.Request, err error) {
+	h.auth.writeError(w, r, err)
+}
 
 func (h *httpService) SafeRedirect(candidate, fallback string) string {
 	return h.auth.safeRedirect(candidate, fallback)

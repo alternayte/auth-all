@@ -9,13 +9,21 @@ import (
 
 type userStore struct{ s *Store }
 
-const userColumns = "id, email, email_normalized, email_verified_at, display_name, image_url, created_at, updated_at"
+// scanUser returns the scan targets of userColumns, in that order.
+func scanUser(m *store.User) []any {
+	return []any{&m.ID, &m.Email, &m.EmailNormalized, nullTimeScan{&m.EmailVerifiedAt},
+		&m.DisplayName, &m.ImageURL, timeScan{&m.CreatedAt}, timeScan{&m.UpdatedAt},
+		&m.Role, nullTimeScan{&m.DisabledAt}, &m.MustChangePassword}
+}
+
+const userColumns = "id, email, email_normalized, email_verified_at, display_name, image_url, created_at, updated_at, role, disabled_at, must_change_password"
 
 func (u *userStore) Create(ctx context.Context, m *store.User) error {
 	_, err := u.s.exec(ctx,
-		"INSERT INTO "+u.s.n.Users+" ("+userColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO "+u.s.n.Users+" ("+userColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		m.ID, m.Email, m.EmailNormalized, u.s.bindNullTime(m.EmailVerifiedAt),
-		m.DisplayName, m.ImageURL, u.s.bindTime(m.CreatedAt), u.s.bindTime(m.UpdatedAt))
+		m.DisplayName, m.ImageURL, u.s.bindTime(m.CreatedAt), u.s.bindTime(m.UpdatedAt),
+		m.Role, u.s.bindNullTime(m.DisabledAt), m.MustChangePassword)
 	return u.s.mapErr(err)
 }
 
@@ -30,8 +38,7 @@ func (u *userStore) GetByNormalizedEmail(ctx context.Context, normalized string)
 func (u *userStore) get(ctx context.Context, where string, arg any) (*store.User, error) {
 	row := u.s.queryRow(ctx, "SELECT "+userColumns+" FROM "+u.s.n.Users+" WHERE "+where, arg)
 	var m store.User
-	err := row.Scan(&m.ID, &m.Email, &m.EmailNormalized, nullTimeScan{&m.EmailVerifiedAt},
-		&m.DisplayName, &m.ImageURL, timeScan{&m.CreatedAt}, timeScan{&m.UpdatedAt})
+	err := row.Scan(scanUser(&m)...)
 	if err != nil {
 		return nil, u.s.mapErr(err)
 	}
@@ -40,9 +47,11 @@ func (u *userStore) get(ctx context.Context, where string, arg any) (*store.User
 
 func (u *userStore) Update(ctx context.Context, m *store.User) error {
 	res, err := u.s.exec(ctx,
-		"UPDATE "+u.s.n.Users+" SET email = ?, email_normalized = ?, email_verified_at = ?, display_name = ?, image_url = ?, updated_at = ? WHERE id = ?",
+		"UPDATE "+u.s.n.Users+" SET email = ?, email_normalized = ?, email_verified_at = ?, "+
+			"display_name = ?, image_url = ?, updated_at = ?, role = ?, disabled_at = ?, "+
+			"must_change_password = ? WHERE id = ?",
 		m.Email, m.EmailNormalized, u.s.bindNullTime(m.EmailVerifiedAt), m.DisplayName, m.ImageURL,
-		u.s.bindTime(m.UpdatedAt), m.ID)
+		u.s.bindTime(m.UpdatedAt), m.Role, u.s.bindNullTime(m.DisabledAt), m.MustChangePassword, m.ID)
 	if err != nil {
 		return u.s.mapErr(err)
 	}

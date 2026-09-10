@@ -2,6 +2,7 @@ package sqlstore
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/alternayte/auth-all/store"
@@ -86,4 +87,32 @@ func (ss *sessionStore) DeleteExpired(ctx context.Context, before time.Time) (in
 	}
 	n, err := res.RowsAffected()
 	return int(n), err
+}
+
+// SessionWithUser implements store.SessionUserReader. It joins the session row
+// and the user row, so credential resolution costs one round trip.
+func (s *Store) SessionWithUser(ctx context.Context, tokenHash string) (*store.Session, *store.User, error) {
+	sessionCols := prefixColumns("s", sessionColumns)
+	userCols := prefixColumns("u", userColumns)
+	row := s.queryRow(ctx,
+		"SELECT "+sessionCols+", "+userCols+" FROM "+s.n.Sessions+" s "+
+			"JOIN "+s.n.Users+" u ON u.id = s.user_id WHERE s.token_hash = ?", tokenHash)
+	var sess store.Session
+	var user store.User
+	targets := []any{&sess.ID, &sess.UserID, &sess.TokenHash,
+		timeScan{&sess.CreatedAt}, timeScan{&sess.ExpiresAt}, timeScan{&sess.LastSeenAt}}
+	targets = append(targets, scanUser(&user)...)
+	if err := row.Scan(targets...); err != nil {
+		return nil, nil, s.mapErr(err)
+	}
+	return &sess, &user, nil
+}
+
+// prefixColumns returns the column list with one table alias.
+func prefixColumns(alias, columns string) string {
+	parts := strings.Split(columns, ", ")
+	for i, c := range parts {
+		parts[i] = alias + "." + c
+	}
+	return strings.Join(parts, ", ")
 }

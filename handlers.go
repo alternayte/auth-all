@@ -35,14 +35,17 @@ func (a *Auth) dummyPasswordHash() string {
 	return a.dummyHash
 }
 
-func (a *Auth) allow(ctx context.Context, w http.ResponseWriter, key ratelimit.Key) bool {
+func (a *Auth) allow(ctx context.Context, w http.ResponseWriter, r *http.Request, key ratelimit.Key) bool {
 	ok, err := a.cfg.limiter.Allow(ctx, key)
 	if err != nil {
 		a.cfg.logger.Error("authall: the rate limiter failed", "error", err.Error())
 		return true
 	}
 	if !ok {
-		a.writeError(w, apierr.ErrRateLimited)
+		// A v1 limiter names no retry time, so the response asks for one
+		// minute. REQ-RL-011 keeps this value.
+		w.Header().Set("Retry-After", "60")
+		a.writeError(w, r, apierr.ErrRateLimited)
 		return false
 	}
 	return true
@@ -135,7 +138,7 @@ func (a *Auth) registerCoreRoutes() {
 func (a *Auth) handleGetSession(w http.ResponseWriter, r *http.Request) {
 	sess, user, err := a.resolveSession(r.Context(), r)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	if sess == nil && a.requestToken(r) != "" {
@@ -152,17 +155,17 @@ func (a *Auth) handleGetSession(w http.ResponseWriter, r *http.Request) {
 func (a *Auth) handleSignOut(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	sess, user, err := a.resolveSession(ctx, r)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	if sess != nil {
 		if err := a.cfg.store.Sessions().Delete(ctx, sess.ID); err != nil && !isNotFound(err) {
-			a.writeError(w, apierr.ErrInternal.WithCause(err))
+			a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 			return
 		}
 		a.hooks.RunAfterSignOut(ctx, &hook.SignOut{UserID: sess.UserID, SessionID: sess.ID})
@@ -185,29 +188,29 @@ type signUpEmailRequest struct {
 func (a *Auth) handleSignUpEmail(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	var req signUpEmailRequest
 	if err := a.decodeJSON(r, &req); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	normalized := email.Normalize(req.Email)
-	if !a.allow(ctx, w, ratelimit.Key{Operation: ratelimit.OpSignUp, IP: a.clientIP(r), Email: normalized}) {
+	if !a.allow(ctx, w, r, ratelimit.Key{Operation: ratelimit.OpSignUp, IP: a.clientIP(r), Email: normalized}) {
 		return
 	}
 	if !email.Valid(normalized) {
-		a.writeError(w, apierr.ErrInvalidRequest.WithMessage("The email address is invalid."))
+		a.writeError(w, r, apierr.ErrInvalidRequest.WithMessage("The email address is invalid."))
 		return
 	}
 	if err := a.checkPassword(req.Password); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	hash, err := crypto.HashPassword(req.Password, a.cfg.argon)
 	if err != nil {
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	user, err := a.createUser(ctx, CreateUserInput{
@@ -215,14 +218,14 @@ func (a *Auth) handleSignUpEmail(w http.ResponseWriter, r *http.Request) {
 		DisplayName: strings.TrimSpace(req.Name),
 	}, hash)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 
 	opts := a.cfg.emailPassword
 	if opts.RequireEmailVerification || opts.SendVerificationOnSignUp {
 		if err := a.sendVerificationEmail(ctx, user, ""); err != nil {
-			a.writeError(w, err)
+			a.writeError(w, r, err)
 			return
 		}
 	}
@@ -234,7 +237,7 @@ func (a *Auth) handleSignUpEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, err := a.issueSession(ctx, w, r, user, "email")
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	a.writeJSON(w, http.StatusCreated, authResponse{User: toUserDTO(user), Session: toSessionDTO(sess)})
@@ -248,28 +251,28 @@ type signInEmailRequest struct {
 func (a *Auth) handleSignInEmail(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	var req signInEmailRequest
 	if err := a.decodeJSON(r, &req); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	normalized := email.Normalize(req.Email)
-	if !a.allow(ctx, w, ratelimit.Key{Operation: ratelimit.OpSignIn, IP: a.clientIP(r), Email: normalized}) {
+	if !a.allow(ctx, w, r, ratelimit.Key{Operation: ratelimit.OpSignIn, IP: a.clientIP(r), Email: normalized}) {
 		return
 	}
 	user, err := a.cfg.store.Users().GetByNormalizedEmail(ctx, normalized)
 	if err != nil && !isNotFound(err) {
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	var cred *store.Credential
 	if user != nil {
 		cred, err = a.cfg.store.Users().GetCredential(ctx, user.ID)
 		if err != nil && !isNotFound(err) {
-			a.writeError(w, apierr.ErrInternal.WithCause(err))
+			a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 			return
 		}
 	}
@@ -278,22 +281,22 @@ func (a *Auth) handleSignInEmail(w http.ResponseWriter, r *http.Request) {
 		// time does not disclose whether the account exists.
 		_, _, _ = crypto.VerifyPassword(req.Password, a.dummyPasswordHash())
 		a.emitter.Emit(ctx, events.SignInFailed, "", map[string]any{"reason": "unknown_credential"})
-		a.writeError(w, apierr.ErrInvalidCredentials)
+		a.writeError(w, r, apierr.ErrInvalidCredentials)
 		return
 	}
 	ok, params, err := crypto.VerifyPassword(req.Password, cred.PasswordHash)
 	if err != nil {
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	if !ok {
 		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{"reason": "invalid_password"})
-		a.writeError(w, apierr.ErrInvalidCredentials)
+		a.writeError(w, r, apierr.ErrInvalidCredentials)
 		return
 	}
 	if a.cfg.emailPassword.RequireEmailVerification && user.EmailVerifiedAt == nil {
 		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{"reason": "email_not_verified"})
-		a.writeError(w, apierr.ErrEmailNotVerified)
+		a.writeError(w, r, apierr.ErrEmailNotVerified)
 		return
 	}
 	if crypto.NeedsRehash(params, a.cfg.argon) {
@@ -310,7 +313,7 @@ func (a *Auth) handleSignInEmail(w http.ResponseWriter, r *http.Request) {
 	// proof.
 	challenge, required, err := a.mfaChallenge(ctx, user)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	if required {
@@ -319,7 +322,7 @@ func (a *Auth) handleSignInEmail(w http.ResponseWriter, r *http.Request) {
 	}
 	sess, err := a.issueSession(ctx, w, r, user, "email")
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	a.writeJSON(w, http.StatusOK, authResponse{User: toUserDTO(user), Session: toSessionDTO(sess)})

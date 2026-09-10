@@ -76,7 +76,7 @@ type userDeleteRequest struct {
 func (a *Auth) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	sess, user := a.requireSession(w, r)
@@ -85,23 +85,23 @@ func (a *Auth) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	var req userDeleteRequest
 	if err := a.decodeJSON(r, &req); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
-	if !a.allow(ctx, w, ratelimit.Key{
+	if !a.allow(ctx, w, r, ratelimit.Key{
 		Operation: ratelimit.OpUserDelete, IP: a.clientIP(r), UserID: user.ID,
 	}) {
 		return
 	}
 	cred, err := a.cfg.store.Users().GetCredential(ctx, user.ID)
 	if err != nil && !isNotFound(err) {
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	if cred == nil {
 		// A user with no password proves control of the address instead.
 		if err := a.sendDeleteConfirmation(ctx, user); err != nil {
-			a.writeError(w, err)
+			a.writeError(w, r, err)
 			return
 		}
 		a.writeJSON(w, http.StatusOK, deleteResponse{ConfirmationRequired: true})
@@ -109,16 +109,16 @@ func (a *Auth) handleUserDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	ok, _, err := crypto.VerifyPassword(req.CurrentPassword, cred.PasswordHash)
 	if err != nil {
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	if !ok {
 		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{"reason": "user_delete_denied"})
-		a.writeError(w, apierr.ErrInvalidCredentials)
+		a.writeError(w, r, apierr.ErrInvalidCredentials)
 		return
 	}
 	if err := a.deleteUser(ctx, user); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	a.clearCookie(w)
@@ -132,31 +132,31 @@ type userDeleteVerifyRequest struct {
 func (a *Auth) handleUserDeleteVerify(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	var req userDeleteVerifyRequest
 	if err := a.decodeJSON(r, &req); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	// The consumed token names the user, so the endpoint needs no session.
 	tok, err := a.consumeToken(ctx, tokenKindDeleteAccount, req.Token)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	if tok.UserID == nil {
-		a.writeError(w, apierr.ErrInvalidToken)
+		a.writeError(w, r, apierr.ErrInvalidToken)
 		return
 	}
 	user, err := a.cfg.store.Users().GetByID(ctx, *tok.UserID)
 	if err != nil {
-		a.writeError(w, publicError(err))
+		a.writeError(w, r, publicError(err))
 		return
 	}
 	if err := a.deleteUser(ctx, user); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	a.clearCookie(w)
@@ -216,7 +216,7 @@ type emailChangeRequest struct {
 func (a *Auth) handleEmailChange(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	sess, user := a.requireSession(w, r)
@@ -225,10 +225,10 @@ func (a *Auth) handleEmailChange(w http.ResponseWriter, r *http.Request) {
 	}
 	var req emailChangeRequest
 	if err := a.decodeJSON(r, &req); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
-	if !a.allow(ctx, w, ratelimit.Key{
+	if !a.allow(ctx, w, r, ratelimit.Key{
 		Operation: ratelimit.OpEmailChange, IP: a.clientIP(r), UserID: user.ID,
 	}) {
 		return
@@ -237,7 +237,7 @@ func (a *Auth) handleEmailChange(w http.ResponseWriter, r *http.Request) {
 	if !email.Valid(normalized) {
 		// The format of an address is public knowledge, so this answer
 		// discloses nothing about another account.
-		a.writeError(w, apierr.ErrInvalidRequest.WithMessage("The email address is invalid."))
+		a.writeError(w, r, apierr.ErrInvalidRequest.WithMessage("The email address is invalid."))
 		return
 	}
 	// A user with a password proves the password. A user without one, for
@@ -245,18 +245,18 @@ func (a *Auth) handleEmailChange(w http.ResponseWriter, r *http.Request) {
 	// check. See docs/guides/email-password.md.
 	cred, err := a.cfg.store.Users().GetCredential(ctx, user.ID)
 	if err != nil && !isNotFound(err) {
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	if cred != nil {
 		ok, _, err := crypto.VerifyPassword(req.CurrentPassword, cred.PasswordHash)
 		if err != nil {
-			a.writeError(w, apierr.ErrInternal.WithCause(err))
+			a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 			return
 		}
 		if !ok {
 			a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{"reason": "email_change_denied"})
-			a.writeError(w, apierr.ErrInvalidCredentials)
+			a.writeError(w, r, apierr.ErrInvalidCredentials)
 			return
 		}
 	}
@@ -321,27 +321,27 @@ type emailChangeVerifyRequest struct {
 func (a *Auth) handleEmailChangeVerify(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	var req emailChangeVerifyRequest
 	if err := a.decodeJSON(r, &req); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	// The consumed token names the user, so the endpoint needs no session.
 	tok, err := a.consumeToken(ctx, tokenKindChangeEmail, req.Token)
 	if err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	if tok.UserID == nil {
-		a.writeError(w, apierr.ErrInvalidToken)
+		a.writeError(w, r, apierr.ErrInvalidToken)
 		return
 	}
 	user, err := a.cfg.store.Users().GetByID(ctx, *tok.UserID)
 	if err != nil {
-		a.writeError(w, publicError(err))
+		a.writeError(w, r, publicError(err))
 		return
 	}
 	now := a.cfg.now()
@@ -356,10 +356,10 @@ func (a *Auth) handleEmailChangeVerify(w http.ResponseWriter, r *http.Request) {
 		if isConflict(err) {
 			// Somebody took the address between the request and the
 			// confirmation.
-			a.writeError(w, apierr.ErrEmailAlreadyExists)
+			a.writeError(w, r, apierr.ErrEmailAlreadyExists)
 			return
 		}
-		a.writeError(w, publicError(err))
+		a.writeError(w, r, publicError(err))
 		return
 	}
 	// The address changed, so every session except the current one ends.
@@ -384,7 +384,7 @@ type passwordChangeRequest struct {
 func (a *Auth) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if err := a.checkOrigin(r); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	sess, user := a.requireSession(w, r)
@@ -393,16 +393,16 @@ func (a *Auth) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
 	}
 	var req passwordChangeRequest
 	if err := a.decodeJSON(r, &req); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
-	if !a.allow(ctx, w, ratelimit.Key{
+	if !a.allow(ctx, w, r, ratelimit.Key{
 		Operation: ratelimit.OpPasswordChange, IP: a.clientIP(r), UserID: user.ID,
 	}) {
 		return
 	}
 	if err := a.checkPassword(req.NewPassword); err != nil {
-		a.writeError(w, err)
+		a.writeError(w, r, err)
 		return
 	}
 	cred, err := a.cfg.store.Users().GetCredential(ctx, user.ID)
@@ -410,25 +410,25 @@ func (a *Auth) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
 		if isNotFound(err) {
 			// An OAuth-only user has no password to replace. The reset flow
 			// sets the first one.
-			a.writeError(w, apierr.ErrNoPasswordCredential)
+			a.writeError(w, r, apierr.ErrNoPasswordCredential)
 			return
 		}
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	ok, _, err := crypto.VerifyPassword(req.CurrentPassword, cred.PasswordHash)
 	if err != nil {
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	if !ok {
 		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{"reason": "password_change_denied"})
-		a.writeError(w, apierr.ErrInvalidCredentials)
+		a.writeError(w, r, apierr.ErrInvalidCredentials)
 		return
 	}
 	hash, err := crypto.HashPassword(req.NewPassword, a.cfg.argon)
 	if err != nil {
-		a.writeError(w, apierr.ErrInternal.WithCause(err))
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	now := a.cfg.now()
@@ -438,7 +438,7 @@ func (a *Auth) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
 		})
 	})
 	if err != nil {
-		a.writeError(w, publicError(err))
+		a.writeError(w, r, publicError(err))
 		return
 	}
 	if req.RevokeOtherSessions == nil || *req.RevokeOtherSessions {

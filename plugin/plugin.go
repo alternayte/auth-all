@@ -42,15 +42,48 @@ type Route struct {
 	Operation *openapi.Operation
 }
 
+// Principal is the authenticated caller of one request. A credential resolver
+// returns it. Auth-All copies it into the request context.
+type Principal struct {
+	// User is the owner of the credential. It must not be nil.
+	User *store.User
+	// Session is nil for a credential that is no session.
+	Session *store.Session
+	// APIKey is nil for a session credential.
+	APIKey *store.APIKey
+	// Role is the effective role of the request.
+	Role string
+	// Method names the authentication method, for example "api_key".
+	Method string
+}
+
+// CredentialResolver turns a bearer value into a principal. A plugin registers
+// one with Registry.Resolver.
+//
+// Auth-All asks each resolver in registration order. When no resolver claims
+// the value, Auth-All treats it as a session token, so every v1 bearer client
+// keeps working.
+type CredentialResolver interface {
+	// Claims reports whether the resolver owns the bearer value. It must look
+	// at the shape of the value only, and it must make no database call.
+	Claims(bearer string) bool
+	// Resolve returns the principal of the bearer value. It returns an error
+	// when the credential does not authenticate.
+	Resolve(ctx context.Context, bearer string) (*Principal, error)
+}
+
 // Registry receives the contributions of one plugin.
 type Registry struct {
 	id       string
 	services Services
 	hooks    *hook.Hooks
 
-	routes  []Route
-	tables  []schema.Table
-	schemas map[string]*openapi.Schema
+	routes    []Route
+	tables    []schema.Table
+	units     []schema.Unit
+	extends   []schema.Extension
+	resolvers []CredentialResolver
+	schemas   map[string]*openapi.Schema
 }
 
 // NewRegistry returns a registry for one plugin. Auth-All calls this during
@@ -73,6 +106,26 @@ func (r *Registry) Route(rt Route) { r.routes = append(r.routes, rt) }
 
 // Schema contributes one table to the effective Auth-All schema.
 func (r *Registry) Schema(t schema.Table) { r.tables = append(r.tables, t) }
+
+// Extend adds columns and indexes to a table that another owner declared. The
+// plugin also declares the migration unit that adds them to a database that
+// exists.
+func (r *Registry) Extend(e schema.Extension) { r.extends = append(r.extends, e) }
+
+// Unit contributes one migration unit. A released unit never changes.
+func (r *Registry) Unit(u schema.Unit) { r.units = append(r.units, u) }
+
+// Resolver contributes one credential resolver.
+func (r *Registry) Resolver(c CredentialResolver) { r.resolvers = append(r.resolvers, c) }
+
+// Extensions returns the contributed table extensions.
+func (r *Registry) Extensions() []schema.Extension { return r.extends }
+
+// Units returns the contributed migration units.
+func (r *Registry) Units() []schema.Unit { return r.units }
+
+// Resolvers returns the contributed credential resolvers.
+func (r *Registry) Resolvers() []CredentialResolver { return r.resolvers }
 
 // OpenAPISchema contributes one reusable component schema.
 func (r *Registry) OpenAPISchema(name string, s *openapi.Schema) { r.schemas[name] = s }

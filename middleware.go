@@ -15,6 +15,8 @@ type contextKey int
 const (
 	sessionContextKey contextKey = iota
 	userContextKey
+	principalContextKey
+	roleContextKey
 )
 
 // SessionFrom returns the session that RequireAuth or LoadSession attached to
@@ -31,13 +33,6 @@ func UserFrom(ctx context.Context) *store.User {
 	return user
 }
 
-// withSession returns a request that carries the session and the user.
-func withSession(r *http.Request, sess *store.Session, user *store.User) *http.Request {
-	ctx := context.WithValue(r.Context(), sessionContextKey, sess)
-	ctx = context.WithValue(ctx, userContextKey, user)
-	return r.WithContext(ctx)
-}
-
 // RequireAuth protects an application route. It resolves the session one time,
 // puts the session and the user in the request context, and calls next.
 //
@@ -50,16 +45,16 @@ func withSession(r *http.Request, sess *store.Session, user *store.User) *http.R
 // second database lookup.
 func (a *Auth) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sess, user, err := a.resolveSession(r.Context(), r)
+		p, err := a.resolvePrincipal(r.Context(), r)
 		if err != nil {
-			a.writeError(w, err)
+			a.writeError(w, r, err)
 			return
 		}
-		if sess == nil || user == nil {
-			a.writeError(w, apierr.ErrUnauthorized)
+		if p == nil || p.User == nil {
+			a.writeError(w, r, apierr.ErrUnauthorized)
 			return
 		}
-		next.ServeHTTP(w, withSession(r, sess, user))
+		next.ServeHTTP(w, withPrincipal(r, p))
 	})
 }
 
@@ -78,17 +73,17 @@ func (a *Auth) RequireAuthFunc(next http.HandlerFunc) http.Handler {
 // the request as anonymous.
 func (a *Auth) LoadSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sess, user, err := a.resolveSession(r.Context(), r)
+		p, err := a.resolvePrincipal(r.Context(), r)
 		if err != nil {
-			a.cfg.logger.Error("authall: the session lookup failed", "error", err.Error())
+			a.cfg.logger.Error("authall: the credential lookup failed", "error", err.Error())
 			next.ServeHTTP(w, r)
 			return
 		}
-		if sess == nil || user == nil {
+		if p == nil || p.User == nil {
 			next.ServeHTTP(w, r)
 			return
 		}
-		next.ServeHTTP(w, withSession(r, sess, user))
+		next.ServeHTTP(w, withPrincipal(r, p))
 	})
 }
 

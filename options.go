@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/alternayte/auth-all/apierr"
 	"github.com/alternayte/auth-all/email"
 	"github.com/alternayte/auth-all/events"
 	"github.com/alternayte/auth-all/internal/crypto"
@@ -141,6 +142,8 @@ type config struct {
 	tokenTTL TokenTTLOptions
 	linking  AccountLinkingOptions
 
+	errorWriter apierr.Writer
+
 	schemaOptions schema.Options
 	schemaCheck   SchemaCheckMode
 
@@ -170,6 +173,16 @@ func WithUserFields(fields ...schema.UserField) Option {
 	return func(c *config) {
 		c.schemaOptions.UserFields = append(c.schemaOptions.UserFields, fields...)
 	}
+}
+
+// WithErrorWriter replaces the public error envelope of every Auth-All route,
+// of RequireAuth, of LoadSession, and of every plugin route.
+//
+// The writer receives the public error only. Auth-All keeps the private cause
+// in its log. The writer must keep a header that the status needs, for example
+// Retry-After on status 429.
+func WithErrorWriter(f func(w http.ResponseWriter, r *http.Request, e *Error)) Option {
+	return func(c *config) { c.errorWriter = apierr.Writer(f) }
 }
 
 // SchemaCheckMode selects how CheckSchema reads the state of the database.
