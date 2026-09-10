@@ -184,7 +184,7 @@ examples-build:
 
 # Write the verification evidence.
 evidence:
-    {{pg}} go run ./tools/evidence --checks {{checks}} --out artifacts/v1.1-verification.md
+    {{pg}} {{bouncer}} AUTHALL_LATENCY=1 go run ./tools/evidence --checks {{checks}} --out artifacts/v1.1-verification.md
     @echo "Evidence written to artifacts/v1.1-verification.md"
 
 # Remove the recorded check results.
