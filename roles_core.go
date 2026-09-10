@@ -75,6 +75,19 @@ func (s *services) SetRoles(names []string, defaultRole string) error {
 	return nil
 }
 
+// RoleNames returns the configured roles from the lowest to the highest. It is
+// empty when no roles plugin is enabled.
+func (a *Auth) RoleNames() []string { return append([]string(nil), a.roleHierarchy...) }
+
+// DefaultRole returns the role of a user whose role column is empty.
+func (a *Auth) DefaultRole() string { return a.defaultRole }
+
+// RoleAtLeast reports whether role ranks equal to or above min. A role that the
+// configuration does not name ranks below every role, which is default deny.
+func (a *Auth) RoleAtLeast(role, min string) bool {
+	return (&roleService{auth: a}).AtLeast(role, min)
+}
+
 // Principals implements plugin.PrincipalServices.
 func (s *services) Principals() plugin.PrincipalService { return &principalService{auth: s.auth} }
 
