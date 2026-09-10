@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/alternayte/auth-all/schema"
 )
@@ -35,4 +36,16 @@ type SessionUserReader interface {
 	// SessionWithUser returns the session of a token hash and its user. It
 	// returns ErrNotFound when no session matches.
 	SessionWithUser(ctx context.Context, tokenHash string) (*Session, *User, error)
+}
+
+// RateLimitCounter keeps the rate-limit counters of the store-backed limiter.
+// One statement counts one attempt, so the count is atomic across instances.
+type RateLimitCounter interface {
+	// CountAttempt adds one attempt to the counter of key and returns the new
+	// count and the start of the window. It starts a new window when the
+	// running window ended before now minus window.
+	CountAttempt(ctx context.Context, key string, window time.Duration, now time.Time) (count int, windowStart time.Time, err error)
+	// CleanupRateLimits removes every counter whose window ended before the
+	// given time. It returns the number of removed rows.
+	CleanupRateLimits(ctx context.Context, before time.Time) (int, error)
 }

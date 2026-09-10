@@ -165,6 +165,9 @@ func New(opts ...Option) (*Auth, error) {
 	if err := applySchemaOptions(cfg.store, sopts); err != nil {
 		return nil, err
 	}
+	if err := addContributedSchema(sc, sopts, cfg.limiter); err != nil {
+		return nil, err
+	}
 	a.doc = openapi.New("Auth-All", Version)
 	registerCoreSchemas(a.doc)
 	a.svc = &services{auth: a}
@@ -479,6 +482,41 @@ func validCookieName(name string) bool {
 		}
 	}
 	return true
+}
+
+// SchemaContributor is an optional interface of a component that owns a table,
+// for example the store-backed rate limiter. Auth-All adds the tables and the
+// migration units of a contributor to the effective schema.
+type SchemaContributor interface {
+	// SchemaTables returns the tables of the contributor.
+	SchemaTables(o schema.Options) []schema.Table
+	// SchemaUnits returns the migration units of the contributor.
+	SchemaUnits(o schema.Options) ([]schema.Unit, error)
+}
+
+// addContributedSchema adds the tables and the units of every contributor.
+func addContributedSchema(sc *schema.Schema, o schema.Options, parts ...any) error {
+	for _, part := range parts {
+		c, ok := part.(SchemaContributor)
+		if !ok {
+			continue
+		}
+		for _, t := range c.SchemaTables(o) {
+			if err := sc.Add(t); err != nil {
+				return err
+			}
+		}
+		units, err := c.SchemaUnits(o)
+		if err != nil {
+			return err
+		}
+		for _, u := range units {
+			if err := sc.AddUnit(u); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // applySchemaOptions passes the physical options to a store that accepts them.

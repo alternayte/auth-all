@@ -3,7 +3,9 @@ package authall
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/alternayte/auth-all/apierr"
 	"github.com/alternayte/auth-all/email"
@@ -36,8 +38,26 @@ func (a *Auth) dummyPasswordHash() string {
 }
 
 func (a *Auth) allow(ctx context.Context, w http.ResponseWriter, r *http.Request, key ratelimit.Key) bool {
+	// A limiter that names a retry time fails closed. It uses the database
+	// that the flow uses, so a failure fails the flow anyway.
+	if decider, ok := a.cfg.limiter.(ratelimit.Decider); ok {
+		decision, err := decider.Decide(ctx, key)
+		if err != nil {
+			a.cfg.logger.Error("authall: the rate limiter failed", "error", err.Error())
+			a.writeError(w, r, apierr.ErrInternal.WithCause(err))
+			return false
+		}
+		if decision.Allowed {
+			return true
+		}
+		w.Header().Set("Retry-After", retryAfterSeconds(decision.RetryAfter))
+		a.writeError(w, r, apierr.ErrRateLimited)
+		return false
+	}
 	ok, err := a.cfg.limiter.Allow(ctx, key)
 	if err != nil {
+		// A v1 limiter keeps the v1 behavior. A limiter failure lets the
+		// request through.
 		a.cfg.logger.Error("authall: the rate limiter failed", "error", err.Error())
 		return true
 	}
@@ -49,6 +69,16 @@ func (a *Auth) allow(ctx context.Context, w http.ResponseWriter, r *http.Request
 		return false
 	}
 	return true
+}
+
+// retryAfterSeconds returns the Retry-After value in whole seconds, rounded
+// up. A refused request always waits at least one second.
+func retryAfterSeconds(d time.Duration) string {
+	seconds := int64((d + time.Second - 1) / time.Second)
+	if seconds < 1 {
+		seconds = 1
+	}
+	return strconv.FormatInt(seconds, 10)
 }
 
 // registerCoreRoutes mounts the enabled core endpoints.

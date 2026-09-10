@@ -84,3 +84,58 @@ func (m *Memory) Allow(_ context.Context, k Key) (bool, error) {
 	b.count++
 	return true, nil
 }
+
+// Scope names the subject that one rule counts.
+type Scope string
+
+// Supported scopes.
+const (
+	// ScopeIP counts the attempts of one client address. An IPv6 address
+	// counts per /64 block.
+	ScopeIP Scope = "ip"
+	// ScopeEmail counts the attempts for one email address. The store keeps a
+	// digest of the address and never the address.
+	ScopeEmail Scope = "email"
+)
+
+// Rule is one limit of one operation.
+type Rule struct {
+	// Operation names the flow that the rule counts.
+	Operation Operation
+	// Scope names the counted subject.
+	Scope Scope
+	// Limit is the number of accepted attempts in one window.
+	Limit int
+	// Window is the length of the counting window.
+	Window time.Duration
+}
+
+// Decision is the answer of a Decider.
+type Decision struct {
+	// Allowed reports whether the attempt can proceed.
+	Allowed bool
+	// RetryAfter is the time until the next attempt can succeed. It is zero
+	// when the attempt is allowed.
+	RetryAfter time.Duration
+}
+
+// Decider is an optional limiter interface that names a retry time.
+//
+// A limiter that implements it drives the Retry-After header of a refused
+// request. A limiter that implements Limiter only keeps the v1 behavior, and
+// Auth-All sends Retry-After: 60.
+type Decider interface {
+	Limiter
+	// Decide counts one attempt and returns the decision.
+	Decide(ctx context.Context, key Key) (Decision, error)
+}
+
+// DefaultSignInRules returns the default rules of the sign-in flow. They allow
+// 5 attempts for each email in 15 minutes, and 20 attempts for each client
+// address in 1 minute.
+func DefaultSignInRules() []Rule {
+	return []Rule{
+		{Operation: OpSignIn, Scope: ScopeEmail, Limit: 5, Window: 15 * time.Minute},
+		{Operation: OpSignIn, Scope: ScopeIP, Limit: 20, Window: time.Minute},
+	}
+}
