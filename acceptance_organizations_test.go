@@ -19,7 +19,7 @@ import (
 func testRoles() organizations.Option {
 	return organizations.Roles(
 		organizations.Role("owner", "*"),
-		organizations.Role("admin", "member:*", "organization:read", "organization:update", "project:*", "billing:read"),
+		organizations.Role("admin", "member:*", "role:*", "organization:read", "organization:update", "project:*", "billing:read"),
 		organizations.Role("member", "organization:read", "project:read", "project:write"),
 		organizations.Role("viewer", "organization:read", "project:read"),
 	)

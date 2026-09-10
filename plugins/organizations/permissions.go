@@ -3,6 +3,7 @@ package organizations
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/alternayte/auth-all/apierr"
 	"github.com/alternayte/auth-all/plugins/organizations/permission"
@@ -32,23 +33,18 @@ func (p *Plugin) permissionsOfMembership(ctx context.Context, s store.Store, m *
 	if m == nil || m.Status != store.MembershipActive {
 		return permission.Set{}, nil
 	}
-	set, err := p.roleSet(ctx, s, m.OrgID, m.Role)
+	set, _, err := p.knownRole(ctx, s, m.OrgID, m.Role)
 	if err != nil {
 		return permission.Set{}, err
 	}
-	return set, nil
-}
-
-// roleSet returns the permission set of one role name of one organization. A
-// built-in role wins over a custom role of the same name, because a custom
-// role never shadows a built-in name.
-func (p *Plugin) roleSet(ctx context.Context, s store.Store, orgID, role string) (permission.Set, error) {
-	if set, ok := p.PermissionsOf(role); ok {
-		return set, nil
+	if m.Permissions != "" {
+		// The credential read resolved the extra statements of the membership.
+		extra, err := permission.NewSet(strings.Fields(m.Permissions)...)
+		if err == nil {
+			set = set.Union(extra)
+		}
 	}
-	// A role that the application does not declare holds no permission until
-	// the custom roles of the organization answer for it.
-	return permission.Set{}, nil
+	return set, nil
 }
 
 // membershipOf returns the membership of one user in one organization.

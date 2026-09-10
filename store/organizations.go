@@ -31,6 +31,10 @@ type Membership struct {
 	// Status is MembershipActive or MembershipSuspended.
 	Status   string
 	JoinedAt time.Time
+	// Permissions holds the statements that the credential read resolved for
+	// this membership, for a custom role and for every team role. It is empty
+	// for a membership that a plain read returned.
+	Permissions string
 }
 
 // The status values of one membership. A suspended membership keeps the row,
@@ -149,6 +153,32 @@ type InvitationStore interface {
 	// CountPendingInvitations returns the number of pending and unexpired
 	// invitations of one organization.
 	CountPendingInvitations(ctx context.Context, orgID string, now time.Time) (int, error)
+}
+
+// CustomRole is one role that an organization defines at run time. It stores
+// its own statements, so a later change of a built-in role never widens it.
+type CustomRole struct {
+	ID    string
+	OrgID string
+	Name  string
+	// Permissions is the space-separated list of statements.
+	Permissions string
+	CreatedAt   time.Time
+}
+
+// CustomRoleStore holds the custom roles of the organizations plugin.
+type CustomRoleStore interface {
+	// CreateCustomRole inserts one role. It returns ErrConflict when the
+	// organization already holds a role of that name.
+	CreateCustomRole(ctx context.Context, r *CustomRole) error
+	// CustomRoleByName returns one role of one organization. It returns
+	// ErrNotFound when the organization holds no role of that name.
+	CustomRoleByName(ctx context.Context, orgID, name string) (*CustomRole, error)
+	// ListCustomRoles returns every role of one organization, ordered by name.
+	ListCustomRoles(ctx context.Context, orgID string) ([]CustomRole, error)
+	// DeleteCustomRole removes one role. It returns ErrNotFound when the role
+	// is absent.
+	DeleteCustomRole(ctx context.Context, orgID, name string) error
 }
 
 // SessionOrgReader reads a session, its user, the active organization, and the

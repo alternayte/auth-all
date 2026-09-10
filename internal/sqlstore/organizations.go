@@ -448,10 +448,14 @@ func (s *Store) SessionWithUserAndMembership(ctx context.Context, tokenHash stri
 	orgCols := prefixColumns("o", s.orgColumnList())
 	memberCols := prefixColumns("m", memberColumns)
 	query := "SELECT " + sessionCols + ", " + userCols + ", " + orgCols + ", " + memberCols +
+		", r.permissions" +
 		" FROM " + s.n.Sessions + " s" +
 		" JOIN " + s.n.Users + " u ON u.id = s.user_id" +
 		" LEFT JOIN " + s.on.Organizations + " o ON o.id = s.active_org_id" +
 		" LEFT JOIN " + s.on.Members + " m ON m.org_id = s.active_org_id AND m.user_id = s.user_id" +
+		// A custom role of the organization carries its own statements, so the
+		// same statement resolves them with no extra round trip.
+		" LEFT JOIN " + s.on.Roles + " r ON r.org_id = m.org_id AND r.name = m.role" +
 		" WHERE s.token_hash = ?"
 
 	var sess store.Session
@@ -467,6 +471,8 @@ func (s *Store) SessionWithUserAndMembership(ctx context.Context, tokenHash stri
 	orgExtra := make([]any, len(s.orgFields))
 	targets = append(targets, org.targets(len(s.orgFields), orgExtra)...)
 	targets = append(targets, member.targets()...)
+	var permissions *string
+	targets = append(targets, nullStringScan{&permissions})
 
 	if err := s.queryRow(ctx, query, tokenHash).Scan(targets...); err != nil {
 		return nil, nil, nil, nil, s.mapErr(err)
@@ -476,7 +482,11 @@ func (s *Store) SessionWithUserAndMembership(ctx context.Context, tokenHash stri
 	if out != nil {
 		s.collectOrgExtra(out, orgExtra)
 	}
-	return &sess, &user, out, member.value(), nil
+	resolved := member.value()
+	if resolved != nil && permissions != nil {
+		resolved.Permissions = *permissions
+	}
+	return &sess, &user, out, resolved, nil
 }
 
 // nullableOrganization scans the organization columns of a left join.
@@ -671,4 +681,54 @@ func (s *Store) CountPendingInvitations(ctx context.Context, orgID string, now t
 		return 0, s.mapErr(err)
 	}
 	return count, nil
+}
+
+// customRoleColumns are the columns of one custom role row.
+const customRoleColumns = "id, org_id, name, permissions, created_at"
+
+// CreateCustomRole implements store.CustomRoleStore.
+func (s *Store) CreateCustomRole(ctx context.Context, r *store.CustomRole) error {
+	_, err := s.exec(ctx,
+		"INSERT INTO "+s.on.Roles+" ("+customRoleColumns+") VALUES (?, ?, ?, ?, ?)",
+		r.ID, r.OrgID, r.Name, r.Permissions, s.bindTime(r.CreatedAt))
+	return s.mapErr(err)
+}
+
+// CustomRoleByName implements store.CustomRoleStore.
+func (s *Store) CustomRoleByName(ctx context.Context, orgID, name string) (*store.CustomRole, error) {
+	row := s.queryRow(ctx,
+		"SELECT "+customRoleColumns+" FROM "+s.on.Roles+" WHERE org_id = ? AND name = ?", orgID, name)
+	var r store.CustomRole
+	if err := row.Scan(&r.ID, &r.OrgID, &r.Name, &r.Permissions, timeScan{&r.CreatedAt}); err != nil {
+		return nil, s.mapErr(err)
+	}
+	return &r, nil
+}
+
+// ListCustomRoles implements store.CustomRoleStore.
+func (s *Store) ListCustomRoles(ctx context.Context, orgID string) ([]store.CustomRole, error) {
+	rows, err := s.query(ctx,
+		"SELECT "+customRoleColumns+" FROM "+s.on.Roles+" WHERE org_id = ? ORDER BY name", orgID)
+	if err != nil {
+		return nil, s.mapErr(err)
+	}
+	defer rows.Close()
+	var out []store.CustomRole
+	for rows.Next() {
+		var r store.CustomRole
+		if err := rows.Scan(&r.ID, &r.OrgID, &r.Name, &r.Permissions, timeScan{&r.CreatedAt}); err != nil {
+			return nil, s.mapErr(err)
+		}
+		out = append(out, r)
+	}
+	return out, s.mapErr(rows.Err())
+}
+
+// DeleteCustomRole implements store.CustomRoleStore.
+func (s *Store) DeleteCustomRole(ctx context.Context, orgID, name string) error {
+	result, err := s.exec(ctx, "DELETE FROM "+s.on.Roles+" WHERE org_id = ? AND name = ?", orgID, name)
+	if err != nil {
+		return s.mapErr(err)
+	}
+	return notFoundWhenNoRow(result)
 }

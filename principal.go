@@ -165,6 +165,9 @@ func withOrganization(p *Principal, org *store.Organization, member *store.Membe
 	}
 	p.Organization = org
 	p.Membership = member
+	// The credential read resolved the statements of a custom role and of
+	// every team role in the same round trip.
+	p.Permissions = strings.Fields(member.Permissions)
 	return p
 }
 

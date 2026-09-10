@@ -3,6 +3,7 @@ package organizations
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/alternayte/auth-all/apierr"
@@ -260,10 +261,29 @@ func (p *Plugin) knownRole(ctx context.Context, s store.Store, orgID, role strin
 	if role == "" {
 		return permission.Set{}, false, nil
 	}
+	// A built-in role wins, because a custom role never shadows a built-in
+	// name.
 	if set, ok := p.PermissionsOf(role); ok {
 		return set, true, nil
 	}
-	return permission.Set{}, false, nil
+	roles, err := customRoleStore(s)
+	if err != nil {
+		return permission.Set{}, false, nil
+	}
+	custom, err := roles.CustomRoleByName(ctx, orgID, role)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return permission.Set{}, false, nil
+		}
+		return permission.Set{}, false, err
+	}
+	set, err := permission.NewSet(strings.Fields(custom.Permissions)...)
+	if err != nil {
+		// A stored statement that the grammar refuses holds nothing, which is
+		// default deny.
+		return permission.Set{}, true, nil
+	}
+	return set, true, nil
 }
 
 // notAMember maps an absent membership to the public error.

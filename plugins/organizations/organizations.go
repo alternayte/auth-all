@@ -173,6 +173,9 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 	if _, err := invitationStore(svc.Store()); err != nil {
 		return err
 	}
+	if _, err := customRoleStore(svc.Store()); err != nil {
+		return err
+	}
 	if _, ok := svc.Store().(store.ActiveOrganizationStore); !ok {
 		return errors.New("authall/organizations: the configured store holds no active organization")
 	}
@@ -211,10 +214,12 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 	}
 	registerSchemas(r)
 	registerInvitationSchemas(r)
+	registerRoleSchemas(r)
 	p.registerRoutes(r)
 	p.registerMemberRoutes(r)
 	p.registerActiveRoutes(r)
 	p.registerInvitationRoutes(r)
+	p.registerRoleRoutes(r)
 	p.writeErr = func(w http.ResponseWriter, r *http.Request, err error) {
 		if writer, ok := svc.HTTP().(interface {
 			WriteErrorFor(http.ResponseWriter, *http.Request, error)
