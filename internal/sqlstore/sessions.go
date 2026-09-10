@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/alternayte/auth-all/schema"
 	"github.com/alternayte/auth-all/store"
 )
 
@@ -14,14 +13,14 @@ const sessionColumns = "id, user_id, token_hash, created_at, expires_at, last_se
 
 func (ss *sessionStore) Create(ctx context.Context, m *store.Session) error {
 	_, err := ss.s.exec(ctx,
-		"INSERT INTO "+schema.TableSessions+" ("+sessionColumns+") VALUES (?, ?, ?, ?, ?, ?)",
+		"INSERT INTO "+ss.s.n.Sessions+" ("+sessionColumns+") VALUES (?, ?, ?, ?, ?, ?)",
 		m.ID, m.UserID, m.TokenHash, ss.s.bindTime(m.CreatedAt), ss.s.bindTime(m.ExpiresAt), ss.s.bindTime(m.LastSeenAt))
 	return ss.s.mapErr(err)
 }
 
 func (ss *sessionStore) GetByTokenHash(ctx context.Context, tokenHash string) (*store.Session, error) {
 	row := ss.s.queryRow(ctx,
-		"SELECT "+sessionColumns+" FROM "+schema.TableSessions+" WHERE token_hash = ?", tokenHash)
+		"SELECT "+sessionColumns+" FROM "+ss.s.n.Sessions+" WHERE token_hash = ?", tokenHash)
 	var m store.Session
 	if err := row.Scan(&m.ID, &m.UserID, &m.TokenHash, timeScan{&m.CreatedAt}, timeScan{&m.ExpiresAt}, timeScan{&m.LastSeenAt}); err != nil {
 		return nil, ss.s.mapErr(err)
@@ -33,7 +32,7 @@ func (ss *sessionStore) ListByUser(ctx context.Context, userID string) ([]store.
 	// The order is deterministic, so a list is stable across two adapters. The
 	// id breaks a tie of two equal timestamps.
 	rows, err := ss.s.query(ctx,
-		"SELECT "+sessionColumns+" FROM "+schema.TableSessions+
+		"SELECT "+sessionColumns+" FROM "+ss.s.n.Sessions+
 			" WHERE user_id = ? ORDER BY created_at DESC, id DESC", userID)
 	if err != nil {
 		return nil, ss.s.mapErr(err)
@@ -56,7 +55,7 @@ func (ss *sessionStore) ListByUser(ctx context.Context, userID string) ([]store.
 
 func (ss *sessionStore) Touch(ctx context.Context, id string, at time.Time) error {
 	res, err := ss.s.exec(ctx,
-		"UPDATE "+schema.TableSessions+" SET last_seen_at = ? WHERE id = ?", ss.s.bindTime(at), id)
+		"UPDATE "+ss.s.n.Sessions+" SET last_seen_at = ? WHERE id = ?", ss.s.bindTime(at), id)
 	if err != nil {
 		return ss.s.mapErr(err)
 	}
@@ -64,7 +63,7 @@ func (ss *sessionStore) Touch(ctx context.Context, id string, at time.Time) erro
 }
 
 func (ss *sessionStore) Delete(ctx context.Context, id string) error {
-	res, err := ss.s.exec(ctx, "DELETE FROM "+schema.TableSessions+" WHERE id = ?", id)
+	res, err := ss.s.exec(ctx, "DELETE FROM "+ss.s.n.Sessions+" WHERE id = ?", id)
 	if err != nil {
 		return ss.s.mapErr(err)
 	}
@@ -72,7 +71,7 @@ func (ss *sessionStore) Delete(ctx context.Context, id string) error {
 }
 
 func (ss *sessionStore) DeleteByUser(ctx context.Context, userID string) (int, error) {
-	res, err := ss.s.exec(ctx, "DELETE FROM "+schema.TableSessions+" WHERE user_id = ?", userID)
+	res, err := ss.s.exec(ctx, "DELETE FROM "+ss.s.n.Sessions+" WHERE user_id = ?", userID)
 	if err != nil {
 		return 0, ss.s.mapErr(err)
 	}
@@ -81,7 +80,7 @@ func (ss *sessionStore) DeleteByUser(ctx context.Context, userID string) (int, e
 }
 
 func (ss *sessionStore) DeleteExpired(ctx context.Context, before time.Time) (int, error) {
-	res, err := ss.s.exec(ctx, "DELETE FROM "+schema.TableSessions+" WHERE expires_at <= ?", ss.s.bindTime(before))
+	res, err := ss.s.exec(ctx, "DELETE FROM "+ss.s.n.Sessions+" WHERE expires_at <= ?", ss.s.bindTime(before))
 	if err != nil {
 		return 0, ss.s.mapErr(err)
 	}

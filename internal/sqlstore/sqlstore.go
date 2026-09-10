@@ -42,11 +42,51 @@ type Store struct {
 	db *sql.DB
 	ex execer
 	d  Dialect
+	// n holds the physical table names. UseSchema replaces them.
+	n schema.Names
 }
 
 // New returns a store over db.
 func New(db *sql.DB, d Dialect) *Store {
-	return &Store{db: db, ex: db, d: d}
+	return &Store{db: db, ex: db, d: d, n: schema.DefaultNames()}
+}
+
+// UseSchema implements store.SchemaConfigurable. It sets the physical table
+// names of the host.
+func (s *Store) UseSchema(o schema.Options) error {
+	o, err := o.Normalize()
+	if err != nil {
+		return err
+	}
+	s.n = schema.TableNames(o)
+	return nil
+}
+
+// TableColumns implements store.CatalogInspector.
+func (s *Store) TableColumns(ctx context.Context, table string) ([]string, bool, error) {
+	query := "SELECT column_name FROM information_schema.columns WHERE table_name = ? AND table_schema = current_schema()"
+	if s.d.Name == schema.SQLite {
+		// SQLite has no information schema. pragma_table_info reads the same
+		// facts and takes the table name as a bound value.
+		query = "SELECT name FROM pragma_table_info(?)"
+	}
+	rows, err := s.query(ctx, query, table)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, false, err
+		}
+		out = append(out, name)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	return out, len(out) > 0, nil
 }
 
 // DB returns the underlying handle. It is owned by the application.
@@ -90,7 +130,7 @@ func (s *Store) Transaction(ctx context.Context, fn func(store.Store) error) err
 	if err != nil {
 		return err
 	}
-	txStore := &Store{db: s.db, ex: tx, d: s.d}
+	txStore := &Store{db: s.db, ex: tx, d: s.d, n: s.n}
 	if err := fn(txStore); err != nil {
 		_ = tx.Rollback()
 		return err

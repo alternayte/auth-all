@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"time"
 
-	"github.com/alternayte/auth-all/schema"
 	"github.com/alternayte/auth-all/store"
 )
 
@@ -19,7 +18,7 @@ func (o *oauthStateStore) Create(ctx context.Context, m *store.OAuthState) error
 		linkUserID = *m.LinkUserID
 	}
 	_, err := o.s.exec(ctx,
-		"INSERT INTO "+schema.TableOAuthStates+" ("+oauthStateColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO "+o.s.n.OAuthStates+" ("+oauthStateColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		m.ID, m.StateHash, m.Provider, m.Verifier, m.Nonce, m.RedirectTo, linkUserID,
 		o.s.bindTime(m.CreatedAt), o.s.bindTime(m.ExpiresAt), o.s.bindNullTime(m.ConsumedAt))
 	return o.s.mapErr(err)
@@ -27,7 +26,7 @@ func (o *oauthStateStore) Create(ctx context.Context, m *store.OAuthState) error
 
 func (o *oauthStateStore) Consume(ctx context.Context, stateHash string, now time.Time) (*store.OAuthState, error) {
 	row := o.s.queryRow(ctx,
-		"UPDATE "+schema.TableOAuthStates+" SET consumed_at = ? "+
+		"UPDATE "+o.s.n.OAuthStates+" SET consumed_at = ? "+
 			"WHERE state_hash = ? AND consumed_at IS NULL AND expires_at > ? "+
 			"RETURNING "+oauthStateColumns,
 		o.s.bindTime(now), stateHash, o.s.bindTime(now))
@@ -46,7 +45,7 @@ func (o *oauthStateStore) Consume(ctx context.Context, stateHash string, now tim
 }
 
 func (o *oauthStateStore) DeleteExpired(ctx context.Context, before time.Time) (int, error) {
-	res, err := o.s.exec(ctx, "DELETE FROM "+schema.TableOAuthStates+" WHERE expires_at <= ?", o.s.bindTime(before))
+	res, err := o.s.exec(ctx, "DELETE FROM "+o.s.n.OAuthStates+" WHERE expires_at <= ?", o.s.bindTime(before))
 	if err != nil {
 		return 0, o.s.mapErr(err)
 	}

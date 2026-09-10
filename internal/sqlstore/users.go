@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/alternayte/auth-all/schema"
 	"github.com/alternayte/auth-all/store"
 )
 
@@ -14,7 +13,7 @@ const userColumns = "id, email, email_normalized, email_verified_at, display_nam
 
 func (u *userStore) Create(ctx context.Context, m *store.User) error {
 	_, err := u.s.exec(ctx,
-		"INSERT INTO "+schema.TableUsers+" ("+userColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO "+u.s.n.Users+" ("+userColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
 		m.ID, m.Email, m.EmailNormalized, u.s.bindNullTime(m.EmailVerifiedAt),
 		m.DisplayName, m.ImageURL, u.s.bindTime(m.CreatedAt), u.s.bindTime(m.UpdatedAt))
 	return u.s.mapErr(err)
@@ -29,7 +28,7 @@ func (u *userStore) GetByNormalizedEmail(ctx context.Context, normalized string)
 }
 
 func (u *userStore) get(ctx context.Context, where string, arg any) (*store.User, error) {
-	row := u.s.queryRow(ctx, "SELECT "+userColumns+" FROM "+schema.TableUsers+" WHERE "+where, arg)
+	row := u.s.queryRow(ctx, "SELECT "+userColumns+" FROM "+u.s.n.Users+" WHERE "+where, arg)
 	var m store.User
 	err := row.Scan(&m.ID, &m.Email, &m.EmailNormalized, nullTimeScan{&m.EmailVerifiedAt},
 		&m.DisplayName, &m.ImageURL, timeScan{&m.CreatedAt}, timeScan{&m.UpdatedAt})
@@ -41,7 +40,7 @@ func (u *userStore) get(ctx context.Context, where string, arg any) (*store.User
 
 func (u *userStore) Update(ctx context.Context, m *store.User) error {
 	res, err := u.s.exec(ctx,
-		"UPDATE "+schema.TableUsers+" SET email = ?, email_normalized = ?, email_verified_at = ?, display_name = ?, image_url = ?, updated_at = ? WHERE id = ?",
+		"UPDATE "+u.s.n.Users+" SET email = ?, email_normalized = ?, email_verified_at = ?, display_name = ?, image_url = ?, updated_at = ? WHERE id = ?",
 		m.Email, m.EmailNormalized, u.s.bindNullTime(m.EmailVerifiedAt), m.DisplayName, m.ImageURL,
 		u.s.bindTime(m.UpdatedAt), m.ID)
 	if err != nil {
@@ -51,7 +50,7 @@ func (u *userStore) Update(ctx context.Context, m *store.User) error {
 }
 
 func (u *userStore) Delete(ctx context.Context, id string) error {
-	res, err := u.s.exec(ctx, "DELETE FROM "+schema.TableUsers+" WHERE id = ?", id)
+	res, err := u.s.exec(ctx, "DELETE FROM "+u.s.n.Users+" WHERE id = ?", id)
 	if err != nil {
 		return u.s.mapErr(err)
 	}
@@ -60,7 +59,7 @@ func (u *userStore) Delete(ctx context.Context, id string) error {
 
 func (u *userStore) GetCredential(ctx context.Context, userID string) (*store.Credential, error) {
 	row := u.s.queryRow(ctx,
-		"SELECT user_id, password_hash, created_at, updated_at FROM "+schema.TableCredentials+" WHERE user_id = ?", userID)
+		"SELECT user_id, password_hash, created_at, updated_at FROM "+u.s.n.Credentials+" WHERE user_id = ?", userID)
 	var c store.Credential
 	if err := row.Scan(&c.UserID, &c.PasswordHash, timeScan{&c.CreatedAt}, timeScan{&c.UpdatedAt}); err != nil {
 		return nil, u.s.mapErr(err)
@@ -70,7 +69,7 @@ func (u *userStore) GetCredential(ctx context.Context, userID string) (*store.Cr
 
 func (u *userStore) SetCredential(ctx context.Context, c *store.Credential) error {
 	res, err := u.s.exec(ctx,
-		"UPDATE "+schema.TableCredentials+" SET password_hash = ?, updated_at = ? WHERE user_id = ?",
+		"UPDATE "+u.s.n.Credentials+" SET password_hash = ?, updated_at = ? WHERE user_id = ?",
 		c.PasswordHash, u.s.bindTime(c.UpdatedAt), c.UserID)
 	if err != nil {
 		return u.s.mapErr(err)
@@ -79,13 +78,13 @@ func (u *userStore) SetCredential(ctx context.Context, c *store.Credential) erro
 		return nil
 	}
 	_, err = u.s.exec(ctx,
-		"INSERT INTO "+schema.TableCredentials+" (user_id, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?)",
+		"INSERT INTO "+u.s.n.Credentials+" (user_id, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?)",
 		c.UserID, c.PasswordHash, u.s.bindTime(c.CreatedAt), u.s.bindTime(c.UpdatedAt))
 	return u.s.mapErr(err)
 }
 
 func (u *userStore) DeleteCredential(ctx context.Context, userID string) error {
-	res, err := u.s.exec(ctx, "DELETE FROM "+schema.TableCredentials+" WHERE user_id = ?", userID)
+	res, err := u.s.exec(ctx, "DELETE FROM "+u.s.n.Credentials+" WHERE user_id = ?", userID)
 	if err != nil {
 		return u.s.mapErr(err)
 	}

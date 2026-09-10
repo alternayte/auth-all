@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/alternayte/auth-all/schema"
 	"github.com/alternayte/auth-all/store"
 )
 
@@ -17,7 +16,7 @@ const totpColumns = "user_id, secret, confirmed_at, last_step, created_at, updat
 
 func (p *totpStore) Get(ctx context.Context, userID string) (*store.TOTP, error) {
 	row := p.s.queryRow(ctx,
-		"SELECT "+totpColumns+" FROM "+schema.TableTOTP+" WHERE user_id = ?", userID)
+		"SELECT "+totpColumns+" FROM "+p.s.n.TOTP+" WHERE user_id = ?", userID)
 	var t store.TOTP
 	err := row.Scan(&t.UserID, &t.Secret, nullTimeScan{&t.ConfirmedAt}, &t.LastStep,
 		timeScan{&t.CreatedAt}, timeScan{&t.UpdatedAt})
@@ -34,7 +33,7 @@ func (p *totpStore) Get(ctx context.Context, userID string) (*store.TOTP, error)
 // secret with no proof.
 func (p *totpStore) Upsert(ctx context.Context, t *store.TOTP) error {
 	res, err := p.s.exec(ctx,
-		"UPDATE "+schema.TableTOTP+
+		"UPDATE "+p.s.n.TOTP+
 			" SET secret = ?, confirmed_at = NULL, last_step = 0, updated_at = ?"+
 			" WHERE user_id = ?",
 		t.Secret, p.s.bindTime(t.UpdatedAt), t.UserID)
@@ -45,14 +44,14 @@ func (p *totpStore) Upsert(ctx context.Context, t *store.TOTP) error {
 		return nil
 	}
 	_, err = p.s.exec(ctx,
-		"INSERT INTO "+schema.TableTOTP+" ("+totpColumns+") VALUES (?, ?, NULL, 0, ?, ?)",
+		"INSERT INTO "+p.s.n.TOTP+" ("+totpColumns+") VALUES (?, ?, NULL, 0, ?, ?)",
 		t.UserID, t.Secret, p.s.bindTime(t.CreatedAt), p.s.bindTime(t.UpdatedAt))
 	return p.s.mapErr(err)
 }
 
 func (p *totpStore) Confirm(ctx context.Context, userID string, at time.Time) error {
 	res, err := p.s.exec(ctx,
-		"UPDATE "+schema.TableTOTP+" SET confirmed_at = ?, updated_at = ? WHERE user_id = ?",
+		"UPDATE "+p.s.n.TOTP+" SET confirmed_at = ?, updated_at = ? WHERE user_id = ?",
 		p.s.bindTime(at), p.s.bindTime(at), userID)
 	if err != nil {
 		return p.s.mapErr(err)
@@ -68,7 +67,7 @@ func (p *totpStore) Confirm(ctx context.Context, userID string, at time.Time) er
 // comparison here, so exactly one of those requests changes the row.
 func (p *totpStore) AdvanceStep(ctx context.Context, userID string, step int64) (bool, error) {
 	res, err := p.s.exec(ctx,
-		"UPDATE "+schema.TableTOTP+" SET last_step = ? WHERE user_id = ? AND last_step < ?",
+		"UPDATE "+p.s.n.TOTP+" SET last_step = ? WHERE user_id = ? AND last_step < ?",
 		step, userID, step)
 	if err != nil {
 		return false, p.s.mapErr(err)
@@ -90,7 +89,7 @@ func (p *totpStore) AdvanceStep(ctx context.Context, userID string, step int64) 
 }
 
 func (p *totpStore) Delete(ctx context.Context, userID string) error {
-	res, err := p.s.exec(ctx, "DELETE FROM "+schema.TableTOTP+" WHERE user_id = ?", userID)
+	res, err := p.s.exec(ctx, "DELETE FROM "+p.s.n.TOTP+" WHERE user_id = ?", userID)
 	if err != nil {
 		return p.s.mapErr(err)
 	}
@@ -108,13 +107,13 @@ func (p *recoveryCodeStore) ReplaceAll(ctx context.Context, userID string, hashe
 			return fmt.Errorf("authall/sqlstore: unexpected transaction store %T", tx)
 		}
 		if _, err := inner.exec(ctx,
-			"DELETE FROM "+schema.TableTOTPRecovery+" WHERE user_id = ?", userID); err != nil {
+			"DELETE FROM "+p.s.n.TOTPRecovery+" WHERE user_id = ?", userID); err != nil {
 			return inner.mapErr(err)
 		}
 		now := time.Now().UTC()
 		for _, h := range hashes {
 			if _, err := inner.exec(ctx,
-				"INSERT INTO "+schema.TableTOTPRecovery+" (id, user_id, code_hash, created_at) VALUES (?, ?, ?, ?)",
+				"INSERT INTO "+p.s.n.TOTPRecovery+" (id, user_id, code_hash, created_at) VALUES (?, ?, ?, ?)",
 				uuid.NewString(), userID, h, inner.bindTime(now)); err != nil {
 				return inner.mapErr(err)
 			}
@@ -130,7 +129,7 @@ func (p *recoveryCodeStore) ReplaceAll(ctx context.Context, userID string, hashe
 // another user.
 func (p *recoveryCodeStore) Consume(ctx context.Context, userID, codeHash string) (bool, error) {
 	res, err := p.s.exec(ctx,
-		"DELETE FROM "+schema.TableTOTPRecovery+" WHERE user_id = ? AND code_hash = ?",
+		"DELETE FROM "+p.s.n.TOTPRecovery+" WHERE user_id = ? AND code_hash = ?",
 		userID, codeHash)
 	if err != nil {
 		return false, p.s.mapErr(err)
@@ -144,7 +143,7 @@ func (p *recoveryCodeStore) Consume(ctx context.Context, userID, codeHash string
 
 func (p *recoveryCodeStore) CountByUser(ctx context.Context, userID string) (int, error) {
 	row := p.s.queryRow(ctx,
-		"SELECT COUNT(*) FROM "+schema.TableTOTPRecovery+" WHERE user_id = ?", userID)
+		"SELECT COUNT(*) FROM "+p.s.n.TOTPRecovery+" WHERE user_id = ?", userID)
 	var n int
 	if err := row.Scan(&n); err != nil {
 		return 0, p.s.mapErr(err)
@@ -154,7 +153,7 @@ func (p *recoveryCodeStore) CountByUser(ctx context.Context, userID string) (int
 
 func (p *recoveryCodeStore) DeleteByUser(ctx context.Context, userID string) (int, error) {
 	res, err := p.s.exec(ctx,
-		"DELETE FROM "+schema.TableTOTPRecovery+" WHERE user_id = ?", userID)
+		"DELETE FROM "+p.s.n.TOTPRecovery+" WHERE user_id = ?", userID)
 	if err != nil {
 		return 0, p.s.mapErr(err)
 	}

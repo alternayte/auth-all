@@ -16,6 +16,7 @@ import (
 	"github.com/alternayte/auth-all/oauth"
 	"github.com/alternayte/auth-all/plugin"
 	"github.com/alternayte/auth-all/ratelimit"
+	"github.com/alternayte/auth-all/schema"
 	"github.com/alternayte/auth-all/store"
 )
 
@@ -140,6 +141,9 @@ type config struct {
 	tokenTTL TokenTTLOptions
 	linking  AccountLinkingOptions
 
+	schemaOptions schema.Options
+	schemaCheck   SchemaCheckMode
+
 	limiter ratelimit.Limiter
 	// strictRateLimiting turns the missing-limiter warning into a construction
 	// error.
@@ -154,6 +158,36 @@ type Option func(*config)
 
 // WithStore sets the storage adapter. It is required.
 func WithStore(s store.Store) Option { return func(c *config) { c.store = s } }
+
+// WithSchema configures the physical schema. It sets the table prefix, the
+// identifier type, and the host-owned user fields. The store must accept the
+// same options, so Auth-All passes them to a first-party store.
+func WithSchema(o schema.Options) Option { return func(c *config) { c.schemaOptions = o } }
+
+// WithUserFields adds host-owned columns to the users table. It appends to the
+// fields of WithSchema.
+func WithUserFields(fields ...schema.UserField) Option {
+	return func(c *config) {
+		c.schemaOptions.UserFields = append(c.schemaOptions.UserFields, fields...)
+	}
+}
+
+// SchemaCheckMode selects how CheckSchema reads the state of the database.
+type SchemaCheckMode int
+
+const (
+	// SchemaCheckRecord compares the Auth-All record table with the effective
+	// schema. It is the default, and it fits an application that calls
+	// Migrate.
+	SchemaCheckRecord SchemaCheckMode = iota
+	// SchemaCheckCatalog reads the database catalog. A host that applies the
+	// exported migrations with its own tool writes no Auth-All record, so the
+	// catalog is the only source of truth.
+	SchemaCheckCatalog
+)
+
+// WithSchemaCheck selects the source that CheckSchema reads.
+func WithSchemaCheck(m SchemaCheckMode) Option { return func(c *config) { c.schemaCheck = m } }
 
 // WithBasePath sets the mount path of the HTTP handler. The default is
 // /api/auth.

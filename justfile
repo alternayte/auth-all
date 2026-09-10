@@ -61,8 +61,8 @@ db-down:
 
 # Run the unit tests of the library packages.
 test-unit:
-    go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/...
-    @just _record "unit tests" "go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/..."
+    go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./migrations/... ./cmd/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/...
+    @just _record "unit tests" "go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./migrations/... ./cmd/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/..."
 
 # Run the storage contract suite against PostgreSQL.
 test-postgres:

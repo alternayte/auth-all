@@ -12,11 +12,13 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	authall "github.com/alternayte/auth-all"
 	"github.com/alternayte/auth-all/internal/clientgen"
 	"github.com/alternayte/auth-all/internal/reference"
+	"github.com/alternayte/auth-all/migrations"
 	"github.com/alternayte/auth-all/schema"
 	"github.com/alternayte/auth-all/store"
 	"github.com/alternayte/auth-all/store/postgres"
@@ -30,13 +32,14 @@ Usage:
   auth-all migrate --driver <postgres|sqlite> --dsn <dsn>
   auth-all migrate --driver <postgres|sqlite> --dsn <dsn> --dry-run
   auth-all migrate --driver <postgres|sqlite> --sql
+  auth-all migrate export --driver <postgres|sqlite> --format <goose|plain> --dir <path>
   auth-all openapi [--out <file>]
   auth-all client [--out <file>]
   auth-all version
 
 Commands:
   schema    Print the effective Auth-All schema.
-  migrate   Apply the schema, plan it, or emit the SQL.
+  migrate   Apply the schema, plan it, emit the SQL, or export the units.
   openapi   Emit the OpenAPI contract of the complete v1 API.
   client    Emit the generated TypeScript client.
   version   Print the version of the tool.
@@ -129,6 +132,9 @@ func runSchema(args []string) error {
 }
 
 func runMigrate(args []string) error {
+	if len(args) > 0 && args[0] == "export" {
+		return runMigrateExport(args[1:])
+	}
 	fs := flag.NewFlagSet("migrate", flag.ContinueOnError)
 	driver := fs.String("driver", "", "postgres or sqlite")
 	dsn := fs.String("dsn", "", "the database connection string")
@@ -189,6 +195,43 @@ func runMigrate(args []string) error {
 	}
 	for _, st := range applied {
 		fmt.Println("applied " + st.ID)
+	}
+	return nil
+}
+
+// runMigrateExport writes one file for each migration unit. The host applies
+// the files with its own migration tool.
+func runMigrateExport(args []string) error {
+	fs := flag.NewFlagSet("migrate export", flag.ContinueOnError)
+	driver := fs.String("driver", "postgres", "postgres or sqlite")
+	format := fs.String("format", "goose", "goose or plain")
+	dir := fs.String("dir", "", "the target directory")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if *dir == "" {
+		return errors.New("--dir is required")
+	}
+	dialect, err := dialectOf(*driver)
+	if err != nil {
+		return err
+	}
+	auth, err := referenceAuth()
+	if err != nil {
+		return err
+	}
+	files, err := auth.ExportMigrations(dialect, migrations.Format(*format))
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(*dir, 0o755); err != nil {
+		return err
+	}
+	for _, f := range files {
+		if err := os.WriteFile(filepath.Join(*dir, f.Name), []byte(f.Content), 0o644); err != nil {
+			return err
+		}
+		fmt.Println("wrote " + filepath.Join(*dir, f.Name))
 	}
 	return nil
 }
