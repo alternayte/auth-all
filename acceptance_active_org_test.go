@@ -3,6 +3,7 @@ package authall_test
 import (
 	"context"
 	"net/http"
+	"sync"
 	"testing"
 
 	"github.com/alternayte/auth-all/apierr"
@@ -11,11 +12,49 @@ import (
 	"github.com/alternayte/auth-all/store"
 )
 
+// captured holds the request context of the last capture route call of one
+// harness, so a test asks Can with the context that a real request carries.
+var captured sync.Map
+
+// hostContext returns the request context of the caller, with the active
+// organization that the credential read resolved.
+func hostContext(t *testing.T, h *testsupport.Harness) context.Context {
+	t.Helper()
+	resp := h.DoURL(http.MethodGet, h.BaseURL+"/host/capture", nil)
+	if resp.Status != http.StatusOK {
+		t.Fatalf("the capture route got status %d: %s", resp.Status, string(resp.Body))
+	}
+	value, ok := captured.Load(h)
+	if !ok {
+		t.Fatal("the capture route stored no context")
+	}
+	return value.(context.Context)
+}
+
+// userOrganization returns the first organization of the caller.
+func userOrganization(t *testing.T, h *testsupport.Harness) string {
+	t.Helper()
+	resp := h.Do(http.MethodGet, "/organizations", nil)
+	var page organizationListBody
+	resp.Decode(t, &page)
+	if len(page.Organizations) == 0 {
+		t.Fatal("the caller holds no organization")
+	}
+	return page.Organizations[0].ID
+}
+
 // activeHarness returns an organization harness with one host route for each
 // permission of the test roles.
 func activeHarness(t *testing.T) (*testsupport.Harness, *organizations.Plugin) {
 	t.Helper()
 	h, orgs := orgHarness(t)
+	// The capture route runs under the Auth-All middleware only, so a
+	// suspended member and a member with no role still reach it.
+	h.Handle("/host/capture", h.Auth.LoadSession(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			captured.Store(h, r.Context())
+			w.WriteHeader(http.StatusOK)
+		})))
 	for _, statement := range []string{"project:read", "project:write", "billing:read"} {
 		want := statement
 		h.Handle("/host/"+want, orgs.Require(want, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
