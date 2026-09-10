@@ -7,6 +7,18 @@ set -euo pipefail
 
 base="${1:-v0.2.0}"
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+if ! git -C "$repo" rev-parse --verify --quiet "$base^{commit}" > /dev/null; then
+    # A shallow clone carries no tag. The fetch adds the missing objects.
+    git -C "$repo" fetch --quiet --tags --unshallow 2> /dev/null ||
+        git -C "$repo" fetch --quiet --tags || true
+fi
+if ! git -C "$repo" rev-parse --verify --quiet "$base^{commit}" > /dev/null; then
+    echo "apidiff: the base $base is not in this checkout." >&2
+    echo "apidiff: fetch the tags, or name another base: ./tools/apidiff.sh <ref>" >&2
+    exit 1
+fi
+
 work="$(mktemp -d)"
 snapshots="$(mktemp -d)"
 git -C "$repo" worktree add -q --detach "$work" "$base"
