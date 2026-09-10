@@ -1,6 +1,7 @@
 package authall
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/alternayte/auth-all/openapi"
@@ -19,6 +20,34 @@ type userDTO struct {
 	// Role is the effective role. It is empty when no roles plugin is
 	// enabled.
 	Role string `json:"role,omitempty"`
+	// extra holds the host-owned fields that a response can carry. MarshalJSON
+	// writes them beside the Auth-All fields.
+	extra map[string]any
+}
+
+// MarshalJSON writes the Auth-All fields and the returned host fields in one
+// object.
+func (u userDTO) MarshalJSON() ([]byte, error) {
+	type plain userDTO
+	raw, err := json.Marshal(plain(u))
+	if err != nil {
+		return nil, err
+	}
+	if len(u.extra) == 0 {
+		return raw, nil
+	}
+	var merged map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &merged); err != nil {
+		return nil, err
+	}
+	for name, value := range u.extra {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return nil, err
+		}
+		merged[name] = encoded
+	}
+	return json.Marshal(merged)
 }
 
 // sessionDTO is the public JSON shape of a session. It never carries a token.
@@ -33,8 +62,22 @@ type sessionDTO struct {
 // roles plugin is enabled.
 func (a *Auth) toUserDTO(u *store.User) *userDTO {
 	dto := toUserDTO(u)
-	if dto != nil && a.roleHierarchy != nil {
+	if dto == nil {
+		return nil
+	}
+	if a.roleHierarchy != nil {
 		dto.Role = a.effectiveRole(u)
+	}
+	// A field with Returned false never leaves the server.
+	for _, f := range a.returnedFields() {
+		value, ok := u.Extra[f.Name]
+		if !ok {
+			continue
+		}
+		if dto.extra == nil {
+			dto.extra = map[string]any{}
+		}
+		dto.extra[f.Name] = value
 	}
 	return dto
 }

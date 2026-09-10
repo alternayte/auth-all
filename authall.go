@@ -586,7 +586,7 @@ func addContributedSchema(sc *schema.Schema, o schema.Options, parts ...any) err
 // A store that ignores them must keep the v1 names, so a host that sets a
 // prefix gets an error instead of a wrong query.
 func applySchemaOptions(s store.Store, o schema.Options) error {
-	if o.Prefix == schema.DefaultPrefix && o.IDType == schema.IDText {
+	if o.Prefix == schema.DefaultPrefix && o.IDType == schema.IDText && len(o.UserFields) == 0 {
 		return nil
 	}
 	c, ok := s.(store.SchemaConfigurable)
@@ -694,6 +694,9 @@ type CreateUserInput struct {
 	ImageURL    string
 	// EmailVerified marks the address as already proven.
 	EmailVerified bool
+	// Extra holds the host-owned user fields. A field that the host did not
+	// declare is dropped.
+	Extra map[string]any
 }
 
 // CreateUser creates a user, and a password credential when a password is

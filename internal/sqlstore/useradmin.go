@@ -51,7 +51,7 @@ func (s *Store) ListUsers(ctx context.Context, f store.UserListFilter) ([]store.
 		where = append(where, "(email_normalized > ? OR (email_normalized = ? AND id > ?))")
 		args = append(args, email, email, id)
 	}
-	query := "SELECT " + userColumns + " FROM " + s.n.Users
+	query := "SELECT " + s.userColumnList() + " FROM " + s.n.Users
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -67,9 +67,11 @@ func (s *Store) ListUsers(ctx context.Context, f store.UserListFilter) ([]store.
 	var out []store.User
 	for rows.Next() {
 		var m store.User
-		if err := rows.Scan(scanUser(&m)...); err != nil {
+		extra := make([]any, len(s.fields))
+		if err := rows.Scan(s.scanUserRow(&m, extra)...); err != nil {
 			return nil, "", s.mapErr(err)
 		}
+		s.collectExtra(&m, extra)
 		out = append(out, m)
 	}
 	if err := rows.Err(); err != nil {

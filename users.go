@@ -38,6 +38,7 @@ func (a *Auth) createUser(ctx context.Context, in CreateUserInput, passwordHash 
 		ImageURL:        in.ImageURL,
 		CreatedAt:       now,
 		UpdatedAt:       now,
+		Extra:           in.Extra,
 	}
 	if in.EmailVerified {
 		verified := now

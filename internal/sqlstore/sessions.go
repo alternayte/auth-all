@@ -93,7 +93,7 @@ func (ss *sessionStore) DeleteExpired(ctx context.Context, before time.Time) (in
 // and the user row, so credential resolution costs one round trip.
 func (s *Store) SessionWithUser(ctx context.Context, tokenHash string) (*store.Session, *store.User, error) {
 	sessionCols := prefixColumns("s", sessionColumns)
-	userCols := prefixColumns("u", userColumns)
+	userCols := prefixColumns("u", s.userColumnList())
 	row := s.queryRow(ctx,
 		"SELECT "+sessionCols+", "+userCols+" FROM "+s.n.Sessions+" s "+
 			"JOIN "+s.n.Users+" u ON u.id = s.user_id WHERE s.token_hash = ?", tokenHash)
@@ -101,10 +101,12 @@ func (s *Store) SessionWithUser(ctx context.Context, tokenHash string) (*store.S
 	var user store.User
 	targets := []any{&sess.ID, &sess.UserID, &sess.TokenHash,
 		timeScan{&sess.CreatedAt}, timeScan{&sess.ExpiresAt}, timeScan{&sess.LastSeenAt}}
-	targets = append(targets, scanUser(&user)...)
+	extra := make([]any, len(s.fields))
+	targets = append(targets, s.scanUserRow(&user, extra)...)
 	if err := row.Scan(targets...); err != nil {
 		return nil, nil, s.mapErr(err)
 	}
+	s.collectExtra(&user, extra)
 	return &sess, &user, nil
 }
 
