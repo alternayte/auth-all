@@ -18,6 +18,9 @@ const (
 	TypeTimestamp Type = "timestamp"
 	TypeInt       Type = "int"
 	TypeBool      Type = "bool"
+	// TypeUUID is an identifier column. PostgreSQL uses uuid. SQLite uses
+	// text, because SQLite has no uuid type.
+	TypeUUID Type = "uuid"
 )
 
 // Column describes one column.
@@ -26,6 +29,8 @@ type Column struct {
 	Type       Type
 	Nullable   bool
 	PrimaryKey bool
+	// Default is the rendered SQL default. An empty value adds no default.
+	Default string
 }
 
 // ForeignKey describes one foreign key constraint.
@@ -54,10 +59,106 @@ type Table struct {
 // Schema is the effective set of tables.
 type Schema struct {
 	tables map[string]Table
+	units  []Unit
+	opts   Options
 }
 
-// New returns an empty schema.
-func New() *Schema { return &Schema{tables: map[string]Table{}} }
+// New returns an empty schema with the default options.
+func New() *Schema { return &Schema{tables: map[string]Table{}, opts: DefaultOptions()} }
+
+// NewWithOptions returns an empty schema with the given physical options.
+func NewWithOptions(o Options) (*Schema, error) {
+	o, err := o.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	return &Schema{tables: map[string]Table{}, opts: o}, nil
+}
+
+// Options returns the physical options of the schema.
+func (s *Schema) Options() Options {
+	if s.opts.Prefix == "" {
+		return DefaultOptions()
+	}
+	return s.opts
+}
+
+// Names returns the physical table names of the schema.
+func (s *Schema) Names() Names { return TableNames(s.Options()) }
+
+// AddUnit registers one migration unit. A unit that creates a table must also
+// name the table in Creates.
+func (s *Schema) AddUnit(u Unit) error {
+	if u.Version == "" || u.Name == "" {
+		return fmt.Errorf("authall/schema: a migration unit needs a version and a name")
+	}
+	for _, have := range s.units {
+		if have.Version == u.Version {
+			return fmt.Errorf("authall/schema: the migration version %q is used twice", u.Version)
+		}
+	}
+	s.units = append(s.units, u)
+	return nil
+}
+
+// Units returns every migration unit in version order. A table that no unit
+// covers gets a synthesized unit, so a third-party plugin that contributes
+// only a table still exports a file.
+func (s *Schema) Units() ([]Unit, error) {
+	units := append([]Unit(nil), s.units...)
+	covered := map[string]bool{}
+	for _, u := range units {
+		for _, name := range u.Creates {
+			covered[name] = true
+		}
+	}
+	var loose []Table
+	for _, t := range s.Tables() {
+		if !covered[t.Name] {
+			loose = append(loose, t)
+		}
+	}
+	for i, t := range loose {
+		u, err := TableUnit(fmt.Sprintf("%s%02d", synthesizedVersionPrefix, i+1),
+			"plugin", "authall_"+t.Name, []Dialect{Postgres, SQLite}, []Table{t})
+		if err != nil {
+			return nil, err
+		}
+		units = append(units, u)
+	}
+	sort.SliceStable(units, func(i, j int) bool { return units[i].Version < units[j].Version })
+	return units, nil
+}
+
+// synthesizedVersionPrefix starts the version of a unit that Auth-All derives
+// from a contributed table. The two last digits number the tables in name
+// order.
+const synthesizedVersionPrefix = "202609109000"
+
+// Extend adds columns and indexes to a table that another owner declared.
+func (s *Schema) Extend(e Extension) error {
+	if err := e.Validate(); err != nil {
+		return err
+	}
+	t, ok := s.tables[e.Table]
+	if !ok {
+		return fmt.Errorf("authall/schema: the extension target %q is not registered", e.Table)
+	}
+	have := map[string]bool{}
+	for _, c := range t.Columns {
+		have[c.Name] = true
+	}
+	for _, c := range e.Columns {
+		if have[c.Name] {
+			return fmt.Errorf("authall/schema: the column %q of %q exists already", c.Name, e.Table)
+		}
+		have[c.Name] = true
+		t.Columns = append(t.Columns, c)
+	}
+	t.Indexes = append(t.Indexes, e.Indexes...)
+	s.tables[e.Table] = t
+	return nil
+}
 
 // Add registers a table. It reports an error when the name is already taken.
 func (s *Schema) Add(t Table) error {
@@ -115,8 +216,9 @@ type Statement struct {
 	SQL string
 }
 
-// MigrationTable holds the applied statement IDs.
-const MigrationTable = "auth_schema_migrations"
+// MigrationTable holds the applied statement IDs. It is the v1 name. A schema
+// with another prefix uses Names().Migrations instead.
+const MigrationTable = DefaultPrefix + baseMigrations
 
 // Render returns the deterministic DDL for the schema in one dialect. The
 // result is a pure function of the schema and needs no database connection.
@@ -124,21 +226,19 @@ func Render(d Dialect, s *Schema) ([]Statement, error) {
 	if d != Postgres && d != SQLite {
 		return nil, fmt.Errorf("authall/schema: unsupported dialect %q", d)
 	}
+	record := s.Names().Migrations
 	out := []Statement{{
-		ID: "table:" + MigrationTable,
-		SQL: "CREATE TABLE IF NOT EXISTS " + MigrationTable + " (\n" +
+		ID: "table:" + record,
+		SQL: "CREATE TABLE IF NOT EXISTS " + record + " (\n" +
 			"    id " + columnType(d, TypeText) + " NOT NULL PRIMARY KEY,\n" +
 			"    applied_at " + columnType(d, TypeTimestamp) + " NOT NULL\n)",
 	}}
-	for _, t := range orderTables(s.Tables()) {
-		stmt, err := renderTable(d, t)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, stmt)
-		for _, idx := range t.Indexes {
-			out = append(out, renderIndex(t, idx))
-		}
+	units, err := s.Units()
+	if err != nil {
+		return nil, err
+	}
+	for _, u := range units {
+		out = append(out, u.Up[d]...)
 	}
 	return out, nil
 }
@@ -200,6 +300,9 @@ func renderTable(d Dialect, t Table) (Statement, error) {
 		if c.PrimaryKey {
 			line += " PRIMARY KEY"
 		}
+		if c.Default != "" {
+			line += " DEFAULT " + renderDefault(d, c.Default)
+		}
 		parts = append(parts, line)
 	}
 	for _, fk := range t.ForeignKeys {
@@ -212,6 +315,21 @@ func renderTable(d Dialect, t Table) (Statement, error) {
 	b.WriteString(strings.Join(parts, ",\n"))
 	b.WriteString("\n)")
 	return Statement{ID: "table:" + t.Name, SQL: b.String()}, nil
+}
+
+// renderDefault returns the default expression in one dialect. SQLite has no
+// boolean literal, so it takes the numeric form.
+func renderDefault(d Dialect, v string) string {
+	if d != SQLite {
+		return v
+	}
+	switch v {
+	case "true":
+		return "1"
+	case "false":
+		return "0"
+	}
+	return v
 }
 
 func renderIndex(t Table, idx Index) Statement {
@@ -236,10 +354,12 @@ func columnType(d Dialect, t Type) string {
 			return "bigint"
 		case TypeBool:
 			return "boolean"
+		case TypeUUID:
+			return "uuid"
 		}
 	case SQLite:
 		switch t {
-		case TypeText, TypeTimestamp:
+		case TypeText, TypeTimestamp, TypeUUID:
 			return "TEXT"
 		case TypeInt:
 			return "INTEGER"

@@ -17,6 +17,7 @@ import (
 	"github.com/alternayte/auth-all/events"
 	"github.com/alternayte/auth-all/hook"
 	"github.com/alternayte/auth-all/internal/crypto"
+	"github.com/alternayte/auth-all/migrations"
 	"github.com/alternayte/auth-all/oauth"
 	"github.com/alternayte/auth-all/openapi"
 	"github.com/alternayte/auth-all/plugin"
@@ -122,11 +123,19 @@ func New(opts ...Option) (*Auth, error) {
 	}
 	sort.Strings(a.providerOrder)
 
-	sc, err := schema.NewCore()
+	sopts, err := cfg.schemaOptions.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	cfg.schemaOptions = sopts
+	sc, err := schema.NewCoreWithOptions(sopts)
 	if err != nil {
 		return nil, err
 	}
 	a.effectiveSchema = sc
+	if err := applySchemaOptions(cfg.store, sopts); err != nil {
+		return nil, err
+	}
 	a.doc = openapi.New("Auth-All", Version)
 	registerCoreSchemas(a.doc)
 	a.svc = &services{auth: a}
@@ -361,10 +370,77 @@ func (a *Auth) OpenAPI() *openapi.Document { return a.doc }
 // Hooks returns the lifecycle hook registry of the instance.
 func (a *Auth) Hooks() *hook.Hooks { return a.hooks }
 
+// applySchemaOptions passes the physical options to a store that accepts them.
+// A store that ignores them must keep the v1 names, so a host that sets a
+// prefix gets an error instead of a wrong query.
+func applySchemaOptions(s store.Store, o schema.Options) error {
+	if o.Prefix == schema.DefaultPrefix && o.IDType == schema.IDText {
+		return nil
+	}
+	c, ok := s.(store.SchemaConfigurable)
+	if !ok {
+		return fmt.Errorf("authall: the configured store does not accept schema options. " +
+			"Use a first-party store, or remove authall.WithSchema")
+	}
+	return c.UseSchema(o)
+}
+
 // CheckSchema reports an actionable error when the database schema is missing
 // or outdated. Auth-All never migrates a schema on its own.
+//
+// The default mode reads the Auth-All record table. SchemaCheckCatalog reads
+// the database catalog, which fits a host that applies the exported migrations
+// with its own tool.
 func (a *Auth) CheckSchema(ctx context.Context) error {
+	if a.cfg.schemaCheck == SchemaCheckCatalog {
+		return a.checkCatalog(ctx)
+	}
 	return a.cfg.store.Migrator().Check(ctx, a.effectiveSchema)
+}
+
+// checkCatalog compares the effective schema with the catalog of the database.
+// The error names every absent table and every absent column.
+func (a *Auth) checkCatalog(ctx context.Context) error {
+	inspector, ok := a.cfg.store.(store.CatalogInspector)
+	if !ok {
+		return fmt.Errorf("authall: the configured store cannot read the database catalog. " +
+			"Use authall.WithSchemaCheck(authall.SchemaCheckRecord)")
+	}
+	var missing []string
+	for _, t := range a.effectiveSchema.Tables() {
+		columns, exists, err := inspector.TableColumns(ctx, t.Name)
+		if err != nil {
+			return fmt.Errorf("authall: cannot read the database catalog: %w", err)
+		}
+		if !exists {
+			missing = append(missing, "table "+t.Name)
+			continue
+		}
+		have := map[string]bool{}
+		for _, c := range columns {
+			have[c] = true
+		}
+		for _, c := range t.Columns {
+			if !have[c.Name] {
+				missing = append(missing, "column "+t.Name+"."+c.Name)
+			}
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("authall: the database schema is incomplete. Missing: %s. "+
+		"Apply the exported Auth-All migrations", strings.Join(missing, ", "))
+}
+
+// ExportMigrations returns the migration files of the enabled units, sorted by
+// version. The host applies them with its own migration tool.
+func (a *Auth) ExportMigrations(d schema.Dialect, f migrations.Format) ([]migrations.File, error) {
+	units, err := a.effectiveSchema.Units()
+	if err != nil {
+		return nil, err
+	}
+	return migrations.Render(units, d, f)
 }
 
 // Migrate applies the effective schema. It runs only when the application or

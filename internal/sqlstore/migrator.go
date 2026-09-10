@@ -25,7 +25,7 @@ func (m *migrator) Plan(ctx context.Context, s *schema.Schema) ([]schema.Stateme
 	}
 	var pending []schema.Statement
 	for _, st := range all {
-		if st.ID == "table:"+schema.MigrationTable {
+		if st.ID == "table:"+m.s.n.Migrations {
 			continue
 		}
 		if !applied[st.ID] {
@@ -55,7 +55,7 @@ func (m *migrator) Apply(ctx context.Context, s *schema.Schema) ([]schema.Statem
 			return nil, fmt.Errorf("authall: apply %s: %w", st.ID, err)
 		}
 		if _, err := m.s.exec(ctx,
-			"INSERT INTO "+schema.MigrationTable+" (id, applied_at) VALUES (?, ?)",
+			"INSERT INTO "+m.s.n.Migrations+" (id, applied_at) VALUES (?, ?)",
 			st.ID, m.s.bindTime(now)); err != nil {
 			return nil, err
 		}
@@ -82,7 +82,7 @@ func (m *migrator) Check(ctx context.Context, s *schema.Schema) error {
 
 func (m *migrator) applied(ctx context.Context) (map[string]bool, error) {
 	out := map[string]bool{}
-	rows, err := m.s.query(ctx, "SELECT id FROM "+schema.MigrationTable)
+	rows, err := m.s.query(ctx, "SELECT id FROM "+m.s.n.Migrations)
 	if err != nil {
 		// A missing record table means nothing is applied yet.
 		return out, nil
