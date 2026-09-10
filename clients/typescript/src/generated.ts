@@ -7,6 +7,7 @@ export interface APIKey {
   id: string
   lastUsedAt?: string | null
   name: string
+  orgId?: string | null
   revokedAt?: string | null
   role: string
   start: string
@@ -169,6 +170,7 @@ export interface AdminSetUserRoleBody {
 export interface CreateAPIKeyBody {
   expiresAt?: string | null
   name: string
+  orgId?: string
   role?: string
 }
 

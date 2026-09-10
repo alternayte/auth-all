@@ -238,3 +238,60 @@ func (p *Plugin) handleDeleteRole(w http.ResponseWriter, r *http.Request, princi
 	}
 	p.svc.HTTP().WriteJSON(w, http.StatusOK, map[string]bool{"success": true})
 }
+
+// KeyCredential returns the organization credential of one API key.
+//
+// The permissions are the intersection of the key permissions and the live
+// permissions of the owner in that organization, so a demoted member keeps no
+// stronger key. A key of an organization that the owner left authenticates
+// nothing.
+func (p *Plugin) KeyCredential(ctx context.Context, orgID, ownerID, keyRole string) (
+	*store.Organization, *store.Membership, []string, error) {
+	org, err := p.orgs.OrganizationByID(ctx, orgID)
+	if err != nil {
+		return nil, nil, nil, notFound(err)
+	}
+	member, err := p.membershipOf(ctx, orgID, ownerID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if member.Status != store.MembershipActive {
+		return nil, nil, nil, apierr.ErrNotAMember
+	}
+	live, err := p.permissionsOfMembership(ctx, p.store, member)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	granted, known, err := p.knownRole(ctx, p.store, orgID, keyRole)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if !known {
+		// A key of a role that the organization does not hold carries no
+		// permission, which is default deny.
+		granted = permission.Set{}
+	}
+	return org, member, intersect(granted, live), nil
+}
+
+// KnownRole reports whether the organization holds the role.
+func (p *Plugin) KnownRole(ctx context.Context, orgID, role string) (bool, error) {
+	_, known, err := p.knownRole(ctx, p.store, orgID, role)
+	return known, err
+}
+
+// intersect returns the statements that both sets hold. A statement of the key
+// survives only when the live set of the owner covers its whole reach.
+func intersect(key, live permission.Set) []string {
+	var out []string
+	for _, statement := range key.Statements() {
+		stmt, err := permission.Parse(statement)
+		if err != nil {
+			continue
+		}
+		if live.Covers(stmt) {
+			out = append(out, statement)
+		}
+	}
+	return out
+}

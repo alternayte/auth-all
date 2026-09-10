@@ -721,6 +721,9 @@
                   "name": {
                     "type": "string"
                   },
+                  "orgId": {
+                    "type": "string"
+                  },
                   "role": {
                     "type": "string"
                   }
@@ -2664,6 +2667,10 @@
           },
           "name": {
             "type": "string"
+          },
+          "orgId": {
+            "type": "string",
+            "nullable": true
           },
           "revokedAt": {
             "type": "string",

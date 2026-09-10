@@ -23,6 +23,7 @@ func TestSCNSCH003TheCLIExportsTheMigrationFiles(t *testing.T) {
 			"20260910000001_authall_user_admin_columns.sql",
 			"20260910000002_authall_apikeys.sql",
 			"20260910000004_authall_bootstrap.sql",
+			"20261101000007_authall_apikeys_org_column.sql",
 		}},
 		{"plain", []string{
 			"20260101000000_authall_core.up.sql",
@@ -33,6 +34,8 @@ func TestSCNSCH003TheCLIExportsTheMigrationFiles(t *testing.T) {
 			"20260910000002_authall_apikeys.down.sql",
 			"20260910000004_authall_bootstrap.up.sql",
 			"20260910000004_authall_bootstrap.down.sql",
+			"20261101000007_authall_apikeys_org_column.up.sql",
+			"20261101000007_authall_apikeys_org_column.down.sql",
 		}},
 	}
 	for _, c := range cases {
