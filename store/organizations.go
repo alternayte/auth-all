@@ -86,6 +86,21 @@ type OrganizationStore interface {
 	ListOrganizations(ctx context.Context, f OrganizationFilter) (orgs []Organization, next string, err error)
 }
 
+// ActiveOrganizationStore reads and writes the active organization of a
+// session. The active organization lives in the session row, so every instance
+// reads it, and a revocation removes it with the session.
+type ActiveOrganizationStore interface {
+	// SetActiveOrganization writes the organization of one session. An empty
+	// orgID ends the active organization of that session.
+	SetActiveOrganization(ctx context.Context, sessionID, orgID string) error
+	// ActiveOrganizationOf returns the organization of one session. An empty
+	// result means that the session names no organization.
+	ActiveOrganizationOf(ctx context.Context, sessionID string) (string, error)
+	// ClearActiveOrganization ends the active organization of every session of
+	// one user in one organization.
+	ClearActiveOrganization(ctx context.Context, orgID, userID string) error
+}
+
 // MembershipStore holds the memberships of the organizations plugin.
 type MembershipStore interface {
 	// CreateMembership inserts one membership. It returns ErrConflict when the

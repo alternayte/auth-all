@@ -178,6 +178,9 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 	for _, table := range schema.OrganizationTables(p.schemaOptions) {
 		r.Schema(table)
 	}
+	// The session row carries the active organization, so the plugin extends
+	// the sessions table that the core owns.
+	r.Extend(schema.SessionOrganizationExtension(p.schemaOptions))
 	units, err := schema.OrganizationUnits(ID, p.schemaOptions)
 	if err != nil {
 		return err
@@ -187,6 +190,7 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 	}
 	registerSchemas(r)
 	p.registerRoutes(r)
+	p.registerMemberRoutes(r)
 	p.writeErr = func(w http.ResponseWriter, r *http.Request, err error) {
 		if writer, ok := svc.HTTP().(interface {
 			WriteErrorFor(http.ResponseWriter, *http.Request, error)

@@ -40,6 +40,16 @@ func orgHarness(t *testing.T, opts ...organizations.Option) (*testsupport.Harnes
 	return h, orgs
 }
 
+// orgHarnessWithStore returns an organization harness over a supplied store.
+func orgHarnessWithStore(t *testing.T, s store.Store, opts ...organizations.Option) (*testsupport.Harness, *organizations.Plugin) {
+	t.Helper()
+	all := append([]organizations.Option{testRoles(),
+		organizations.DefaultRole("member"), organizations.OwnerRole("owner")}, opts...)
+	orgs := organizations.New(all...)
+	h := testsupport.NewHarnessWithStore(t, s, authall.WithEmailPassword(), authall.WithPlugins(orgs))
+	return h, orgs
+}
+
 // organizationBody is the decoded body of one organization response.
 type organizationBody struct {
 	Organization struct {

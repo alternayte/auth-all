@@ -171,6 +171,17 @@ func OrganizationTables(o Options) []Table {
 	return tables
 }
 
+// SessionOrganizationExtension returns the column that carries the active
+// organization of one session. The column is nullable, so the unit applies to
+// a database that already holds rows.
+func SessionOrganizationExtension(o Options) Extension {
+	n := TableNames(o)
+	return Extension{
+		Table:   n.Sessions,
+		Columns: []Column{{Name: "active_org_id", Type: o.idType(), Nullable: true}},
+	}
+}
+
 // orgFieldColumns returns the host-owned columns of the organizations table.
 func orgFieldColumns(o Options) []Column {
 	out := make([]Column, 0, len(o.OrgFields))
@@ -197,7 +208,7 @@ func OrganizationUnits(owner string, o Options) ([]Unit, error) {
 		{VersionOrgRoles, "authall_org_roles", tables[3:4]},
 		{VersionOrgTeams, "authall_org_teams", tables[4:6]},
 	}
-	units := make([]Unit, 0, len(plan))
+	units := make([]Unit, 0, len(plan)+1)
 	for _, step := range plan {
 		unit, err := TableUnit(step.version, owner, step.name, dialects, step.tables)
 		if err != nil {
@@ -205,5 +216,10 @@ func OrganizationUnits(owner string, o Options) ([]Unit, error) {
 		}
 		units = append(units, unit)
 	}
-	return units, nil
+	columns, err := ExtensionUnit(VersionOrgColumns, owner, "authall_org_columns", dialects,
+		[]Extension{SessionOrganizationExtension(o)})
+	if err != nil {
+		return nil, err
+	}
+	return append(units, columns), nil
 }

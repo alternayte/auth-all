@@ -184,6 +184,11 @@ func registerSchemas(r *plugin.Registry) {
 		}))
 	r.OpenAPISchema("MembershipResponse", openapi.Object([]string{"membership"},
 		map[string]*openapi.Schema{"membership": openapi.Ref("Membership")}))
+	r.OpenAPISchema("MemberListResponse", openapi.Object([]string{"members"},
+		map[string]*openapi.Schema{
+			"members":    {Type: "array", Items: openapi.Ref("Membership")},
+			"nextCursor": openapi.String(),
+		}))
 }
 
 // guard requires a signed-in principal.

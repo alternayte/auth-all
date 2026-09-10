@@ -399,3 +399,38 @@ func decodeSingleCursor(value string) (string, error) {
 	}
 	return string(raw), nil
 }
+
+// SetActiveOrganization implements store.ActiveOrganizationStore.
+func (s *Store) SetActiveOrganization(ctx context.Context, sessionID, orgID string) error {
+	var value any
+	if orgID != "" {
+		value = orgID
+	}
+	result, err := s.exec(ctx,
+		"UPDATE "+s.n.Sessions+" SET active_org_id = ? WHERE id = ?", value, sessionID)
+	if err != nil {
+		return s.mapErr(err)
+	}
+	return notFoundWhenNoRow(result)
+}
+
+// ActiveOrganizationOf implements store.ActiveOrganizationStore.
+func (s *Store) ActiveOrganizationOf(ctx context.Context, sessionID string) (string, error) {
+	row := s.queryRow(ctx, "SELECT active_org_id FROM "+s.n.Sessions+" WHERE id = ?", sessionID)
+	var orgID *string
+	if err := row.Scan(nullStringScan{&orgID}); err != nil {
+		return "", s.mapErr(err)
+	}
+	if orgID == nil {
+		return "", nil
+	}
+	return *orgID, nil
+}
+
+// ClearActiveOrganization implements store.ActiveOrganizationStore.
+func (s *Store) ClearActiveOrganization(ctx context.Context, orgID, userID string) error {
+	_, err := s.exec(ctx,
+		"UPDATE "+s.n.Sessions+" SET active_org_id = NULL WHERE user_id = ? AND active_org_id = ?",
+		userID, orgID)
+	return s.mapErr(err)
+}
