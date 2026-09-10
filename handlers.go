@@ -326,6 +326,14 @@ func (a *Auth) handleSignInEmail(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, r, apierr.ErrInvalidCredentials)
 		return
 	}
+	if user.DisabledAt != nil {
+		// The response names the disabled account only after a correct
+		// password, so it tells nothing to a caller without the password.
+		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{
+			"reason": "user_disabled", "email_digest": crypto.HashToken(normalized)})
+		a.writeError(w, r, apierr.ErrUserDisabled)
+		return
+	}
 	if a.cfg.emailPassword.RequireEmailVerification && user.EmailVerifiedAt == nil {
 		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{
 			"reason": "email_not_verified", "email_digest": crypto.HashToken(normalized)})

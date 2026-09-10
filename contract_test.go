@@ -48,6 +48,20 @@ var v1Endpoints = []struct{ Method, Path string }{
 	{"POST", "/api/auth/magic-link/verify"},
 }
 
+// nextEndpoints are the routes that the v1.1 release adds. The reference
+// configuration enables the plugins that serve them.
+var nextEndpoints = []struct{ Method, Path string }{
+	{"GET", "/api/auth/admin/users"},
+	{"POST", "/api/auth/admin/users"},
+	{"POST", "/api/auth/admin/users/{id}/role"},
+	{"POST", "/api/auth/admin/users/{id}/disable"},
+	{"POST", "/api/auth/admin/users/{id}/enable"},
+	{"POST", "/api/auth/admin/users/{id}/password"},
+}
+
+// allEndpoints is the complete normative endpoint set.
+var allEndpoints = append(append([]struct{ Method, Path string }{}, v1Endpoints...), nextEndpoints...)
+
 // TestAPI001OpenAPICompleteness covers API-001.
 func TestAPI001OpenAPICompleteness(t *testing.T) {
 	auth, err := reference.New()
@@ -55,7 +69,7 @@ func TestAPI001OpenAPICompleteness(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := auth.OpenAPI()
-	for _, want := range v1Endpoints {
+	for _, want := range allEndpoints {
 		item, ok := doc.Paths[want.Path]
 		if !ok {
 			t.Fatalf("the OpenAPI document misses the path %s", want.Path)
@@ -81,8 +95,8 @@ func TestAPI001OpenAPICompleteness(t *testing.T) {
 			t.Fatalf("the route %s %s is missing from the document", route.Method, route.Path)
 		}
 	}
-	if len(auth.Routes()) != len(v1Endpoints) {
-		t.Fatalf("the enabled API has %d routes, the specification lists %d", len(auth.Routes()), len(v1Endpoints))
+	if len(auth.Routes()) != len(allEndpoints) {
+		t.Fatalf("the enabled API has %d routes, the specification lists %d", len(auth.Routes()), len(allEndpoints))
 	}
 }
 

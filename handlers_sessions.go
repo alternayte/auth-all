@@ -60,6 +60,18 @@ func mergeResponses(first, second map[string]openapi.Response) map[string]openap
 // requireSession resolves the session of a request. It writes the error and
 // returns nil values when the request carries no valid session.
 func (a *Auth) requireSession(w http.ResponseWriter, r *http.Request) (*store.Session, *store.User) {
+	return a.requireSessionState(w, r, true)
+}
+
+// requireSessionOpen resolves the session of a route that a user with a
+// temporary password must reach, for example the password change.
+func (a *Auth) requireSessionOpen(w http.ResponseWriter, r *http.Request) (*store.Session, *store.User) {
+	return a.requireSessionState(w, r, false)
+}
+
+// requireSessionState resolves the session and checks the state of the user.
+// gate refuses a user that must change the password first.
+func (a *Auth) requireSessionState(w http.ResponseWriter, r *http.Request, gate bool) (*store.Session, *store.User) {
 	sess, user, err := a.resolveSession(r.Context(), r)
 	if err != nil {
 		a.writeError(w, r, err)
@@ -67,6 +79,10 @@ func (a *Auth) requireSession(w http.ResponseWriter, r *http.Request) (*store.Se
 	}
 	if sess == nil || user == nil {
 		a.writeError(w, r, apierr.ErrUnauthorized)
+		return nil, nil
+	}
+	if gate && user.MustChangePassword {
+		a.writeError(w, r, apierr.ErrPasswordChangeRequired)
 		return nil, nil
 	}
 	return sess, user

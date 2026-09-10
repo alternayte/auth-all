@@ -16,12 +16,15 @@ func TestSCNSCH003TheCLIExportsTheMigrationFiles(t *testing.T) {
 		{"goose", []string{
 			"20260101000000_authall_core.sql",
 			"20260910000001_authall_user_admin_columns.sql",
+			"20260910000004_authall_bootstrap.sql",
 		}},
 		{"plain", []string{
 			"20260101000000_authall_core.up.sql",
 			"20260101000000_authall_core.down.sql",
 			"20260910000001_authall_user_admin_columns.up.sql",
 			"20260910000001_authall_user_admin_columns.down.sql",
+			"20260910000004_authall_bootstrap.up.sql",
+			"20260910000004_authall_bootstrap.down.sql",
 		}},
 	}
 	for _, c := range cases {

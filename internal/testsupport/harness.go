@@ -12,6 +12,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
 
 	authall "github.com/alternayte/auth-all"
 	"github.com/alternayte/auth-all/email"
@@ -367,4 +370,24 @@ func TokenFromURL(t *testing.T, link string) string {
 		t.Fatalf("the link %q carries no token", link)
 	}
 	return token
+}
+
+// SaveCookies returns the cookie jar of the client, so a test can come back to
+// one browser after it used another one.
+func (h *Harness) SaveCookies() http.CookieJar { return h.Client.Jar }
+
+// RestoreCookies installs an earlier cookie jar.
+func (h *Harness) RestoreCookies(jar http.CookieJar) { h.Client.Jar = jar }
+
+// NewUser returns a valid user value for a store test.
+func NewUser(address string) *store.User {
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	return &store.User{
+		ID:              uuid.NewString(),
+		Email:           address,
+		EmailNormalized: strings.ToLower(address),
+		DisplayName:     "Test User",
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
 }

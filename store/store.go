@@ -16,6 +16,8 @@ var (
 	ErrNotFound = errors.New("authall/store: not found")
 	// ErrConflict reports that a uniqueness constraint rejected the write.
 	ErrConflict = errors.New("authall/store: conflict")
+	// ErrInvalidCursor reports a page cursor that the store cannot read.
+	ErrInvalidCursor = errors.New("authall/store: invalid cursor")
 )
 
 // User is one Auth-All user.

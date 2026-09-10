@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/alternayte/auth-all/apierr"
+	"github.com/alternayte/auth-all/internal/crypto"
 	"github.com/alternayte/auth-all/plugin"
+	"github.com/alternayte/auth-all/schema"
 )
 
 // roleService reads the configured hierarchy. The roles plugin installs it.
@@ -95,3 +98,18 @@ func (s *principalService) Current(ctx context.Context) *plugin.Principal {
 
 // Protect implements plugin.ProtectService.
 func (s *services) Protect(next http.Handler) http.Handler { return s.auth.RequireAuth(next) }
+
+// SchemaOptions implements plugin.SchemaService.
+func (s *services) SchemaOptions() schema.Options { return s.auth.cfg.schemaOptions }
+
+// CheckPassword implements plugin.PasswordService.
+func (s *services) CheckPassword(password string) error { return s.auth.checkPassword(password) }
+
+// HashPassword implements plugin.PasswordService.
+func (s *services) HashPassword(password string) (string, error) {
+	hash, err := crypto.HashPassword(password, s.auth.cfg.argon)
+	if err != nil {
+		return "", apierr.ErrInternal.WithCause(err)
+	}
+	return hash, nil
+}

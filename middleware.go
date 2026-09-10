@@ -58,6 +58,12 @@ func (a *Auth) RequireAuth(next http.Handler) http.Handler {
 			a.writeError(w, r, err)
 			return
 		}
+		if p.User.MustChangePassword {
+			// The user reaches no protected route before the change. The
+			// Auth-All password change route stays open.
+			a.writeError(w, r, apierr.ErrPasswordChangeRequired)
+			return
+		}
 		next.ServeHTTP(w, a.withPrincipal(r, p))
 	})
 }
