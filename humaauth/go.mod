@@ -6,7 +6,7 @@ module github.com/alternayte/auth-all/humaauth
 
 go 1.25.0
 
-require github.com/alternayte/auth-all v0.0.0
+require github.com/alternayte/auth-all v0.3.0
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -26,4 +26,7 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 )
 
+// The replace serves the development of this repository, where the adapter
+// must build against the working tree. A consumer ignores a replace of a
+// dependency, so a consumer resolves the version that the require names.
 replace github.com/alternayte/auth-all => ../
