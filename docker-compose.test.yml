@@ -14,3 +14,29 @@ services:
       retries: 60
     tmpfs:
       - /var/lib/postgresql/data
+
+  # PgBouncer runs in transaction mode and caches no prepared statement. The
+  # storage contract runs through it, so a statement that needs one server
+  # connection fails the suite.
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.24.1-p1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: authall
+      DB_PASSWORD: authall
+      DB_NAME: authall
+      POOL_MODE: transaction
+      MAX_PREPARED_STATEMENTS: "0"
+      AUTH_TYPE: scram-sha-256
+      LISTEN_PORT: "6432"
+    ports:
+      - "56432:6432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 6432 -U authall -d authall"]
+      interval: 1s
+      timeout: 5s
+      retries: 60
