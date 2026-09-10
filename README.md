@@ -121,7 +121,7 @@ just verify
 
 It formats, analyses, tests, starts the PostgreSQL test container, runs the
 race detector, checks the generated artifacts, tests the TypeScript client,
-builds the examples, and writes `artifacts/v1-verification.md`.
+builds the examples, and writes `artifacts/verification.md`.
 
 ## License
 

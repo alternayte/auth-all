@@ -54,7 +54,7 @@ func TestSCNHTTP001ConstructionRefusesAnUnusableConfiguration(t *testing.T) {
 	}
 }
 
-// newCodes names every stable error code of the v1.1 release with its status.
+// newCodes names every stable error code of the v0.3.0 release with its status.
 var newCodes = []struct {
 	err    *apierr.Error
 	code   string

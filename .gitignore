@@ -4,7 +4,7 @@ node_modules/
 *.db-shm
 dist/
 .DS_Store
-artifacts/checks.tsv
+artifacts/
 docs/local/
 docs/sdd.md
 docs/decisions.md

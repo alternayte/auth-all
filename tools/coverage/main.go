@@ -1,6 +1,6 @@
 // Command coverage reports the statement coverage of one package set.
 //
-// NFR-05 asks for 85 percent of statements in every package that the v1.1
+// NFR-05 asks for 85 percent of statements in every package that the v0.3.0
 // release adds. The command reads a coverage profile and fails when one named
 // package is below the minimum.
 package main

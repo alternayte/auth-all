@@ -29,7 +29,7 @@ var (
 	// OAuth-only user reaches it.
 	ErrNoPasswordCredential = apierr.ErrNoPasswordCredential
 
-	// Re-exported errors of the v1.1 release.
+	// Re-exported errors of the v0.3.0 release.
 	ErrInsufficientRole       = apierr.ErrInsufficientRole
 	ErrRoleUnknown            = apierr.ErrRoleUnknown
 	ErrRoleNotAllowed         = apierr.ErrRoleNotAllowed
