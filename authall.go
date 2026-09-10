@@ -52,6 +52,9 @@ type Auth struct {
 	// resolvers hold the credential resolvers of the plugins, in registration
 	// order.
 	resolvers []plugin.CredentialResolver
+	// principals caches resolved principals inside the consistency bound. It
+	// is nil when the host enabled no cache.
+	principals *principalCache
 	// crossOrigin refuses an unsafe cross-site request on a host route. It is
 	// nil when the host turned the check off.
 	crossOrigin *http.CrossOriginProtection
@@ -116,6 +119,19 @@ func New(opts ...Option) (*Auth, error) {
 	a.hooks = hook.New(func(ctx context.Context, name string, err error) {
 		cfg.logger.Error("authall: a lifecycle hook failed", "hook", name, "error", err.Error())
 	})
+	if cfg.consistencyBound <= 0 {
+		cfg.consistencyBound = DefaultConsistencyBound
+	}
+	if cfg.principalCacheTTL > 0 {
+		if cfg.principalCacheTTL > cfg.consistencyBound {
+			return nil, fmt.Errorf(
+				"authall: the principal cache time %s is above the consistency bound %s. "+
+					"A cached principal would keep a disabled user, a demoted user, or a revoked "+
+					"credential alive past the bound. Use authall.WithConsistencyBound, or a shorter cache time",
+				cfg.principalCacheTTL, cfg.consistencyBound)
+		}
+		a.principals = newPrincipalCache(cfg.principalCacheTTL, cfg.now)
+	}
 	a.trustedOrigins = buildTrustedOrigins(cfg)
 	if cfg.hostOriginCheck == nil {
 		on := true
@@ -245,6 +261,14 @@ func normalizeConfig(cfg *config) error {
 			"so a brute-force attack and an enumeration attack run without a bound. " +
 			"Use authall.WithRateLimiter, or use authall.WithStrictRateLimiting to fail the construction instead.")
 		cfg.limiter = ratelimit.LimiterFunc(func(context.Context, ratelimit.Key) (bool, error) { return true, nil })
+	}
+	if _, memory := cfg.limiter.(*ratelimit.Memory); memory && cfg.strictRateLimiting {
+		// The memory limiter keeps its counters in process memory, which the
+		// consistency bound does not cover. It holds no authorization state,
+		// so it stays allowed, and the entry names the effect.
+		cfg.logger.Warn("authall: the configured rate limiter keeps its counters in process memory. " +
+			"Each instance then counts on its own, so the effective limit grows with the number of instances. " +
+			"Use ratelimit/storelimit for a shared count.")
 	}
 	if cfg.cookie.Name == "" {
 		cfg.cookie.Name = DefaultCookieName
@@ -422,6 +446,12 @@ func (a *Auth) Handler() http.Handler {
 		inner.ServeHTTP(w, r)
 	})
 }
+
+// Store returns the configured storage adapter. The application owns it.
+func (a *Auth) Store() store.Store { return a.cfg.store }
+
+// ConsistencyBound returns the configured bound.
+func (a *Auth) ConsistencyBound() time.Duration { return a.cfg.consistencyBound }
 
 // BasePath returns the configured base path.
 func (a *Auth) BasePath() string { return a.cfg.basePath }

@@ -78,6 +78,26 @@ func bearerToken(r *http.Request) string {
 // credential resolver in registration order. When no resolver claims it, the
 // value is a session token, which keeps every v1 bearer client working.
 func (a *Auth) resolvePrincipal(ctx context.Context, r *http.Request) (*Principal, error) {
+	credential := a.requestToken(r)
+	if credential != "" {
+		if cached, ok := a.principals.get(credential); ok {
+			// The entry cannot outlive the consistency bound, so the cached
+			// principal is fresh enough for every check.
+			return cached, nil
+		}
+	}
+	p, err := a.readPrincipal(ctx, r)
+	if err != nil || p == nil {
+		return p, err
+	}
+	if credential != "" {
+		a.principals.put(credential, p)
+	}
+	return p, nil
+}
+
+// readPrincipal resolves the principal from the store.
+func (a *Auth) readPrincipal(ctx context.Context, r *http.Request) (*Principal, error) {
 	if c, err := r.Cookie(a.cfg.cookie.Name); err == nil && c.Value != "" {
 		sess, user, err := a.sessionByToken(ctx, c.Value)
 		if err != nil || sess == nil {
