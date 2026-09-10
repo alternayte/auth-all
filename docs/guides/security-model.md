@@ -279,3 +279,67 @@ A user who loses the authenticator and the codes still needs an administrator.
 
 The following are outside v1: SAML, SCIM, enterprise single sign-on, passkeys,
 API keys, organizations, roles, and an administration interface.
+
+## Security invariants
+
+The v1.1 release states thirteen invariants. Each one has a test that proves
+it. The build ledger `docs/build/ledger.md` names the test of each invariant.
+
+| ID | Invariant |
+|---|---|
+| SI-01 | No plaintext password, session token, API key, or temporary password is in the database, in a log, or in an event. |
+| SI-02 | Authorization is default deny. An unknown role, an absent principal, and a resolver error all refuse the request. |
+| SI-03 | No principal has more power than its owner. The current owner role always caps a key role. |
+| SI-04 | A disabled user has no valid credential on any instance after the consistency bound. |
+| SI-05 | At least one enabled administrator exists after every committed administrative change, when one existed before. |
+| SI-06 | A key cannot create a key, change a password, change an email address, or manage a session. |
+| SI-07 | A cookie-authenticated unsafe request from a cross-site origin never reaches a handler, unless the application turns the check off. |
+| SI-08 | A key failure response does not tell the caller whether a key exists, expired, or was revoked. |
+| SI-09 | `USER_DISABLED` appears only after a correct password, so it tells nothing to a caller without the password. |
+| SI-10 | The rate limit table and the audit events hold no plaintext email address. |
+| SI-11 | A key comparison uses a digest lookup and no string comparison of secrets. |
+| SI-12 | Startup never creates, changes, or deletes a user. Only an explicit bootstrap call creates the first user. |
+| SI-13 | The error writer of the application never receives the private cause. |
+
+## The consistency bound
+
+The consistency bound is the maximum time between a committed change and its
+effect on every instance. The default is 5 seconds, and
+`authall.WithConsistencyBound` changes it.
+
+A disable, a role change, a key revocation, and a session revocation take
+effect inside the bound on every instance.
+
+With no cache, every request reads the credential and the user from the store,
+so the effective bound is zero. `authall.WithPrincipalCache` saves that read
+for a time that can never exceed the bound. Construction fails for a longer
+cache time.
+
+Auth-All keeps no other authorization state in process memory. A test reads the
+sources and refuses a package-level cache of principals. The memory rate
+limiter is the one exception. It holds counters and no authorization state, and
+it writes a warn-level log entry in strict mode.
+
+## Machine credentials
+
+- A key carries 32 bytes from `crypto/rand`. The store keeps the SHA-256 digest
+  and a display start, so a stolen database row gives no usable key.
+- A lookup finds a key by digest. No code compares two secret strings.
+- The effective role of a key request is the lower of the key role and the
+  current owner role.
+- A revoked key, an expired key, an unknown key, and a key of a disabled owner
+  give one response with one message.
+- A key reaches no key route, no password route, no email route, no TOTP route,
+  and no session route.
+
+## The origin check of the application routes
+
+`RequireAuth`, `LoadSession`, and a role check refuse an unsafe cross-site
+request that a cookie authenticated. The check uses
+`http.CrossOriginProtection` with the trusted origins of Auth-All.
+
+A bearer request skips the check, because a cross-site page cannot send a
+bearer credential.
+
+`authall.WithHostOriginCheck(false)` turns the check off. Auth-All then writes a
+warn-level log entry at construction.
