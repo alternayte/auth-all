@@ -47,6 +47,16 @@ const (
 	CodeLastAdmin              Code = "LAST_ADMIN"
 	CodeAPIKeyExpiryTooLong    Code = "API_KEY_EXPIRY_TOO_LONG"
 	CodeAPIKeyExpiryRequired   Code = "API_KEY_EXPIRY_REQUIRED"
+
+	// Codes of the v0.4.0 release. A released code never changes its meaning.
+	CodeSlugTaken            Code = "SLUG_TAKEN"
+	CodePermissionDenied     Code = "PERMISSION_DENIED"
+	CodeNoActiveOrganization Code = "NO_ACTIVE_ORGANIZATION"
+	CodeNotAMember           Code = "NOT_A_MEMBER"
+	CodeAlreadyMember        Code = "ALREADY_MEMBER"
+	CodeLastOwner            Code = "LAST_OWNER"
+	CodeInvitationInvalid    Code = "INVITATION_INVALID"
+	CodeMemberLimit          Code = "MEMBER_LIMIT"
 )
 
 // Error is a public Auth-All error. It carries a stable code, a safe public
@@ -134,6 +144,18 @@ var (
 	ErrLastAdmin              = New(CodeLastAdmin, http.StatusConflict, "The last enabled administrator cannot lose the role.")
 	ErrAPIKeyExpiryTooLong    = New(CodeAPIKeyExpiryTooLong, http.StatusBadRequest, "The expiry is above the maximum.")
 	ErrAPIKeyExpiryRequired   = New(CodeAPIKeyExpiryRequired, http.StatusBadRequest, "An expiry is required.")
+
+	// Errors of the v0.4.0 release.
+	ErrSlugTaken            = New(CodeSlugTaken, http.StatusConflict, "The slug belongs to another organization.")
+	ErrPermissionDenied     = New(CodePermissionDenied, http.StatusForbidden, "The permission set does not hold the statement.")
+	ErrNoActiveOrganization = New(CodeNoActiveOrganization, http.StatusForbidden, "The session names no organization.")
+	ErrNotAMember           = New(CodeNotAMember, http.StatusForbidden, "The user holds no active membership.")
+	ErrAlreadyMember        = New(CodeAlreadyMember, http.StatusConflict, "The address already holds a membership.")
+	ErrLastOwner            = New(CodeLastOwner, http.StatusConflict, "The last owner cannot lose the role.")
+	// ErrInvitationInvalid names no reason, so an unknown invitation, a used
+	// invitation, a revoked invitation, and an expired invitation look equal.
+	ErrInvitationInvalid = New(CodeInvitationInvalid, http.StatusBadRequest, "The invitation is invalid.")
+	ErrMemberLimit       = New(CodeMemberLimit, http.StatusConflict, "The organization reached its member limit.")
 )
 
 // Writer replaces the public error envelope of Auth-All. The host receives the

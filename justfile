@@ -64,8 +64,8 @@ db-down:
 
 # Run the unit tests of the library packages.
 test-unit:
-    go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./cmd/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/...
-    @just _record "unit tests" "go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./cmd/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/..."
+    go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./cmd/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/... ./plugins/organizations/...
+    @just _record "unit tests" "go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./cmd/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/... ./plugins/organizations/..."
 
 # Run the storage contract suite against PostgreSQL.
 test-postgres:
@@ -138,6 +138,8 @@ coverage:
         --package github.com/alternayte/auth-all/plugins/roles \
         --package github.com/alternayte/auth-all/plugins/apikeys \
         --package github.com/alternayte/auth-all/plugins/admin \
+        --package github.com/alternayte/auth-all/plugins/organizations \
+        --package github.com/alternayte/auth-all/plugins/organizations/permission \
         --package github.com/alternayte/auth-all/ratelimit/storelimit \
         --package github.com/alternayte/auth-all/migrations
     just _record "new package coverage" "go run ./tools/coverage --minimum 85"
