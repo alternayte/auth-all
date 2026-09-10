@@ -54,6 +54,10 @@ func (a *Auth) RequireAuth(next http.Handler) http.Handler {
 			a.writeError(w, r, apierr.ErrUnauthorized)
 			return
 		}
+		if err := a.checkHostOrigin(r, p); err != nil {
+			a.writeError(w, r, err)
+			return
+		}
 		next.ServeHTTP(w, withPrincipal(r, p))
 	})
 }
@@ -83,6 +87,10 @@ func (a *Auth) LoadSession(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		if err := a.checkHostOrigin(r, p); err != nil {
+			a.writeError(w, r, err)
+			return
+		}
 		next.ServeHTTP(w, withPrincipal(r, p))
 	})
 }
@@ -90,4 +98,19 @@ func (a *Auth) LoadSession(next http.Handler) http.Handler {
 // LoadSessionFunc is the http.HandlerFunc form of LoadSession.
 func (a *Auth) LoadSessionFunc(next http.HandlerFunc) http.Handler {
 	return a.LoadSession(next)
+}
+
+// checkHostOrigin refuses an unsafe cross-site request that a cookie
+// authenticated.
+//
+// A bearer credential is not ambient, so a cross-site page cannot send it. Only
+// a cookie request therefore needs the check.
+func (a *Auth) checkHostOrigin(r *http.Request, p *Principal) error {
+	if a.crossOrigin == nil || p == nil || !p.ViaCookie {
+		return nil
+	}
+	if err := a.crossOrigin.Check(r); err != nil {
+		return apierr.ErrOriginNotAllowed.WithCause(err)
+	}
+	return nil
 }
