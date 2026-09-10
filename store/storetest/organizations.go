@@ -210,6 +210,36 @@ func testOrganizationDeleteCascade(t *testing.T, s store.Store) {
 		t.Fatalf("create the second membership: %v", err)
 	}
 
+	// The organization holds one invitation, one custom role, one team, one
+	// team membership, and one organization-scoped key.
+	invitations := invitationStore(t, s)
+	invitationHash := uniqueSlug("hash")
+	if err := invitations.CreateInvitation(ctx(t),
+		newInvitation(o.ID, "new@example.com", "member", invitationHash, now().Add(time.Hour))); err != nil {
+		t.Fatalf("create the invitation: %v", err)
+	}
+	roles, ok := s.(store.CustomRoleStore)
+	if !ok {
+		t.Fatal("the adapter holds no custom role store")
+	}
+	if err := roles.CreateCustomRole(ctx(t), &store.CustomRole{
+		ID: uuid.NewString(), OrgID: o.ID, Name: "auditor",
+		Permissions: "project:read", CreatedAt: now(),
+	}); err != nil {
+		t.Fatalf("create the custom role: %v", err)
+	}
+	teams, ok := s.(store.TeamStore)
+	if !ok {
+		t.Fatal("the adapter holds no team store")
+	}
+	team := &store.Team{ID: uuid.NewString(), OrgID: o.ID, Name: "platform", Role: "admin", CreatedAt: now()}
+	if err := teams.CreateTeam(ctx(t), team); err != nil {
+		t.Fatalf("create the team: %v", err)
+	}
+	if err := teams.AddTeamMember(ctx(t), team.ID, user.ID); err != nil {
+		t.Fatalf("create the team membership: %v", err)
+	}
+
 	err := s.Transaction(ctx(t), func(tx store.Store) error {
 		return orgStore(t, tx).DeleteOrganization(ctx(t), o.ID)
 	})
@@ -226,6 +256,21 @@ func testOrganizationDeleteCascade(t *testing.T, s store.Store) {
 	// The rows of another organization stay.
 	if _, err := members.MembershipOf(ctx(t), keep.ID, other.ID); err != nil {
 		t.Fatalf("the membership of another organization is gone: %v", err)
+	}
+	// No invitation, custom role, team, or team membership survives the
+	// deletion. The API keys plugin removes its own rows in the same
+	// transaction, which the HTTP scenario proves.
+	if _, err := invitations.InvitationByTokenHash(ctx(t), invitationHash); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("an invitation survived: %v", err)
+	}
+	if _, err := roles.CustomRoleByName(ctx(t), o.ID, "auditor"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a custom role survived: %v", err)
+	}
+	if _, err := teams.TeamByID(ctx(t), team.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("a team survived: %v", err)
+	}
+	if held, err := teams.ListTeamMembers(ctx(t), team.ID); err != nil || len(held) != 0 {
+		t.Fatalf("a team membership survived: %v, %v", held, err)
 	}
 	// The user stays, because a person outlives one organization.
 	if _, err := s.Users().GetByID(ctx(t), user.ID); err != nil {

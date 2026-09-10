@@ -48,16 +48,21 @@ func personalSlug(u *store.User) string {
 	if slug == "" {
 		slug = "user"
 	}
-	// The suffix keeps the slug unique, and it holds no address.
+	// The whole identifier is the suffix, so two people never share a slug.
+	// The name part gives way, because the slug holds 63 characters at most.
 	suffix := strings.ReplaceAll(u.ID, "-", "")
-	if len(suffix) > 12 {
-		suffix = suffix[:12]
+	room := 63 - len(suffix) - 1
+	if room < 1 {
+		// An identifier that fills the slug alone leaves no name part.
+		return suffix[:63]
 	}
-	slug = slug + "-" + suffix
-	if len(slug) > 63 {
-		slug = slug[:63]
+	if len(slug) > room {
+		slug = strings.Trim(slug[:room], "-")
 	}
-	return strings.Trim(slug, "-")
+	if slug == "" {
+		slug = "user"
+	}
+	return slug + "-" + suffix
 }
 
 // registerPersonalOrganization creates one organization for each new person.

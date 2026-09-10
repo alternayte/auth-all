@@ -344,3 +344,41 @@ bearer credential.
 
 `authall.WithHostOriginCheck(false)` turns the check off. Auth-All then writes a
 warn-level log entry at construction.
+
+## Organizations and permissions
+
+The organizations plugin of the v0.4.0 release holds eleven invariants. The
+identifiers below belong to the organizations design document.
+
+- ORG SI-01. A decision is default deny. An unknown permission, an absent
+  membership, a suspended membership, and an error of the object checker all
+  refuse.
+- ORG SI-02. A member never grants a permission that the member does not hold.
+  The rule holds for a role change, for an invitation, and for a custom role.
+  The guard compares the whole reach of each statement, so a member with
+  `billing:read` never grants `billing:*`.
+- ORG SI-03. One active owner always remains after every committed change, when
+  one existed before. The guard locks the active owner rows of the organization
+  with `SELECT ... FOR UPDATE` inside the write transaction.
+- ORG SI-04. The active organization comes from the session row, and never from
+  a request value. No header and no query parameter changes it.
+- ORG SI-05. A removed member and a suspended member hold no permission on any
+  instance from the next request. A removal ends the active organization of
+  every session of that member in that organization, in the same transaction.
+- ORG SI-06. An invitation token exists in plaintext one time, in the return
+  value of the invitation. The store keeps the SHA-256 digest.
+- ORG SI-07. An invitation binds to one address. The acceptance compares the
+  normalized address of the signed-in user, so only that address accepts it.
+- ORG SI-08. An organization-scoped credential never exceeds the live
+  permissions of its owner in that organization. The permissions of a key are
+  the intersection of the key permissions and the live permissions of the
+  owner.
+- ORG SI-09. A permission evaluation runs no regular expression, and it reads
+  no pattern from a request. The grammar refuses every regular expression
+  character at construction.
+- ORG SI-10. The deletion of an organization leaves no membership, invitation,
+  custom role, team, team membership, or organization-scoped key behind. One
+  transaction removes them.
+- ORG SI-11. No response, log, or event carries an invitation token. The
+  invitation event carries the address, the role, the organization, and the
+  expiry.

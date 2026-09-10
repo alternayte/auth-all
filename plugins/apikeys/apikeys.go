@@ -198,6 +198,7 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 	}
 	r.Unit(orgUnit)
 	r.Resolver(p)
+	p.registerOrganizationCleanup(r)
 
 	registerSchemas(r)
 	p.registerRoutes(r)
@@ -537,3 +538,23 @@ func registerSchemas(r *plugin.Registry) {
 // NewPlaintextKey returns one plaintext key with the given prefix. A test uses
 // it to check the shape of a key with no database.
 func NewPlaintextKey(prefix string) (string, error) { return newKey(prefix) }
+
+// registerOrganizationCleanup removes the keys of one organization in the
+// transaction of its deletion.
+//
+// The application deletes its own rows in the same transaction, so no orphan
+// survives. The hook runs only when the host wired the organizations plugin.
+func (p *Plugin) registerOrganizationCleanup(r *plugin.Registry) {
+	if p.organizations == nil {
+		return
+	}
+	table := schema.TableNames(p.schemaOptions).APIKeys
+	r.Hooks().OnBeforeOrganizationDelete(func(ctx context.Context, ev *hook.OrganizationEvent) error {
+		deleter, ok := ev.Tx.(store.RowDeleter)
+		if !ok {
+			return errors.New("authall/apikeys: the configured store cannot remove the keys of an organization")
+		}
+		_, err := deleter.DeleteRows(ctx, table, "org_id", ev.Org.ID)
+		return err
+	})
+}

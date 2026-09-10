@@ -152,3 +152,43 @@ func TestSCNINT001APlainKeyKeepsItsBehavior(t *testing.T) {
 		t.Fatalf("the plain key reached an organization route: status %d", denied.Status)
 	}
 }
+
+// TestSCNORG003TheDeletionRemovesTheOrganizationKeys proves the key half of
+// SCN-ORG-003, REQ-ORG-005, and SI-10. The API keys plugin removes its rows in
+// the transaction of the deletion.
+func TestSCNORG003TheDeletionRemovesTheOrganizationKeys(t *testing.T) {
+	h, orgs := orgKeyHarness(t)
+	orgID, _ := newOrganization(t, h, "owner@example.com", "acme")
+
+	// One key of the organization and one key of the whole application.
+	orgKey := h.Do(http.MethodPost, "/api-keys", map[string]any{
+		"name": "ci", "role": "owner", "orgId": orgID,
+	})
+	if orgKey.Status != http.StatusCreated {
+		t.Fatalf("the organization key got status %d: %s", orgKey.Status, string(orgKey.Body))
+	}
+	var scoped keyBody
+	orgKey.Decode(t, &scoped)
+	plain := h.Do(http.MethodPost, "/api-keys", map[string]any{"name": "plain"})
+	var global keyBody
+	plain.Decode(t, &global)
+
+	if err := orgs.Delete(context.Background(), nil, orgID); err != nil {
+		t.Fatalf("delete the organization: %v", err)
+	}
+
+	// The organization key is gone, so it authenticates nothing.
+	h.ClearCookies()
+	gone := h.DoURL(http.MethodGet, h.BaseURL+"/host/project:read", nil,
+		testsupport.WithBearer(scoped.Plaintext))
+	if gone.Status != http.StatusUnauthorized {
+		t.Fatalf("the organization key got status %d, want 401: %s", gone.Status, string(gone.Body))
+	}
+	// The key of the whole application stays. It authenticates, and it holds
+	// no organization, so the organization route answers 403 and not 401.
+	kept := h.DoURL(http.MethodGet, h.BaseURL+"/host/project:read", nil,
+		testsupport.WithBearer(global.Plaintext))
+	if kept.Status != http.StatusForbidden {
+		t.Fatalf("the plain key got status %d, want 403: %s", kept.Status, string(kept.Body))
+	}
+}

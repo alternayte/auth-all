@@ -93,6 +93,18 @@ type RowWriter interface {
 	InsertRow(ctx context.Context, table string, columns []string, values []any) error
 }
 
+// RowDeleter removes the rows of one table that hold one value in one column.
+// A plugin uses it to remove its own rows in the transaction of another
+// operation, for example the deletion of an organization.
+//
+// The caller must supply a fixed table name and a fixed column name, and no
+// value from a request, so the statement carries no injected SQL.
+type RowDeleter interface {
+	// DeleteRows removes every row of table whose column holds value. It
+	// returns the number of removed rows.
+	DeleteRows(ctx context.Context, table, column string, value any) (int, error)
+}
+
 // SessionRevoker revokes the other sessions of one owner in one statement.
 type SessionRevoker interface {
 	// DeleteSessionsExcept removes every session of the owner of sessionID,

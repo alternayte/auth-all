@@ -16,6 +16,7 @@ import (
 	"github.com/alternayte/auth-all/plugins/admin"
 	"github.com/alternayte/auth-all/plugins/apikeys"
 	"github.com/alternayte/auth-all/plugins/magiclink"
+	"github.com/alternayte/auth-all/plugins/organizations"
 	"github.com/alternayte/auth-all/plugins/roles"
 	"github.com/alternayte/auth-all/ratelimit"
 	"github.com/alternayte/auth-all/store"
@@ -32,6 +33,19 @@ var RoleHierarchy = []string{"viewer", "operator", "editor", "admin"}
 // DefaultRole is the role of a user whose role column is empty.
 const DefaultRole = "viewer"
 
+// OrganizationRoles are the example organization roles of the guides. An owner
+// holds every permission, and each other role holds a named set.
+func OrganizationRoles() []organizations.RoleDefinition {
+	return []organizations.RoleDefinition{
+		organizations.Role("owner", "*"),
+		organizations.Role("admin",
+			"member:*", "role:*", "team:*", "organization:read", "organization:update",
+			"project:*", "billing:read"),
+		organizations.Role("member", "organization:read", "project:read", "project:write"),
+		organizations.Role("viewer", "organization:read", "project:read"),
+	}
+}
+
 // noopSender satisfies the email boundary of the reference configuration. The
 // reference instance never sends a message, because it only describes the API.
 type noopSender struct{}
@@ -40,6 +54,12 @@ func (noopSender) Send(context.Context, email.Message) error { return nil }
 
 // Options returns the option list of the canonical configuration.
 func Options(s store.Store) []authall.Option {
+	orgs := organizations.New(
+		organizations.Roles(OrganizationRoles()...),
+		organizations.DefaultRole("member"),
+		organizations.OwnerRole("owner"),
+		organizations.AllowCustomRoles(true),
+	)
 	return []authall.Option{
 		authall.WithStore(s),
 		authall.WithBaseURL(BaseURL),
@@ -62,8 +82,9 @@ func Options(s store.Store) []authall.Option {
 			// The reference instance names the example hierarchy of the
 			// guides, so the contract shows the role field.
 			roles.New(roles.Hierarchy(RoleHierarchy...), roles.Default(DefaultRole)),
-			admin.New(),
-			apikeys.New(),
+			orgs,
+			admin.New(admin.Organizations(orgs)),
+			apikeys.New(apikeys.Organizations(orgs)),
 		),
 	}
 }
