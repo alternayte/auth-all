@@ -20,7 +20,7 @@ default:
     @just --list
 
 # Run every required v1 check. A failed check stops the run.
-verify: _reset db-up fmt-check vet lint test-unit test-postgres test-pgbouncer test-sqlite test-http test-security test-concurrency test-race generate-check ts-verify examples-build evidence
+verify: _reset db-up fmt-check vet lint test-unit test-postgres test-pgbouncer test-sqlite test-http test-security test-concurrency test-race test-huma generate-check ts-verify examples-build evidence
     @echo ""
     @echo "just verify: every required check passed."
 
@@ -104,6 +104,12 @@ test-concurrency:
 test-race:
     {{pg}} go test -race ./...
     @just _record "race detector" "go test -race ./..."
+
+# Run the huma adapter module. It is a separate module, so it needs its own
+# test run. HC-03 keeps huma out of the core module graph.
+test-huma:
+    cd humaauth && go vet ./... && go test -race ./...
+    @just _record "huma adapter module" "cd humaauth && go test -race ./..."
 
 # Regenerate the OpenAPI contract and the TypeScript client.
 generate:
