@@ -32,17 +32,71 @@ const (
 	AccountUnlinked    Name = "auth.account_unlinked"
 	TOTPEnabled        Name = "auth.totp_enabled"
 	TOTPDisabled       Name = "auth.totp_disabled"
+
+	// Events of the v1.1 release.
+	UserCreated          Name = "auth.user_created"
+	UserUpdated          Name = "auth.user_updated"
+	UserDisabled         Name = "auth.user_disabled"
+	UserEnabled          Name = "auth.user_enabled"
+	PasswordResetByAdmin Name = "auth.password_reset_by_admin"
+	RoleChanged          Name = "auth.role_changed"
+	APIKeyCreated        Name = "auth.api_key_created"
+	APIKeyRevoked        Name = "auth.api_key_revoked"
 )
+
+// ActorSystem names the actor of an operation that no request started, for
+// example a call of the operator Go API or of the command line tool.
+const ActorSystem = "system"
+
+// Actor names the caller of one operation.
+type Actor struct {
+	// ID is the user identifier of the caller, or ActorSystem.
+	ID string
+	// Method names the authentication method, for example "session" or
+	// "api_key". It is empty for the system actor.
+	Method string
+	// IP is the client address of the request. It is empty for the system
+	// actor.
+	IP string
+}
+
+// contextKey is the private context key type of this package.
+type contextKey int
+
+const actorContextKey contextKey = iota
+
+// WithActor returns a context that names the caller of the operation. Auth-All
+// puts it in the request context, and an admin operation replaces it.
+func WithActor(ctx context.Context, a Actor) context.Context {
+	return context.WithValue(ctx, actorContextKey, a)
+}
+
+// ActorFrom returns the caller of the context.
+func ActorFrom(ctx context.Context) (Actor, bool) {
+	a, ok := ctx.Value(actorContextKey).(Actor)
+	return a, ok
+}
 
 // Event is one structured observability event.
 //
 // An event must never carry a password, a password hash, a session token, a
 // one-time token, or a provider secret.
 type Event struct {
-	Name   Name
-	Time   time.Time
+	Name Name
+	Time time.Time
+	// UserID is the user that the event is about. It equals Target.
 	UserID string
 	Fields map[string]any
+	// Actor is the user that started the operation, or ActorSystem. It equals
+	// UserID for a self-service operation.
+	Actor string
+	// Target is the user that the operation changed.
+	Target string
+	// IP is the client address of the request. It is empty when no request
+	// started the operation.
+	IP string
+	// Method names the authentication method of the actor.
+	Method string
 }
 
 // Handler receives events.
@@ -83,7 +137,53 @@ func (e *Emitter) Add(h Handler) {
 
 // Emit sends one event to every handler.
 func (e *Emitter) Emit(ctx context.Context, name Name, userID string, fields map[string]any) {
-	ev := Event{Name: name, Time: e.now(), UserID: userID, Fields: fields}
+	ev := Event{Name: name, Time: e.now(), UserID: userID, Target: userID, Fields: fields}
+	// A self-service operation has no separate actor, so the target is the
+	// actor. An admin operation and the operator API name the actor in the
+	// context.
+	ev.Actor = userID
+	if actor, ok := ActorFrom(ctx); ok {
+		if actor.ID != "" {
+			ev.Actor = actor.ID
+		}
+		ev.Method = actor.Method
+		ev.IP = actor.IP
+	}
+	e.dispatch(ctx, ev)
+}
+
+// EmitEvent sends one prepared event to every handler. The emitter fills the
+// time and the actor fields that the event leaves empty.
+func (e *Emitter) EmitEvent(ctx context.Context, ev Event) {
+	if ev.Time.IsZero() {
+		ev.Time = e.now()
+	}
+	if ev.Target == "" {
+		ev.Target = ev.UserID
+	}
+	if ev.UserID == "" {
+		ev.UserID = ev.Target
+	}
+	if actor, ok := ActorFrom(ctx); ok {
+		if ev.Actor == "" {
+			ev.Actor = actor.ID
+		}
+		if ev.Method == "" {
+			ev.Method = actor.Method
+		}
+		if ev.IP == "" {
+			ev.IP = actor.IP
+		}
+	}
+	if ev.Actor == "" {
+		ev.Actor = ev.Target
+	}
+	e.dispatch(ctx, ev)
+}
+
+// dispatch sends one event to every handler. An error of a handler never
+// changes the response, because a handler returns none.
+func (e *Emitter) dispatch(ctx context.Context, ev Event) {
 	e.mu.RLock()
 	handlers := make([]Handler, len(e.handlers))
 	copy(handlers, e.handlers)
