@@ -116,3 +116,16 @@ func prefixColumns(alias, columns string) string {
 	}
 	return strings.Join(parts, ", ")
 }
+
+// DeleteSessionsExcept implements store.SessionRevoker. One statement finds the
+// owner and removes the other sessions, so no read and no lock is needed.
+func (s *Store) DeleteSessionsExcept(ctx context.Context, sessionID string) (int, error) {
+	res, err := s.exec(ctx,
+		"DELETE FROM "+s.n.Sessions+" WHERE id <> ? AND user_id = "+
+			"(SELECT user_id FROM "+s.n.Sessions+" WHERE id = ?)", sessionID, sessionID)
+	if err != nil {
+		return 0, s.mapErr(err)
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
+}

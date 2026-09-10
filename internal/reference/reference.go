@@ -24,6 +24,13 @@ import (
 // BaseURL is the placeholder application URL of the reference configuration.
 const BaseURL = "https://app.example.com"
 
+// RoleHierarchy is the example role hierarchy of the guides. The reference
+// configuration and the command line tool use it.
+var RoleHierarchy = []string{"viewer", "operator", "editor", "admin"}
+
+// DefaultRole is the role of a user whose role column is empty.
+const DefaultRole = "viewer"
+
 // noopSender satisfies the email boundary of the reference configuration. The
 // reference instance never sends a message, because it only describes the API.
 type noopSender struct{}
@@ -53,7 +60,7 @@ func Options(s store.Store) []authall.Option {
 			magiclink.New(magiclink.WithTTL(15*time.Minute)),
 			// The reference instance names the example hierarchy of the
 			// guides, so the contract shows the role field.
-			roles.New(roles.Hierarchy("viewer", "operator", "editor", "admin"), roles.Default("viewer")),
+			roles.New(roles.Hierarchy(RoleHierarchy...), roles.Default(DefaultRole)),
 			admin.New(),
 		),
 	}

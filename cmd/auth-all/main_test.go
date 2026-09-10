@@ -1,10 +1,15 @@
 package main
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	authall "github.com/alternayte/auth-all"
+	"github.com/alternayte/auth-all/internal/testsupport"
+	"github.com/alternayte/auth-all/store/sqlite"
 )
 
 // TestSCNSCH003TheCLIExportsTheMigrationFiles proves REQ-SCH-003.
@@ -62,5 +67,48 @@ func TestSCNSCH003TheCLIExportRefusesAnUnknownFormat(t *testing.T) {
 	}
 	if err := run([]string{"migrate", "export", "--format", "goose"}); err == nil {
 		t.Fatal("a missing directory was accepted")
+	}
+}
+
+// TestSCNOPS006TheCLICreatesAUserThatSignsIn proves REQ-OPS-008.
+func TestSCNOPS006TheCLICreatesAUserThatSignsIn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cli.db")
+	dsn := "file:" + path
+	const address = "cli.person@example.com"
+	const password = "a-correct-horse-battery"
+
+	if err := run([]string{"migrate", "--driver", "sqlite", "--dsn", dsn}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := run([]string{"user", "create", "--driver", "sqlite", "--dsn", dsn,
+		"--email", address, "--role", "operator", "--password", password, "--temporary=false"}); err != nil {
+		t.Fatalf("user create: %v", err)
+	}
+
+	db, err := sqlite.Open(dsn)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	s := sqlite.New(db)
+	h := testsupport.NewHarnessWithStore(t, s, authall.WithEmailPassword())
+	resp, _ := h.SignIn(address, password)
+	if resp.Status != http.StatusOK {
+		t.Fatalf("the sign-in returned %d: %s", resp.Status, string(resp.Body))
+	}
+
+	// The reset sets a new password, and the old one stops to work.
+	const fresh = "another-correct-horse"
+	if err := run([]string{"user", "reset-password", "--driver", "sqlite", "--dsn", dsn,
+		"--email", address, "--password", fresh, "--temporary=false"}); err != nil {
+		t.Fatalf("user reset-password: %v", err)
+	}
+	h.ClearCookies()
+	if resp, _ = h.SignIn(address, password); resp.Status == http.StatusOK {
+		t.Fatal("the old password still works")
+	}
+	h.ClearCookies()
+	if resp, _ = h.SignIn(address, fresh); resp.Status != http.StatusOK {
+		t.Fatalf("the new password returned %d: %s", resp.Status, string(resp.Body))
 	}
 }

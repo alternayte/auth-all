@@ -2,6 +2,7 @@ package authall
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -424,6 +425,26 @@ func (a *Auth) Handler() http.Handler {
 
 // BasePath returns the configured base path.
 func (a *Auth) BasePath() string { return a.cfg.basePath }
+
+// RevokeOtherSessions removes every session of the owner of sessionID, except
+// that session. It returns the number of removed sessions.
+//
+// The session that the caller names stays valid, so the person keeps the
+// current browser and loses every other one.
+func (a *Auth) RevokeOtherSessions(ctx context.Context, sessionID string) (int, error) {
+	if sessionID == "" {
+		return 0, apierr.ErrInvalidRequest.WithMessage("A session identifier is required.")
+	}
+	if revoker, ok := a.cfg.store.(store.SessionRevoker); ok {
+		n, err := revoker.DeleteSessionsExcept(ctx, sessionID)
+		if err != nil {
+			return 0, apierr.ErrInternal.WithCause(err)
+		}
+		return n, nil
+	}
+	return 0, apierr.ErrInternal.WithCause(
+		errors.New("authall: the configured store revokes no other session. Use a first-party store"))
+}
 
 // HandlerStripped returns the Auth-All handler for a router that already
 // removed the base path.

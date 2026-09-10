@@ -92,3 +92,11 @@ type RowWriter interface {
 	// constraint refuses the row.
 	InsertRow(ctx context.Context, table string, columns []string, values []any) error
 }
+
+// SessionRevoker revokes the other sessions of one owner in one statement.
+type SessionRevoker interface {
+	// DeleteSessionsExcept removes every session of the owner of sessionID,
+	// except that session. It returns the number of removed sessions, and it
+	// returns zero when the session does not exist.
+	DeleteSessionsExcept(ctx context.Context, sessionID string) (int, error)
+}

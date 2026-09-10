@@ -14,11 +14,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	authall "github.com/alternayte/auth-all"
 	"github.com/alternayte/auth-all/internal/clientgen"
 	"github.com/alternayte/auth-all/internal/reference"
 	"github.com/alternayte/auth-all/migrations"
+	"github.com/alternayte/auth-all/plugins/admin"
+	"github.com/alternayte/auth-all/plugins/roles"
+	"github.com/alternayte/auth-all/ratelimit"
 	"github.com/alternayte/auth-all/schema"
 	"github.com/alternayte/auth-all/store"
 	"github.com/alternayte/auth-all/store/postgres"
@@ -33,6 +37,8 @@ Usage:
   auth-all migrate --driver <postgres|sqlite> --dsn <dsn> --dry-run
   auth-all migrate --driver <postgres|sqlite> --sql
   auth-all migrate export --driver <postgres|sqlite> --format <goose|plain> --dir <path>
+  auth-all user create --driver <postgres|sqlite> --dsn <dsn> --email <address> [--role <role>]
+  auth-all user reset-password --driver <postgres|sqlite> --dsn <dsn> --email <address>
   auth-all openapi [--out <file>]
   auth-all client [--out <file>]
   auth-all version
@@ -40,6 +46,7 @@ Usage:
 Commands:
   schema    Print the effective Auth-All schema.
   migrate   Apply the schema, plan it, emit the SQL, or export the units.
+  user      Create a user or set a new password for a user.
   openapi   Emit the OpenAPI contract of the complete v1 API.
   client    Emit the generated TypeScript client.
   version   Print the version of the tool.
@@ -69,6 +76,8 @@ func run(args []string) error {
 		return runSchema(args[1:])
 	case "migrate":
 		return runMigrate(args[1:])
+	case "user":
+		return runUser(args[1:])
 	case "openapi":
 		return runOpenAPI(args[1:])
 	case "client":
@@ -234,6 +243,95 @@ func runMigrateExport(args []string) error {
 		fmt.Println("wrote " + filepath.Join(*dir, f.Name))
 	}
 	return nil
+}
+
+// runUser serves the operator commands of the admin plugin.
+func runUser(args []string) error {
+	if len(args) == 0 {
+		return errors.New("user needs a command: create or reset-password")
+	}
+	command := args[0]
+	fs := flag.NewFlagSet("user "+command, flag.ContinueOnError)
+	driver := fs.String("driver", "", "postgres or sqlite")
+	dsn := fs.String("dsn", "", "the database connection string")
+	address := fs.String("email", "", "the email address of the user")
+	name := fs.String("name", "", "the display name of the user")
+	role := fs.String("role", "", "the role of the user")
+	password := fs.String("password", "", "the password. An empty value generates one")
+	temporary := fs.Bool("temporary", true, "the user must change the password")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	if *dsn == "" || *address == "" {
+		return errors.New("--dsn and --email are required")
+	}
+	s, closeFn, err := openStore(*driver, *dsn)
+	if err != nil {
+		return err
+	}
+	defer closeFn()
+
+	auth, adm, err := operatorAuth(s)
+	if err != nil {
+		return err
+	}
+	if err := auth.CheckSchema(context.Background()); err != nil {
+		return err
+	}
+	ctx := context.Background()
+	switch command {
+	case "create":
+		user, generated, err := adm.CreateUser(ctx, admin.CreateUserInput{
+			Email: *address, Name: *name, Role: *role,
+			Password: *password, TemporaryPassword: *temporary,
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Println("created " + user.ID + " " + user.Email)
+		if generated != "" {
+			fmt.Println("password " + generated)
+		}
+		return nil
+	case "reset-password":
+		user, err := s.Users().GetByNormalizedEmail(ctx, strings.ToLower(strings.TrimSpace(*address)))
+		if err != nil {
+			return err
+		}
+		generated, err := adm.ResetPassword(ctx, user.ID, admin.ResetOptions{
+			Password: *password, Temporary: *temporary,
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Println("reset " + user.ID)
+		if generated != "" {
+			fmt.Println("password " + generated)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown user command %q", command)
+	}
+}
+
+// operatorAuth returns an Auth-All instance with the roles plugin and the
+// admin plugin. It serves no HTTP request, so it needs no base URL of the
+// application.
+func operatorAuth(s store.Store) (*authall.Auth, *admin.Plugin, error) {
+	adm := admin.New()
+	auth, err := authall.New(
+		authall.WithStore(s),
+		authall.WithEmailPassword(),
+		authall.WithRateLimiter(ratelimit.NewMemory(100, time.Minute)),
+		authall.WithPlugins(
+			roles.New(roles.Hierarchy(reference.RoleHierarchy...), roles.Default(reference.DefaultRole)),
+			adm,
+		),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	return auth, adm, nil
 }
 
 func printStatements(statements []schema.Statement) {
