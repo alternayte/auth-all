@@ -74,6 +74,7 @@ func RunWithOptions(t *testing.T, newStore Factory, o schema.Options) {
 			tc.fn(t, s)
 		})
 	}
+	runOrganizationTests(t, newStore, o)
 }
 
 func ctx(t *testing.T) context.Context {
