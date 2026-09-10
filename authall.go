@@ -51,6 +51,9 @@ type Auth struct {
 	// resolvers hold the credential resolvers of the plugins, in registration
 	// order.
 	resolvers []plugin.CredentialResolver
+	// crossOrigin refuses an unsafe cross-site request on a host route. It is
+	// nil when the host turned the check off.
+	crossOrigin *http.CrossOriginProtection
 	// defaultRole names the role of a user whose role column is empty. The
 	// roles plugin sets it.
 	defaultRole string
@@ -110,6 +113,26 @@ func New(opts ...Option) (*Auth, error) {
 		cfg.logger.Error("authall: a lifecycle hook failed", "hook", name, "error", err.Error())
 	})
 	a.trustedOrigins = buildTrustedOrigins(cfg)
+	if cfg.hostOriginCheck == nil {
+		on := true
+		cfg.hostOriginCheck = &on
+	}
+	if *cfg.hostOriginCheck {
+		protection := http.NewCrossOriginProtection()
+		for _, origin := range a.trustedOrigins {
+			if err := protection.AddTrustedOrigin(origin); err != nil {
+				return nil, fmt.Errorf("authall: the trusted origin %q is not usable for the origin check: %w",
+					origin, err)
+			}
+		}
+		a.crossOrigin = protection
+	} else {
+		// A host route with no origin check accepts a cross-site form post
+		// from any page that the browser sends the session cookie with.
+		cfg.logger.Warn("authall: the host route origin check is off. " +
+			"A cross-site page can then send an unsafe request with the session cookie of the user. " +
+			"Use authall.WithHostOriginCheck(true), or refuse a cross-site request in another layer.")
+	}
 
 	for _, p := range cfg.providers {
 		id := p.ID()

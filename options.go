@@ -144,6 +144,10 @@ type config struct {
 
 	errorWriter apierr.Writer
 
+	// hostOriginCheck runs the origin check on a host route that a cookie
+	// authenticated. normalizeConfig fills it, so the default is on.
+	hostOriginCheck *bool
+
 	schemaOptions schema.Options
 	schemaCheck   SchemaCheckMode
 
@@ -183,6 +187,19 @@ func WithUserFields(fields ...schema.UserField) Option {
 // Retry-After on status 429.
 func WithErrorWriter(f func(w http.ResponseWriter, r *http.Request, e *Error)) Option {
 	return func(c *config) { c.errorWriter = apierr.Writer(f) }
+}
+
+// WithHostOriginCheck turns the origin check of the host routes on or off. The
+// default is on.
+//
+// RequireAuth, LoadSession, and a role check refuse an unsafe cross-site
+// request that a cookie authenticated. A bearer request skips the check,
+// because a cross-site page cannot send a bearer credential.
+//
+// Turn the check off only when another layer already refuses a cross-site
+// request. Auth-All writes a warn-level log entry when the check is off.
+func WithHostOriginCheck(on bool) Option {
+	return func(c *config) { c.hostOriginCheck = &on }
 }
 
 // SchemaCheckMode selects how CheckSchema reads the state of the database.
