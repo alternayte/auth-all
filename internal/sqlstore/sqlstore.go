@@ -44,6 +44,8 @@ type Store struct {
 	d  Dialect
 	// n holds the physical table names. UseSchema replaces them.
 	n schema.Names
+	// fields hold the host-owned columns of the users table.
+	fields []schema.UserField
 }
 
 // New returns a store over db.
@@ -59,6 +61,7 @@ func (s *Store) UseSchema(o schema.Options) error {
 		return err
 	}
 	s.n = schema.TableNames(o)
+	s.fields = append([]schema.UserField(nil), o.UserFields...)
 	return nil
 }
 
@@ -130,7 +133,7 @@ func (s *Store) Transaction(ctx context.Context, fn func(store.Store) error) err
 	if err != nil {
 		return err
 	}
-	txStore := &Store{db: s.db, ex: tx, d: s.d, n: s.n}
+	txStore := &Store{db: s.db, ex: tx, d: s.d, n: s.n, fields: s.fields}
 	if err := fn(txStore); err != nil {
 		_ = tx.Rollback()
 		return err

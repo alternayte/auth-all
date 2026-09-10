@@ -3,6 +3,8 @@ package sqlstore
 import (
 	"context"
 	"database/sql"
+	"strings"
+	"time"
 
 	"github.com/alternayte/auth-all/store"
 )
@@ -16,14 +18,63 @@ func scanUser(m *store.User) []any {
 		&m.Role, nullTimeScan{&m.DisabledAt}, &m.MustChangePassword}
 }
 
+// userColumnList returns the column list of a user row, with the host-owned
+// fields at the end.
+func (s *Store) userColumnList() string {
+	out := userColumns
+	for _, f := range s.fields {
+		out += ", " + f.Name
+	}
+	return out
+}
+
+// scanUserRow returns the scan targets of userColumnList.
+func (s *Store) scanUserRow(m *store.User, extra []any) []any {
+	targets := scanUser(m)
+	for i := range s.fields {
+		targets = append(targets, &extra[i])
+	}
+	return targets
+}
+
+// collectExtra puts the read host-owned values in the user.
+func (s *Store) collectExtra(m *store.User, extra []any) {
+	if len(s.fields) == 0 {
+		return
+	}
+	m.Extra = make(map[string]any, len(s.fields))
+	for i, f := range s.fields {
+		m.Extra[f.Name] = extra[i]
+	}
+}
+
+// extraValues returns the bound values of the host-owned fields.
+func (s *Store) extraValues(m *store.User) []any {
+	out := make([]any, 0, len(s.fields))
+	for _, f := range s.fields {
+		value, ok := m.Extra[f.Name]
+		if !ok {
+			out = append(out, nil)
+			continue
+		}
+		if t, isTime := value.(time.Time); isTime {
+			value = s.bindTime(t)
+		}
+		out = append(out, value)
+	}
+	return out
+}
+
 const userColumns = "id, email, email_normalized, email_verified_at, display_name, image_url, created_at, updated_at, role, disabled_at, must_change_password"
 
 func (u *userStore) Create(ctx context.Context, m *store.User) error {
-	_, err := u.s.exec(ctx,
-		"INSERT INTO "+u.s.n.Users+" ("+userColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		m.ID, m.Email, m.EmailNormalized, u.s.bindNullTime(m.EmailVerifiedAt),
+	values := []any{m.ID, m.Email, m.EmailNormalized, u.s.bindNullTime(m.EmailVerifiedAt),
 		m.DisplayName, m.ImageURL, u.s.bindTime(m.CreatedAt), u.s.bindTime(m.UpdatedAt),
-		m.Role, u.s.bindNullTime(m.DisabledAt), m.MustChangePassword)
+		m.Role, u.s.bindNullTime(m.DisabledAt), m.MustChangePassword}
+	values = append(values, u.s.extraValues(m)...)
+	placeholders := strings.TrimSuffix(strings.Repeat("?, ", len(values)), ", ")
+	_, err := u.s.exec(ctx,
+		"INSERT INTO "+u.s.n.Users+" ("+u.s.userColumnList()+") VALUES ("+placeholders+")", values...)
 	return u.s.mapErr(err)
 }
 
@@ -36,22 +87,27 @@ func (u *userStore) GetByNormalizedEmail(ctx context.Context, normalized string)
 }
 
 func (u *userStore) get(ctx context.Context, where string, arg any) (*store.User, error) {
-	row := u.s.queryRow(ctx, "SELECT "+userColumns+" FROM "+u.s.n.Users+" WHERE "+where, arg)
+	row := u.s.queryRow(ctx, "SELECT "+u.s.userColumnList()+" FROM "+u.s.n.Users+" WHERE "+where, arg)
 	var m store.User
-	err := row.Scan(scanUser(&m)...)
-	if err != nil {
+	extra := make([]any, len(u.s.fields))
+	if err := row.Scan(u.s.scanUserRow(&m, extra)...); err != nil {
 		return nil, u.s.mapErr(err)
 	}
+	u.s.collectExtra(&m, extra)
 	return &m, nil
 }
 
 func (u *userStore) Update(ctx context.Context, m *store.User) error {
-	res, err := u.s.exec(ctx,
-		"UPDATE "+u.s.n.Users+" SET email = ?, email_normalized = ?, email_verified_at = ?, "+
-			"display_name = ?, image_url = ?, updated_at = ?, role = ?, disabled_at = ?, "+
-			"must_change_password = ? WHERE id = ?",
-		m.Email, m.EmailNormalized, u.s.bindNullTime(m.EmailVerifiedAt), m.DisplayName, m.ImageURL,
-		u.s.bindTime(m.UpdatedAt), m.Role, u.s.bindNullTime(m.DisabledAt), m.MustChangePassword, m.ID)
+	set := "email = ?, email_normalized = ?, email_verified_at = ?, display_name = ?, image_url = ?, " +
+		"updated_at = ?, role = ?, disabled_at = ?, must_change_password = ?"
+	values := []any{m.Email, m.EmailNormalized, u.s.bindNullTime(m.EmailVerifiedAt), m.DisplayName,
+		m.ImageURL, u.s.bindTime(m.UpdatedAt), m.Role, u.s.bindNullTime(m.DisabledAt), m.MustChangePassword}
+	for i, f := range u.s.fields {
+		set += ", " + f.Name + " = ?"
+		values = append(values, u.s.extraValues(m)[i])
+	}
+	values = append(values, m.ID)
+	res, err := u.s.exec(ctx, "UPDATE "+u.s.n.Users+" SET "+set+" WHERE id = ?", values...)
 	if err != nil {
 		return u.s.mapErr(err)
 	}

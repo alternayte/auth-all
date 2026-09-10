@@ -30,15 +30,17 @@ func (s *Store) CreateAPIKey(ctx context.Context, k *store.APIKey) error {
 // resolution at one round trip.
 func (s *Store) APIKeyByHash(ctx context.Context, keyHash string) (*store.APIKey, *store.User, error) {
 	row := s.queryRow(ctx,
-		"SELECT "+prefixColumns("k", apiKeyColumns)+", "+prefixColumns("u", userColumns)+
+		"SELECT "+prefixColumns("k", apiKeyColumns)+", "+prefixColumns("u", s.userColumnList())+
 			" FROM "+s.n.APIKeys+" k JOIN "+s.n.Users+" u ON u.id = k.user_id WHERE k.key_hash = ?",
 		keyHash)
 	var key store.APIKey
 	var user store.User
-	targets := append(scanAPIKey(&key), scanUser(&user)...)
+	extra := make([]any, len(s.fields))
+	targets := append(scanAPIKey(&key), s.scanUserRow(&user, extra)...)
 	if err := row.Scan(targets...); err != nil {
 		return nil, nil, s.mapErr(err)
 	}
+	s.collectExtra(&user, extra)
 	return &key, &user, nil
 }
 

@@ -222,7 +222,8 @@ func (a *Auth) handleSignUpEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req signUpEmailRequest
-	if err := a.decodeJSON(r, &req); err != nil {
+	extra, err := a.decodeWithUserFields(r, &req)
+	if err != nil {
 		a.writeError(w, r, err)
 		return
 	}
@@ -246,6 +247,7 @@ func (a *Auth) handleSignUpEmail(w http.ResponseWriter, r *http.Request) {
 	user, err := a.createUser(ctx, CreateUserInput{
 		Email:       strings.TrimSpace(req.Email),
 		DisplayName: strings.TrimSpace(req.Name),
+		Extra:       extra,
 	}, hash)
 	if err != nil {
 		a.writeError(w, r, err)
