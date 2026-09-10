@@ -13,6 +13,7 @@ import (
 	"github.com/alternayte/auth-all/email"
 	"github.com/alternayte/auth-all/oauth/github"
 	"github.com/alternayte/auth-all/oauth/google"
+	"github.com/alternayte/auth-all/plugins/admin"
 	"github.com/alternayte/auth-all/plugins/magiclink"
 	"github.com/alternayte/auth-all/plugins/roles"
 	"github.com/alternayte/auth-all/ratelimit"
@@ -53,6 +54,7 @@ func Options(s store.Store) []authall.Option {
 			// The reference instance names the example hierarchy of the
 			// guides, so the contract shows the role field.
 			roles.New(roles.Hierarchy("viewer", "operator", "editor", "admin"), roles.Default("viewer")),
+			admin.New(),
 		),
 	}
 }

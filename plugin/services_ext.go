@@ -3,6 +3,8 @@ package plugin
 import (
 	"context"
 	"net/http"
+
+	"github.com/alternayte/auth-all/schema"
 )
 
 // The interfaces in this file are optional. A plugin asks the Services value
@@ -57,4 +59,20 @@ type ProtectService interface {
 	// Protect refuses a request with no principal, and it refuses an unsafe
 	// cross-site request that a cookie authenticated.
 	Protect(next http.Handler) http.Handler
+}
+
+// SchemaService reports the physical schema options of the instance. A plugin
+// that owns a table uses it, so the table takes the host table prefix.
+type SchemaService interface {
+	// SchemaOptions returns the physical options of the effective schema.
+	SchemaOptions() schema.Options
+}
+
+// PasswordService applies the password policy and the hash parameters of
+// Auth-All, so a plugin writes the same credential as a core route.
+type PasswordService interface {
+	// CheckPassword reports whether a password meets the configured policy.
+	CheckPassword(password string) error
+	// HashPassword returns the argon2id hash of a password.
+	HashPassword(password string) (string, error)
 }

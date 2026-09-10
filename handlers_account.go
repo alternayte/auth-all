@@ -387,7 +387,9 @@ func (a *Auth) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, r, err)
 		return
 	}
-	sess, user := a.requireSession(w, r)
+	// A user with a temporary password must reach this route, because the
+	// change is the only way out of the state.
+	sess, user := a.requireSessionOpen(w, r)
 	if sess == nil {
 		return
 	}
@@ -433,9 +435,19 @@ func (a *Auth) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
 	}
 	now := a.cfg.now()
 	err = a.cfg.store.Transaction(ctx, func(tx store.Store) error {
-		return tx.Users().SetCredential(ctx, &store.Credential{
+		if err := tx.Users().SetCredential(ctx, &store.Credential{
 			UserID: user.ID, PasswordHash: hash, CreatedAt: now, UpdatedAt: now,
-		})
+		}); err != nil {
+			return err
+		}
+		if !user.MustChangePassword {
+			return nil
+		}
+		// The user leaves the temporary password state in the same
+		// transaction, so no instance sees a changed password with the flag.
+		user.MustChangePassword = false
+		user.UpdatedAt = now
+		return tx.Users().Update(ctx, user)
 	})
 	if err != nil {
 		a.writeError(w, r, publicError(err))

@@ -82,6 +82,11 @@ func (a *Auth) lookupSession(ctx context.Context, tokenHash string) (*store.Sess
 	if sess == nil {
 		return nil, nil, nil
 	}
+	if user != nil && user.DisabledAt != nil {
+		// A disabled user has no valid credential on any instance. The rows of
+		// the sessions are gone, so this is a second guard.
+		return nil, nil, nil
+	}
 	now := a.cfg.now()
 	// A session ends at the first of three deadlines. ExpiresAt carries the
 	// absolute lifetime, and the idle timeout runs from the last request. One

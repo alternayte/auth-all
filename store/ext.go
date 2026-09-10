@@ -49,3 +49,46 @@ type RateLimitCounter interface {
 	// given time. It returns the number of removed rows.
 	CleanupRateLimits(ctx context.Context, before time.Time) (int, error)
 }
+
+// UserListFilter selects and pages the users of an administrative list.
+type UserListFilter struct {
+	// EmailPrefix keeps the users whose normalized email starts with the
+	// value.
+	EmailPrefix string
+	// Role keeps the users of one role. A nil value keeps every role. An
+	// empty string keeps the users whose role column is empty.
+	Role *string
+	// Disabled keeps the disabled users when it is true, and the enabled
+	// users when it is false. A nil value keeps both.
+	Disabled *bool
+	// Limit is the number of returned users.
+	Limit int
+	// Cursor continues an earlier page. An empty value starts at the first
+	// user.
+	Cursor string
+}
+
+// UserAdminStore reads and locks the users of an administrative operation.
+type UserAdminStore interface {
+	// ListUsers returns one page of users and the cursor of the next page. An
+	// empty cursor means that no page follows. The order is stable, so no user
+	// repeats and no user is lost.
+	ListUsers(ctx context.Context, f UserListFilter) (users []User, next string, err error)
+	// LockEnabledUsersWithRole returns the identifiers of the enabled users of
+	// one role and locks the rows until the transaction ends.
+	//
+	// The caller must run it inside a write transaction. The lock makes the
+	// last-admin guard safe under concurrent requests.
+	LockEnabledUsersWithRole(ctx context.Context, role string) ([]string, error)
+}
+
+// RowWriter writes one row of a table that a plugin owns. A plugin uses it for
+// a small table that needs no typed store, for example the bootstrap guard.
+//
+// The caller must supply a fixed column list and no value from a request, so
+// the statement carries no injected SQL.
+type RowWriter interface {
+	// InsertRow inserts one row. It returns ErrConflict when a uniqueness
+	// constraint refuses the row.
+	InsertRow(ctx context.Context, table string, columns []string, values []any) error
+}
