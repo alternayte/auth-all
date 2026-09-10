@@ -315,9 +315,11 @@ func (p *Plugin) Resolve(ctx context.Context, bearer string) (*plugin.Principal,
 			// authenticates.
 			return nil, apierr.ErrUnauthorized
 		}
+		// The membership carries the effective statements of the key, which are
+		// the intersection with the live permissions of the owner.
+		member.Permissions = strings.Join(permissions, " ")
 		principal.Organization = org
 		principal.Membership = member
-		principal.Permissions = permissions
 	}
 	p.touch(ctx, key, now)
 	return principal, nil

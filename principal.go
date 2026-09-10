@@ -39,11 +39,10 @@ type Principal struct {
 	// the session names none, and when the organizations plugin is off.
 	Organization *store.Organization
 	// Membership is the membership of the active organization. It is nil when
-	// no organization is active, and when the membership is gone.
-	Membership *store.Membership
-	// Permissions holds the extra statements that the credential read
+	// no organization is active, and when the membership is gone. Its
+	// Permissions field holds the statements that the credential read
 	// resolved, for a custom role and for every team role of the member.
-	Permissions []string
+	Membership *store.Membership
 }
 
 // PrincipalFrom returns the principal that RequireAuth, LoadSession, or a role
@@ -73,7 +72,9 @@ func (a *Auth) withPrincipal(r *http.Request, p *Principal) *http.Request {
 		ctx = plugin.WithOrganization(ctx, plugin.OrganizationContext{
 			Organization: p.Organization,
 			Membership:   p.Membership,
-			Permissions:  p.Permissions,
+			// The credential read resolved the statements of a custom role and
+			// of every team role in the same round trip.
+			Permissions: strings.Fields(p.Membership.Permissions),
 		})
 	}
 	return r.WithContext(ctx)
@@ -165,9 +166,6 @@ func withOrganization(p *Principal, org *store.Organization, member *store.Membe
 	}
 	p.Organization = org
 	p.Membership = member
-	// The credential read resolved the statements of a custom role and of
-	// every team role in the same round trip.
-	p.Permissions = strings.Fields(member.Permissions)
 	return p
 }
 
@@ -181,7 +179,6 @@ func fromPluginPrincipal(p *plugin.Principal) *Principal {
 		Method:       p.Method,
 		Organization: p.Organization,
 		Membership:   p.Membership,
-		Permissions:  p.Permissions,
 	}
 }
 

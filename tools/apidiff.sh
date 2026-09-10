@@ -5,7 +5,7 @@
 # base tag in a temporary worktree, and compares the current tree with it.
 set -euo pipefail
 
-base="${1:-v0.2.0}"
+base="${1:-v0.3.0}"
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if ! git -C "$repo" rev-parse --verify --quiet "$base^{commit}" > /dev/null; then

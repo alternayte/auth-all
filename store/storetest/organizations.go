@@ -89,7 +89,8 @@ func memberStore(t *testing.T, s store.Store) store.MembershipStore {
 }
 
 // uniqueSlug returns a slug that no other test run holds. One adapter test
-// shares a database between the subtests, so a fixed slug would collide.
+// shares a database between the subtests, so two subtests with a fixed slug
+// collide.
 func uniqueSlug(parts ...string) string {
 	out := "s" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
 	for _, part := range parts {
