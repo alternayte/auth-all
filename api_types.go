@@ -16,6 +16,9 @@ type userDTO struct {
 	Image         string    `json:"image"`
 	CreatedAt     time.Time `json:"createdAt"`
 	UpdatedAt     time.Time `json:"updatedAt"`
+	// Role is the effective role. It is empty when no roles plugin is
+	// enabled.
+	Role string `json:"role,omitempty"`
 }
 
 // sessionDTO is the public JSON shape of a session. It never carries a token.
@@ -24,6 +27,16 @@ type sessionDTO struct {
 	UserID    string    `json:"userId"`
 	CreatedAt time.Time `json:"createdAt"`
 	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// toUserDTO returns the public shape of a user. The role appears only when the
+// roles plugin is enabled.
+func (a *Auth) toUserDTO(u *store.User) *userDTO {
+	dto := toUserDTO(u)
+	if dto != nil && a.roleHierarchy != nil {
+		dto.Role = a.effectiveRole(u)
+	}
+	return dto
 }
 
 func toUserDTO(u *store.User) *userDTO {
@@ -130,6 +143,7 @@ func registerCoreSchemas(doc *openapi.Document) {
 			"emailVerified": openapi.Bool(),
 			"name":          openapi.String(),
 			"image":         openapi.String(),
+			"role":          openapi.String(),
 			"createdAt":     {Type: "string", Format: "date-time"},
 			"updatedAt":     {Type: "string", Format: "date-time"},
 		}))

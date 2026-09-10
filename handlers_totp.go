@@ -459,7 +459,7 @@ func (a *Auth) handleTOTPVerify(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, r, err)
 		return
 	}
-	a.writeJSON(w, http.StatusOK, authResponse{User: toUserDTO(user), Session: toSessionDTO(sess)})
+	a.writeJSON(w, http.StatusOK, authResponse{User: a.toUserDTO(user), Session: toSessionDTO(sess)})
 }
 
 func (a *Auth) handleTOTPRecovery(w http.ResponseWriter, r *http.Request) {
@@ -530,7 +530,7 @@ func (a *Auth) handleTOTPRecovery(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, r, err)
 		return
 	}
-	a.writeJSON(w, http.StatusOK, authResponse{User: toUserDTO(user), Session: toSessionDTO(sess)})
+	a.writeJSON(w, http.StatusOK, authResponse{User: a.toUserDTO(user), Session: toSessionDTO(sess)})
 }
 
 func (a *Auth) handleTOTPRegenerate(w http.ResponseWriter, r *http.Request) {
