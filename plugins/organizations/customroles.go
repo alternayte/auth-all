@@ -295,3 +295,15 @@ func intersect(key, live permission.Set) []string {
 	}
 	return out
 }
+
+// AdminList returns one page of every organization of the application. An
+// administrator of the application uses it.
+func (p *Plugin) AdminList(ctx context.Context, limit int, cursor string) ([]store.Organization, string, error) {
+	return p.orgs.ListOrganizations(ctx, store.OrganizationFilter{Limit: limit, Cursor: cursor})
+}
+
+// AdminDelete removes one organization and every row that belongs to it. An
+// administrator of the application uses it, so it runs no membership check.
+func (p *Plugin) AdminDelete(ctx context.Context, actor *store.User, orgID string) error {
+	return p.Delete(ctx, actor, orgID)
+}

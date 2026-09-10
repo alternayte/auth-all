@@ -80,14 +80,17 @@ type Plugin struct {
 	// construction guard with no allocation.
 	declared permission.Set
 
-	svc           plugin.Services
-	store         store.Store
-	orgs          store.OrganizationStore
-	members       store.MembershipStore
-	principals    plugin.PrincipalService
-	hooks         *hook.Hooks
-	events        *events.Emitter
-	clock         func() time.Time
+	svc        plugin.Services
+	store      store.Store
+	orgs       store.OrganizationStore
+	members    store.MembershipStore
+	principals plugin.PrincipalService
+	hooks      *hook.Hooks
+	events     *events.Emitter
+	clock      func() time.Time
+	// objects answers a per-object question. It is nil until the application
+	// wires a checker.
+	objects       ObjectChecker
 	schemaOptions schema.Options
 
 	protect  func(http.Handler) http.Handler
