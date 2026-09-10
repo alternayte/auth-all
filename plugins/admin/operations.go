@@ -205,7 +205,7 @@ func (p *Plugin) SetRole(ctx context.Context, userID, role string) (*store.User,
 	if from != role {
 		p.hooks.RunAfterRoleChange(ctx, &hook.RoleChange{User: updated, From: from, To: role})
 		p.hooks.RunAfterUserUpdate(ctx, &hook.UserUpdate{User: updated})
-		p.emit(ctx, events.RoleChanged, updated, map[string]any{"from": from, "to": role})
+		p.emitChange(ctx, events.RoleChanged, updated, map[string]any{"from": from, "to": role})
 	}
 	return updated, nil
 }
@@ -254,7 +254,7 @@ func (p *Plugin) Disable(ctx context.Context, userID string) (*store.User, error
 		return nil, publicError(err)
 	}
 	p.hooks.RunAfterUserUpdate(ctx, &hook.UserUpdate{User: updated})
-	p.emit(ctx, events.UserDisabled, updated, nil)
+	p.emitChange(ctx, events.UserDisabled, updated, nil)
 	return updated, nil
 }
 
@@ -290,7 +290,7 @@ func (p *Plugin) Enable(ctx context.Context, userID string) (*store.User, error)
 		return nil, publicError(err)
 	}
 	p.hooks.RunAfterUserUpdate(ctx, &hook.UserUpdate{User: updated})
-	p.emit(ctx, events.UserEnabled, updated, nil)
+	p.emitChange(ctx, events.UserEnabled, updated, nil)
 	return updated, nil
 }
 
@@ -348,7 +348,7 @@ func (p *Plugin) ResetPassword(ctx context.Context, userID string, opts ResetOpt
 		return "", publicError(err)
 	}
 	p.hooks.RunAfterUserUpdate(ctx, &hook.UserUpdate{User: updated})
-	p.emit(ctx, events.PasswordResetByAdmin, updated, map[string]any{"temporary": opts.Temporary})
+	p.emitChange(ctx, events.PasswordResetByAdmin, updated, map[string]any{"temporary": opts.Temporary})
 	return generated, nil
 }
 
@@ -391,6 +391,14 @@ func (p *Plugin) roleOf(u *store.User) string {
 		return p.roles.Default()
 	}
 	return u.Role
+}
+
+// emitChange sends the specific event of one change and the generic
+// UserUpdated event. The generic name gives one audit stream for every change
+// of a user row, and the specific name keeps the detail.
+func (p *Plugin) emitChange(ctx context.Context, name events.Name, user *store.User, fields map[string]any) {
+	p.emit(ctx, name, user, fields)
+	p.emit(ctx, events.UserUpdated, user, map[string]any{"change": string(name)})
 }
 
 // emit sends one audit event with the caller as the actor.

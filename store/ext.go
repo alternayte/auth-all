@@ -100,3 +100,22 @@ type SessionRevoker interface {
 	// returns zero when the session does not exist.
 	DeleteSessionsExcept(ctx context.Context, sessionID string) (int, error)
 }
+
+// APIKeyStore holds the machine credentials of the API keys plugin.
+type APIKeyStore interface {
+	// CreateAPIKey inserts one key. It returns ErrConflict when the digest
+	// exists already.
+	CreateAPIKey(ctx context.Context, k *APIKey) error
+	// APIKeyByHash returns the key of one digest and its owner in one round
+	// trip. It returns ErrNotFound when no key matches.
+	APIKeyByHash(ctx context.Context, keyHash string) (*APIKey, *User, error)
+	// APIKeyByID returns one key by identifier.
+	APIKeyByID(ctx context.Context, id string) (*APIKey, error)
+	// ListAPIKeys returns every key of one owner, and the newest comes first.
+	ListAPIKeys(ctx context.Context, userID string) ([]APIKey, error)
+	// RevokeAPIKey ends one key. It returns ErrNotFound when the key is
+	// already revoked or absent.
+	RevokeAPIKey(ctx context.Context, id, byUserID string, at time.Time) error
+	// TouchAPIKey writes the last use time of one key.
+	TouchAPIKey(ctx context.Context, id string, at time.Time) error
+}

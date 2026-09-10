@@ -14,6 +14,7 @@ import (
 	"github.com/alternayte/auth-all/oauth/github"
 	"github.com/alternayte/auth-all/oauth/google"
 	"github.com/alternayte/auth-all/plugins/admin"
+	"github.com/alternayte/auth-all/plugins/apikeys"
 	"github.com/alternayte/auth-all/plugins/magiclink"
 	"github.com/alternayte/auth-all/plugins/roles"
 	"github.com/alternayte/auth-all/ratelimit"
@@ -62,6 +63,7 @@ func Options(s store.Store) []authall.Option {
 			// guides, so the contract shows the role field.
 			roles.New(roles.Hierarchy(RoleHierarchy...), roles.Default(DefaultRole)),
 			admin.New(),
+			apikeys.New(),
 		),
 	}
 }
