@@ -57,6 +57,9 @@ var nextEndpoints = []struct{ Method, Path string }{
 	{"POST", "/api/auth/admin/users/{id}/disable"},
 	{"POST", "/api/auth/admin/users/{id}/enable"},
 	{"POST", "/api/auth/admin/users/{id}/password"},
+	{"GET", "/api/auth/api-keys"},
+	{"POST", "/api/auth/api-keys"},
+	{"POST", "/api/auth/api-keys/{id}/revoke"},
 }
 
 // allEndpoints is the complete normative endpoint set.

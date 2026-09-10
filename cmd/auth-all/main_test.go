@@ -21,6 +21,7 @@ func TestSCNSCH003TheCLIExportsTheMigrationFiles(t *testing.T) {
 		{"goose", []string{
 			"20260101000000_authall_core.sql",
 			"20260910000001_authall_user_admin_columns.sql",
+			"20260910000002_authall_apikeys.sql",
 			"20260910000004_authall_bootstrap.sql",
 		}},
 		{"plain", []string{
@@ -28,6 +29,8 @@ func TestSCNSCH003TheCLIExportsTheMigrationFiles(t *testing.T) {
 			"20260101000000_authall_core.down.sql",
 			"20260910000001_authall_user_admin_columns.up.sql",
 			"20260910000001_authall_user_admin_columns.down.sql",
+			"20260910000002_authall_apikeys.up.sql",
+			"20260910000002_authall_apikeys.down.sql",
 			"20260910000004_authall_bootstrap.up.sql",
 			"20260910000004_authall_bootstrap.down.sql",
 		}},

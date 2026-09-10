@@ -72,15 +72,22 @@ func (a *Auth) requireSessionOpen(w http.ResponseWriter, r *http.Request) (*stor
 // requireSessionState resolves the session and checks the state of the user.
 // gate refuses a user that must change the password first.
 func (a *Auth) requireSessionState(w http.ResponseWriter, r *http.Request, gate bool) (*store.Session, *store.User) {
-	sess, user, err := a.resolveSession(r.Context(), r)
+	p, err := a.resolvePrincipal(r.Context(), r)
 	if err != nil {
 		a.writeError(w, r, err)
 		return nil, nil
 	}
-	if sess == nil || user == nil {
+	if p == nil || p.User == nil {
 		a.writeError(w, r, apierr.ErrUnauthorized)
 		return nil, nil
 	}
+	if p.Method != MethodSession || p.Session == nil {
+		// A key never changes a password, an email address, a second factor,
+		// or a session. Those operations need a person.
+		a.writeError(w, r, apierr.ErrForbidden.WithMessage("This operation needs a session."))
+		return nil, nil
+	}
+	sess, user := p.Session, p.User
 	if gate && user.MustChangePassword {
 		a.writeError(w, r, apierr.ErrPasswordChangeRequired)
 		return nil, nil

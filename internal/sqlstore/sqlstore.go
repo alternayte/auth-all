@@ -249,3 +249,28 @@ func parseTime(s string, dst *time.Time) error {
 	}
 	return fmt.Errorf("authall/sqlstore: cannot parse timestamp %q", s)
 }
+
+// nullStringScan reads a nullable text column into a string pointer.
+type nullStringScan struct{ dst **string }
+
+func (n nullStringScan) Scan(src any) error {
+	if src == nil {
+		*n.dst = nil
+		return nil
+	}
+	var value sql.NullString
+	if err := value.Scan(src); err != nil {
+		return err
+	}
+	out := value.String
+	*n.dst = &out
+	return nil
+}
+
+// nullString returns the bound value of an optional text column.
+func nullString(v *string) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
