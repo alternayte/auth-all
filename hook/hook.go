@@ -140,6 +140,14 @@ type Hooks struct {
 	afterRoleChange     []AfterRoleChangeFunc
 	afterAPIKeyCreate   []AfterAPIKeyCreateFunc
 	afterAPIKeyRevoke   []AfterAPIKeyRevokeFunc
+	beforeOrgCreate     []BeforeOrganizationCreateFunc
+	afterOrgCreate      []AfterOrganizationCreateFunc
+	beforeOrgUpdate     []BeforeOrganizationUpdateFunc
+	afterOrgUpdate      []AfterOrganizationUpdateFunc
+	beforeOrgDelete     []BeforeOrganizationDeleteFunc
+	afterOrgDelete      []AfterOrganizationDeleteFunc
+	beforeMembership    []BeforeMembershipChangeFunc
+	afterMembership     []AfterMembershipChangeFunc
 
 	onError func(ctx context.Context, name string, err error)
 }

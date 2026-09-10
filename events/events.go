@@ -42,6 +42,27 @@ const (
 	RoleChanged          Name = "auth.role_changed"
 	APIKeyCreated        Name = "auth.api_key_created"
 	APIKeyRevoked        Name = "auth.api_key_revoked"
+
+	// Names of the v0.4.0 release. Every organization event carries the
+	// organization identifier in the field "orgId".
+	OrganizationCreated   Name = "auth.organization_created"
+	OrganizationUpdated   Name = "auth.organization_updated"
+	OrganizationDeleted   Name = "auth.organization_deleted"
+	MemberAdded           Name = "auth.member_added"
+	MemberRemoved         Name = "auth.member_removed"
+	MemberRoleChanged     Name = "auth.member_role_changed"
+	MemberSuspended       Name = "auth.member_suspended"
+	MemberRestored        Name = "auth.member_restored"
+	InvitationCreated     Name = "auth.invitation_created"
+	InvitationAccepted    Name = "auth.invitation_accepted"
+	InvitationRevoked     Name = "auth.invitation_revoked"
+	CustomRoleCreated     Name = "auth.custom_role_created"
+	CustomRoleDeleted     Name = "auth.custom_role_deleted"
+	TeamCreated           Name = "auth.team_created"
+	TeamDeleted           Name = "auth.team_deleted"
+	TeamMemberAdded       Name = "auth.team_member_added"
+	TeamMemberRemoved     Name = "auth.team_member_removed"
+	ActiveOrganizationSet Name = "auth.active_organization_set"
 )
 
 // ActorSystem names the actor of an operation that no request started, for

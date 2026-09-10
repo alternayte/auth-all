@@ -186,6 +186,15 @@ func WithUserFields(fields ...schema.UserField) Option {
 	}
 }
 
+// WithOrganizationFields adds host-owned columns to the organizations table.
+// It appends to the fields of WithSchema. The columns apply only when the
+// organizations plugin is enabled.
+func WithOrganizationFields(fields ...schema.UserField) Option {
+	return func(c *config) {
+		c.schemaOptions.OrgFields = append(c.schemaOptions.OrgFields, fields...)
+	}
+}
+
 // WithErrorWriter replaces the public error envelope of every Auth-All route,
 // of RequireAuth, of LoadSession, and of every plugin route.
 //

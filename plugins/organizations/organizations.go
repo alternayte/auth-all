@@ -27,10 +27,15 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/alternayte/auth-all/apierr"
+	"github.com/alternayte/auth-all/events"
+	"github.com/alternayte/auth-all/hook"
 	"github.com/alternayte/auth-all/plugin"
 	"github.com/alternayte/auth-all/plugins/organizations/permission"
+	"github.com/alternayte/auth-all/schema"
+	"github.com/alternayte/auth-all/store"
 )
 
 // ID is the stable plugin identifier.
@@ -71,6 +76,16 @@ type Plugin struct {
 	// declared holds the union of every built-in role, so Require answers the
 	// construction guard with no allocation.
 	declared permission.Set
+
+	svc           plugin.Services
+	store         store.Store
+	orgs          store.OrganizationStore
+	members       store.MembershipStore
+	principals    plugin.PrincipalService
+	hooks         *hook.Hooks
+	events        *events.Emitter
+	clock         func() time.Time
+	schemaOptions schema.Options
 
 	protect  func(http.Handler) http.Handler
 	writeErr func(w http.ResponseWriter, r *http.Request, err error)
@@ -139,7 +154,39 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 	if !ok {
 		return errors.New("authall/organizations: this Auth-All version has no authentication middleware")
 	}
+	principals, ok := svc.(plugin.PrincipalServices)
+	if !ok {
+		return errors.New("authall/organizations: this Auth-All version has no principal service")
+	}
+	orgs, members, err := orgStores(svc.Store())
+	if err != nil {
+		return err
+	}
+	p.svc = svc
+	p.store = svc.Store()
+	p.orgs = orgs
+	p.members = members
+	p.principals = principals.Principals()
+	p.hooks = r.Hooks()
+	p.events = svc.Events()
+	p.clock = svc.Now
 	p.protect = protector.Protect
+	p.schemaOptions = schema.DefaultOptions()
+	if reporter, ok := svc.(plugin.SchemaService); ok {
+		p.schemaOptions = reporter.SchemaOptions()
+	}
+	for _, table := range schema.OrganizationTables(p.schemaOptions) {
+		r.Schema(table)
+	}
+	units, err := schema.OrganizationUnits(ID, p.schemaOptions)
+	if err != nil {
+		return err
+	}
+	for _, unit := range units {
+		r.Unit(unit)
+	}
+	registerSchemas(r)
+	p.registerRoutes(r)
 	p.writeErr = func(w http.ResponseWriter, r *http.Request, err error) {
 		if writer, ok := svc.HTTP().(interface {
 			WriteErrorFor(http.ResponseWriter, *http.Request, error)
