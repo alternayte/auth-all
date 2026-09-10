@@ -18,14 +18,21 @@ import (
 // Factory returns a migrated empty store for one test.
 type Factory func(t *testing.T) store.Store
 
-// Run executes the complete storage contract suite against one adapter.
+// Run executes the complete storage contract suite against one adapter that
+// uses the default physical schema.
 func Run(t *testing.T, newStore Factory) {
+	t.Helper()
+	RunWithOptions(t, newStore, schema.DefaultOptions())
+}
+
+// RunWithOptions executes the suite against an adapter that uses the given
+// physical schema options.
+func RunWithOptions(t *testing.T, newStore Factory, o schema.Options) {
 	t.Helper()
 	tests := []struct {
 		name string
 		fn   func(t *testing.T, s store.Store)
 	}{
-		{"MigrateIsIdempotent", testMigrateIdempotent},
 		{"UserCreateAndRead", testUserCreateAndRead},
 		{"UserUniqueNormalizedEmail", testUserUniqueEmail},
 		{"UserUpdate", testUserUpdate},
@@ -58,6 +65,9 @@ func Run(t *testing.T, newStore Factory) {
 		{"ConcurrentTokenConsume", testConcurrentTokenConsume},
 		{"ConcurrentAccountLink", testConcurrentAccountLink},
 	}
+	t.Run("MigrateIsIdempotent", func(t *testing.T) {
+		testMigrateIdempotent(t, newStore(t), o)
+	})
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newStore(t)
@@ -97,8 +107,8 @@ func mustCreateUser(t *testing.T, s store.Store, email string) *store.User {
 	return u
 }
 
-func testMigrateIdempotent(t *testing.T, s store.Store) {
-	sc, err := schema.NewCore()
+func testMigrateIdempotent(t *testing.T, s store.Store, o schema.Options) {
+	sc, err := schema.NewCoreWithOptions(o)
 	if err != nil {
 		t.Fatal(err)
 	}

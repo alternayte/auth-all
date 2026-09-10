@@ -61,18 +61,18 @@ db-down:
 
 # Run the unit tests of the library packages.
 test-unit:
-    go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./migrations/... ./cmd/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/...
-    @just _record "unit tests" "go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./migrations/... ./cmd/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/..."
+    go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./cmd/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/...
+    @just _record "unit tests" "go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./cmd/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/..."
 
 # Run the storage contract suite against PostgreSQL.
 test-postgres:
-    {{pg}} go test ./store/postgres/...
-    @just _record "PostgreSQL storage contract" "go test ./store/postgres/..."
+    {{pg}} go test ./store/postgres/... ./migrations/...
+    @just _record "PostgreSQL storage contract" "go test ./store/postgres/... ./migrations/..."
 
 # Run the storage contract suite against SQLite.
 test-sqlite:
-    go test ./store/sqlite/...
-    @just _record "SQLite storage contract" "go test ./store/sqlite/..."
+    go test ./store/sqlite/... ./migrations/...
+    @just _record "SQLite storage contract" "go test ./store/sqlite/... ./migrations/..."
 
 # Run the HTTP integration and acceptance tests.
 test-http:

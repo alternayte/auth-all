@@ -31,6 +31,13 @@ const PostgresRequiredEnv = "AUTHALL_REQUIRE_POSTGRES"
 // NewSQLite returns a migrated SQLite store backed by a temporary file.
 func NewSQLite(t *testing.T) store.Store {
 	t.Helper()
+	return NewSQLiteWithOptions(t, schema.DefaultOptions())
+}
+
+// NewSQLiteWithOptions returns a migrated SQLite store that uses the given
+// physical schema options.
+func NewSQLiteWithOptions(t *testing.T, o schema.Options) store.Store {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "authall.db")
 	db, err := sqlite.Open("file:" + path)
 	if err != nil {
@@ -38,7 +45,7 @@ func NewSQLite(t *testing.T) store.Store {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	s := sqlite.New(db)
-	migrate(t, s)
+	migrateOptions(t, s, o)
 	return s
 }
 
@@ -66,6 +73,13 @@ func PostgresDSN(t *testing.T) string {
 // schema is dropped when the test ends.
 func NewPostgres(t *testing.T) store.Store {
 	t.Helper()
+	return NewPostgresWithOptions(t, schema.DefaultOptions())
+}
+
+// NewPostgresWithOptions returns a migrated PostgreSQL store that uses the
+// given physical schema options.
+func NewPostgresWithOptions(t *testing.T, o schema.Options) store.Store {
+	t.Helper()
 	dsn := PostgresDSN(t)
 	admin, err := postgres.Open(dsn)
 	if err != nil {
@@ -87,7 +101,7 @@ func NewPostgres(t *testing.T) store.Store {
 	}
 	t.Cleanup(func() { _ = db.Close() })
 	s := postgres.New(db)
-	migrate(t, s)
+	migrateOptions(t, s, o)
 	return s
 }
 
@@ -99,9 +113,16 @@ func withSearchPath(dsn, name string) string {
 	return dsn + sep + "options=" + url.QueryEscape("-c search_path="+name)
 }
 
-func migrate(t *testing.T, s store.Store) {
+// migrateOptions applies the schema of the options and tells the store the
+// physical names.
+func migrateOptions(t *testing.T, s store.Store, o schema.Options) {
 	t.Helper()
-	sc, err := schema.NewCore()
+	if c, ok := s.(store.SchemaConfigurable); ok {
+		if err := c.UseSchema(o); err != nil {
+			t.Fatalf("use schema: %v", err)
+		}
+	}
+	sc, err := schema.NewCoreWithOptions(o)
 	if err != nil {
 		t.Fatalf("schema: %v", err)
 	}
