@@ -345,6 +345,41 @@ bearer credential.
 `authall.WithHostOriginCheck(false)` turns the check off. Auth-All then writes a
 warn-level log entry at construction.
 
+## A request that names no origin
+
+The origin check judges the Origin header, and the Referer header when the
+Origin is absent. A request that sends neither header passes, and the
+cross-site protection of the standard library applies the same rule to a host
+route. A client that is no browser sends neither header, and it carries no
+ambient credential, so the rule keeps a command line client and a server
+working.
+
+Two facts bound the risk of that rule:
+
+1. The session cookie holds `SameSite=Lax` by default. A browser therefore
+   sends no session cookie with a cross-site form post, so the request reaches
+   the route with no credential.
+2. Every current browser sends `Origin` with an unsafe cross-site request, and
+   it sends `Sec-Fetch-Site` with every request. A browser that sends neither
+   is old.
+
+`authall.WithStrictOriginCheck()` closes the rule for an application whose
+cookie clients are all browsers. It refuses an unsafe request that carries the
+session cookie and names no origin:
+
+- A request with no `Origin` and no `Sec-Fetch-Site` is refused.
+- A request with `Origin: null` is refused, because an opaque origin is never a
+  trusted origin.
+- A request with `Sec-Fetch-Site: cross-site` or `same-site` and no `Origin` is
+  refused. A same-site request comes from another origin of the registrable
+  domain, so it needs an Origin header that the trusted list holds.
+- A request with `Sec-Fetch-Site: same-origin` passes.
+
+The option changes nothing for a safe method, for a bearer credential, and for
+a request with no session cookie. A sign-in therefore still works from a
+command line client. Turn the option on when a cookie client that is no browser
+does not exist, for example when only a browser application uses the cookie.
+
 ## Organizations and permissions
 
 The organizations plugin of the v0.4.0 release holds eleven invariants. The

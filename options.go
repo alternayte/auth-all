@@ -147,6 +147,8 @@ type config struct {
 	// hostOriginCheck runs the origin check on a host route that a cookie
 	// authenticated. normalizeConfig fills it, so the default is on.
 	hostOriginCheck *bool
+	// strictOriginCheck refuses an unsafe cookie request that names no origin.
+	strictOriginCheck bool
 
 	// consistencyBound is the maximum time between a committed change and its
 	// effect on every instance.
@@ -216,6 +218,26 @@ func WithErrorWriter(f func(w http.ResponseWriter, r *http.Request, e *Error)) O
 // request. Auth-All writes a warn-level log entry when the check is off.
 func WithHostOriginCheck(on bool) Option {
 	return func(c *config) { c.hostOriginCheck = &on }
+}
+
+// WithStrictOriginCheck refuses an unsafe request that carries the session
+// cookie and names no origin.
+//
+// Auth-All and the Go standard library pass a request that sends neither an
+// Origin header nor a Sec-Fetch-Site header, because a client that is not a
+// browser sends neither, and it carries no ambient credential. A browser sends
+// at least one of the two. This option therefore refuses a cookie request that
+// sends none of them, and it refuses an opaque origin, because "null" is never
+// a trusted origin.
+//
+// Turn it on when every cookie client is a browser. A cookie client that is no
+// browser, for example a script that keeps a cookie jar, then gets 403
+// ORIGIN_NOT_ALLOWED. A bearer client is never affected, because a cross-site
+// page cannot send a bearer credential.
+//
+// The option changes no behavior of a GET, a HEAD, or an OPTIONS request.
+func WithStrictOriginCheck() Option {
+	return func(c *config) { c.strictOriginCheck = true }
 }
 
 // WithConsistencyBound sets the maximum time between a committed change and
