@@ -101,9 +101,12 @@ test-concurrency:
     @just _record "concurrency tests" "just test-concurrency"
 
 # Run the complete suite under the race detector.
+# The race detector makes every test slower, and the suite of the organizations
+# release needs more than the default 10 minutes of go test on a slow machine.
+# The bound stays, so a hung test still fails the run.
 test-race:
-    {{pg}} go test -race ./...
-    @just _record "race detector" "go test -race ./..."
+    {{pg}} go test -race -timeout 25m ./...
+    @just _record "race detector" "go test -race -timeout 25m ./..."
 
 # Run the huma adapter module. It is a separate module, so it needs its own
 # test run. HC-03 keeps huma out of the core module graph.
