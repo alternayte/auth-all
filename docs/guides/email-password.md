@@ -121,6 +121,69 @@ signed in. It needs a session and it runs the origin check.
   reaches this. Such a user sets a first password through the reset flow.
 - The endpoint is rate-limited under the operation `password-change`.
 
+## The Go API
+
+An application that serves its own routes calls the operations directly. It
+then keeps its own paths, its own body shape, and its own error envelope. The
+HTTP routes of Auth-All call the same code, so the two forms never drift.
+
+```go
+// Sign in. The result carries the plaintext session token one time.
+out, err := auth.SignIn(ctx, authall.SignInInput{
+    Email:    "alice@example.com",
+    Password: "the password of today",
+    ClientIP: clientIP,
+})
+if err != nil {
+    var limited *authall.RateLimitError
+    if errors.As(err, &limited) {
+        w.Header().Set("Retry-After", strconv.Itoa(int(limited.RetryAfter.Seconds())))
+    }
+    return err
+}
+if out.MFARequired {
+    return renderSecondFactor(w, out.MFAToken)
+}
+// A browser takes the cookie. A bearer client takes out.Token.
+auth.SetSessionCookie(w, out.Token, out.Session.ExpiresAt)
+```
+
+```go
+// Sign out. It runs the sign-out hook and emits the audit event.
+session, err := auth.Session(ctx, r)
+if err == nil {
+    if err := auth.SignOut(ctx, session); err != nil {
+        return err
+    }
+    auth.ClearSessionCookie(w)
+}
+
+// SignOutToken ends the session of one plaintext token, for a bearer client.
+err = auth.SignOutToken(ctx, token)
+```
+
+```go
+// Change the password of the owner of the account.
+err = auth.ChangePassword(ctx, authall.ChangePasswordInput{
+    UserID:          user.ID,
+    CurrentPassword: "the password of today",
+    NewPassword:     "the password of tomorrow",
+    // The change revokes every other session. KeepSessionID keeps the session
+    // of the request.
+    KeepSessionID: session.ID,
+    ClientIP:      clientIP,
+})
+```
+
+Each method returns the public error of the contract, so `apierr.From` gives
+the same code that the route writes. `SignIn` counts the attempt against the
+configured rate limiter, and it returns a `*authall.RateLimitError` that names
+the retry time.
+
+The Go methods run no origin check, because a library caller owns its own
+transport. A host route that a cookie authenticates needs `RequireAuth`, which
+runs the check.
+
 ## Email change
 
 The change needs two steps, because the person must prove the new address

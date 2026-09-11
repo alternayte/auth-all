@@ -398,66 +398,18 @@ func (a *Auth) handlePasswordChange(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, r, err)
 		return
 	}
-	if !a.allow(ctx, w, r, ratelimit.Key{
-		Operation: ratelimit.OpPasswordChange, IP: a.clientIP(r), UserID: user.ID,
-	}) {
-		return
-	}
-	if err := a.checkPassword(req.NewPassword); err != nil {
-		a.writeError(w, r, err)
-		return
-	}
-	cred, err := a.cfg.store.Users().GetCredential(ctx, user.ID)
-	if err != nil {
-		if isNotFound(err) {
-			// An OAuth-only user has no password to replace. The reset flow
-			// sets the first one.
-			a.writeError(w, r, apierr.ErrNoPasswordCredential)
-			return
-		}
-		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
-		return
-	}
-	ok, _, err := crypto.VerifyPassword(req.CurrentPassword, cred.PasswordHash)
-	if err != nil {
-		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
-		return
-	}
-	if !ok {
-		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{"reason": "password_change_denied"})
-		a.writeError(w, r, apierr.ErrInvalidCredentials)
-		return
-	}
-	hash, err := crypto.HashPassword(req.NewPassword, a.cfg.argon)
-	if err != nil {
-		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
-		return
-	}
-	now := a.cfg.now()
-	err = a.cfg.store.Transaction(ctx, func(tx store.Store) error {
-		if err := tx.Users().SetCredential(ctx, &store.Credential{
-			UserID: user.ID, PasswordHash: hash, CreatedAt: now, UpdatedAt: now,
-		}); err != nil {
-			return err
-		}
-		if !user.MustChangePassword {
-			return nil
-		}
-		// The user leaves the temporary password state in the same
-		// transaction, so no instance sees a changed password with the flag.
-		user.MustChangePassword = false
-		user.UpdatedAt = now
-		return tx.Users().Update(ctx, user)
+	err := a.ChangePassword(ctx, ChangePasswordInput{
+		UserID:            user.ID,
+		CurrentPassword:   req.CurrentPassword,
+		NewPassword:       req.NewPassword,
+		KeepSessionID:     sess.ID,
+		KeepOtherSessions: req.RevokeOtherSessions != nil && !*req.RevokeOtherSessions,
+		ClientIP:          a.clientIP(r),
 	})
 	if err != nil {
-		a.writeError(w, r, publicError(err))
+		a.writeRateLimited(w, r, err)
 		return
 	}
-	if req.RevokeOtherSessions == nil || *req.RevokeOtherSessions {
-		a.revokeOtherSessions(ctx, user.ID, sess.ID)
-	}
-	a.hooks.RunAfterPasswordChange(ctx, &hook.PasswordChange{User: user})
-	a.emitter.Emit(ctx, events.PasswordChanged, user.ID, nil)
 	a.writeJSON(w, http.StatusOK, successResponse{Success: true})
 }
 

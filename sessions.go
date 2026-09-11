@@ -162,16 +162,34 @@ func (a *Auth) readSessionAndUser(ctx context.Context, tokenHash string) (
 // the hash. Any session that the request already carried is revoked first, so a
 // fixed token cannot survive authentication.
 func (a *Auth) issueSession(ctx context.Context, w http.ResponseWriter, r *http.Request, user *store.User, method string) (*store.Session, error) {
+	previous := ""
 	if r != nil {
-		if old := a.requestToken(r); old != "" {
-			if prev, err := a.cfg.store.Sessions().GetByTokenHash(ctx, crypto.HashToken(old)); err == nil {
-				_ = a.cfg.store.Sessions().Delete(ctx, prev.ID)
-			}
+		previous = a.requestToken(r)
+	}
+	sess, token, err := a.createSession(ctx, user, method, previous)
+	if err != nil {
+		return nil, err
+	}
+	if w != nil {
+		http.SetCookie(w, a.sessionCookie(token, sess.ExpiresAt))
+	}
+	return sess, nil
+}
+
+// createSession creates a session for a user and returns the plaintext token.
+//
+// A session token exists in plaintext only in this return value. The database
+// keeps the hash. The session of previousToken is revoked first, so a fixed
+// token cannot survive authentication.
+func (a *Auth) createSession(ctx context.Context, user *store.User, method, previousToken string) (*store.Session, string, error) {
+	if previousToken != "" {
+		if prev, err := a.cfg.store.Sessions().GetByTokenHash(ctx, crypto.HashToken(previousToken)); err == nil {
+			_ = a.cfg.store.Sessions().Delete(ctx, prev.ID)
 		}
 	}
 	token, err := crypto.NewToken()
 	if err != nil {
-		return nil, apierr.ErrInternal.WithCause(err)
+		return nil, "", apierr.ErrInternal.WithCause(err)
 	}
 	now := a.cfg.now()
 	sess := &store.Session{
@@ -191,16 +209,13 @@ func (a *Auth) issueSession(ctx context.Context, w http.ResponseWriter, r *http.
 		return tx.Sessions().Create(ctx, sess)
 	})
 	if err != nil {
-		return nil, publicError(err)
+		return nil, "", publicError(err)
 	}
 	ev.Tx = nil
 	a.hooks.RunAfterSessionCreate(ctx, ev)
 	a.hooks.RunAfterSignIn(ctx, &hook.SignIn{User: user, Session: sess, Method: method})
 	a.emitter.Emit(ctx, events.SignIn, user.ID, map[string]any{"method": method, "session_id": sess.ID})
-	if w != nil {
-		http.SetCookie(w, a.sessionCookie(token, sess.ExpiresAt))
-	}
-	return sess, nil
+	return sess, token, nil
 }
 
 // publicError maps an internal error to the public contract without leaking
