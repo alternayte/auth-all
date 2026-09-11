@@ -25,6 +25,7 @@ auth-all migrate --driver postgres --dsn "$DSN" --dry-run
 auth-all migrate --driver postgres --sql            # emit the SQL, no database
 auth-all openapi --out api/openapi.json             # emit the API contract
 auth-all client --out src/generated.ts              # emit the TypeScript client
+auth-all client --openapi openapi.json --out src/generated.ts  # from a host contract
 ```
 
 ## SQL for source control

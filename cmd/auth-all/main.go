@@ -20,6 +20,7 @@ import (
 	"github.com/alternayte/auth-all/internal/clientgen"
 	"github.com/alternayte/auth-all/internal/reference"
 	"github.com/alternayte/auth-all/migrations"
+	"github.com/alternayte/auth-all/openapi"
 	"github.com/alternayte/auth-all/plugins/admin"
 	"github.com/alternayte/auth-all/plugins/roles"
 	"github.com/alternayte/auth-all/ratelimit"
@@ -40,7 +41,7 @@ Usage:
   auth-all user create --driver <postgres|sqlite> --dsn <dsn> --email <address> [--role <role>]
   auth-all user reset-password --driver <postgres|sqlite> --dsn <dsn> --email <address>
   auth-all openapi [--out <file>]
-  auth-all client [--out <file>]
+  auth-all client [--openapi <file>] [--out <file>]
   auth-all version
 
 Commands:
@@ -391,18 +392,46 @@ func runOpenAPI(args []string) error {
 func runClient(args []string) error {
 	fs := flag.NewFlagSet("client", flag.ContinueOnError)
 	out := fs.String("out", "", "write the client to a file instead of standard output")
+	// An application that holds host-owned columns or a plugin of its own
+	// writes its own contract with auth.OpenAPI, and it generates the client
+	// of that contract here.
+	from := fs.String("openapi", "", "read the contract from a file instead of the reference configuration")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	auth, err := referenceAuth()
+	document, err := clientDocument(*from)
 	if err != nil {
 		return err
 	}
-	source, err := clientgen.Generate(auth.OpenAPI())
+	source, err := clientgen.Generate(document)
 	if err != nil {
 		return err
 	}
 	return emit(*out, []byte(source))
+}
+
+// clientDocument returns the contract that the client describes. An empty path
+// names the reference configuration.
+func clientDocument(path string) (*openapi.Document, error) {
+	if path == "" {
+		auth, err := referenceAuth()
+		if err != nil {
+			return nil, err
+		}
+		return auth.OpenAPI(), nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("auth-all: cannot read the contract: %w", err)
+	}
+	var document openapi.Document
+	if err := json.Unmarshal(raw, &document); err != nil {
+		return nil, fmt.Errorf("auth-all: the contract %s is not a valid OpenAPI document: %w", path, err)
+	}
+	if len(document.Paths) == 0 {
+		return nil, fmt.Errorf("auth-all: the contract %s holds no path", path)
+	}
+	return &document, nil
 }
 
 func emit(path string, content []byte) error {

@@ -18,7 +18,8 @@
     "authentication",
     "sessions",
     "oauth",
-    "client"
+    "client",
+    "react"
   ],
   "type": "module",
   "main": "./dist/index.js",
@@ -27,6 +28,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "default": "./dist/react.js"
     }
   },
   "files": [
@@ -40,5 +45,13 @@
   },
   "publishConfig": {
     "access": "public"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
   }
 }

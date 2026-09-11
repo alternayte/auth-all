@@ -407,6 +407,16 @@ export interface UserDeleteVerifyBody {
   token: string
 }
 
+/** A value that the client reads before each request. */
+export type Provided<T> = T | (() => T | undefined | Promise<T | undefined>)
+
+/** The request that a hook receives. A hook can change the headers. */
+export interface AuthAllRequest {
+  method: string
+  url: string
+  headers: Record<string, string>
+}
+
 /** Options for the Auth-All client. */
 export interface AuthAllClientOptions {
   /** The absolute origin of the application, for example https://app.example.com. */
@@ -415,8 +425,27 @@ export interface AuthAllClientOptions {
   fetch?: typeof fetch
   /** The credentials mode. Session cookies need "include" for a cross-origin API. */
   credentials?: RequestCredentials
-  /** Extra headers sent with every request. */
-  headers?: Record<string, string>
+  /**
+   * Extra headers sent with every request. A function runs before each
+   * request, so a server that serves many people reads the header of the
+   * current one.
+   */
+  headers?: Provided<Record<string, string>>
+  /**
+   * The bearer token of the caller. The client sends it as the authorization
+   * header. A function runs before each request, so a refreshed token reaches
+   * the next call. A browser that uses the session cookie needs none.
+   */
+  token?: Provided<string>
+  /** onRequest runs before each request. It can change the headers. */
+  onRequest?: (request: AuthAllRequest) => void | Promise<void>
+  /** onResponse runs after each response, including a failed one. */
+  onResponse?: (response: Response) => void | Promise<void>
+  /**
+   * onError runs when a request fails. A global handler sends a person to the
+   * sign-in page on UNAUTHORIZED.
+   */
+  onError?: (error: AuthAllError) => void | Promise<void>
 }
 
 /** An Auth-All error with its stable machine-readable code. */
@@ -434,19 +463,28 @@ export class AuthAllError extends Error {
 
 type QueryValues = Record<string, string | undefined> | undefined
 
+/** resolve reads a value that the caller gave directly or as a function. */
+async function resolve<T>(value: Provided<T> | undefined): Promise<T | undefined> {
+  if (typeof value === "function") {
+    return await (value as () => T | undefined | Promise<T | undefined>)()
+  }
+  return value
+}
+
 /** The request layer of the generated client. */
 export class AuthAllHttp {
   readonly baseUrl: string
   private readonly fetchImpl: typeof fetch
   private readonly credentials: RequestCredentials
-  private readonly headers: Record<string, string>
+  private readonly options: AuthAllClientOptions
+  private readonly listeners = new Set<() => void>()
 
   constructor(options: AuthAllClientOptions = {}) {
     const base = options.baseUrl ?? (typeof location !== "undefined" ? location.origin : "")
     this.baseUrl = base.replace(/\/$/, "")
     this.fetchImpl = options.fetch ?? globalThis.fetch
     this.credentials = options.credentials ?? "include"
-    this.headers = options.headers ?? {}
+    this.options = options
   }
 
   /** Builds an absolute URL for one API path. */
@@ -459,25 +497,52 @@ export class AuthAllHttp {
     return this.baseUrl + path + (suffix ? "?" + suffix : "")
   }
 
+  /**
+   * onChange registers a listener that runs after a request that can change
+   * the session, which is every request that is no read. A session store uses
+   * it to read the session again. It returns the function that removes the
+   * listener.
+   */
+  onChange(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => this.listeners.delete(listener)
+  }
+
   /** Sends one request and maps an Auth-All error to AuthAllError. */
   async request<T>(method: string, path: string, body?: unknown, query?: QueryValues): Promise<T> {
-    const headers: Record<string, string> = { Accept: "application/json", ...this.headers }
+    const extra = (await resolve(this.options.headers)) ?? {}
+    const headers: Record<string, string> = { Accept: "application/json", ...extra }
     if (body !== undefined) headers["Content-Type"] = "application/json"
-    const response = await this.fetchImpl(this.url(path, query), {
+    const token = await resolve(this.options.token)
+    if (token) headers["Authorization"] = "Bearer " + token
+
+    const url = this.url(path, query)
+    const request: AuthAllRequest = { method, url, headers }
+    if (this.options.onRequest) await this.options.onRequest(request)
+
+    const response = await this.fetchImpl(url, {
       method,
       credentials: this.credentials,
-      headers,
+      headers: request.headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     })
+    if (this.options.onResponse) await this.options.onResponse(response)
+
     const text = await response.text()
     const payload = text ? JSON.parse(text) : undefined
     if (!response.ok) {
-      const error = payload?.error
-      throw new AuthAllError(
-        error?.code ?? "INTERNAL",
-        error?.message ?? "The request failed.",
+      const failure = payload?.error
+      const error = new AuthAllError(
+        failure?.code ?? "INTERNAL",
+        failure?.message ?? "The request failed.",
         response.status,
       )
+      if (this.options.onError) await this.options.onError(error)
+      throw error
+    }
+    // A read changes nothing, so only another method notifies a listener.
+    if (method !== "GET" && method !== "HEAD") {
+      for (const listener of this.listeners) listener()
     }
     return payload as T
   }
@@ -497,6 +562,15 @@ export class AuthAllClient {
   /** The absolute base URL of the Auth-All API. */
   get baseUrl(): string {
     return this.http.baseUrl
+  }
+
+  /**
+   * onChange registers a listener that runs after a call that can change
+   * the session. A session store uses it to read the session again. It
+   * returns the function that removes the listener.
+   */
+  onChange(listener: () => void): () => void {
+    return this.http.onChange(listener)
   }
 
   /** Return the current session and user. */
