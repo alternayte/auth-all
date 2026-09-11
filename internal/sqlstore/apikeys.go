@@ -7,20 +7,20 @@ import (
 	"github.com/alternayte/auth-all/store"
 )
 
-const apiKeyColumns = "id, user_id, name, start, key_hash, role, created_at, expires_at, last_used_at, revoked_at, revoked_by"
+const apiKeyColumns = "id, user_id, name, start, key_hash, role, org_id, created_at, expires_at, last_used_at, revoked_at, revoked_by"
 
 // scanAPIKey returns the scan targets of apiKeyColumns, in that order.
 func scanAPIKey(m *store.APIKey) []any {
 	return []any{&m.ID, &m.UserID, &m.Name, &m.Start, &m.KeyHash, &m.Role,
-		timeScan{&m.CreatedAt}, nullTimeScan{&m.ExpiresAt}, nullTimeScan{&m.LastUsedAt},
+		nullStringScan{&m.OrgID}, timeScan{&m.CreatedAt}, nullTimeScan{&m.ExpiresAt}, nullTimeScan{&m.LastUsedAt},
 		nullTimeScan{&m.RevokedAt}, nullStringScan{&m.RevokedBy}}
 }
 
 // CreateAPIKey implements store.APIKeyStore.
 func (s *Store) CreateAPIKey(ctx context.Context, k *store.APIKey) error {
 	_, err := s.exec(ctx,
-		"INSERT INTO "+s.n.APIKeys+" ("+apiKeyColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		k.ID, k.UserID, k.Name, k.Start, k.KeyHash, k.Role, s.bindTime(k.CreatedAt),
+		"INSERT INTO "+s.n.APIKeys+" ("+apiKeyColumns+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		k.ID, k.UserID, k.Name, k.Start, k.KeyHash, k.Role, nullString(k.OrgID), s.bindTime(k.CreatedAt),
 		s.bindNullTime(k.ExpiresAt), s.bindNullTime(k.LastUsedAt), s.bindNullTime(k.RevokedAt),
 		nullString(k.RevokedBy))
 	return s.mapErr(err)

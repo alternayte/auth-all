@@ -60,6 +60,9 @@ func (a *Auth) decodeJSON(r *http.Request, dst any) error {
 // checkOrigin rejects a state-changing request from an untrusted browser
 // origin. A request without an Origin or Referer header comes from a client
 // that is not a browser and passes.
+//
+// WithStrictOriginCheck changes that last rule for a request that carries the
+// session cookie. See strictOriginOK.
 func (a *Auth) checkOrigin(r *http.Request) error {
 	switch r.Method {
 	case http.MethodGet, http.MethodHead, http.MethodOptions:
@@ -76,12 +79,40 @@ func (a *Auth) checkOrigin(r *http.Request) error {
 		}
 	}
 	if origin == "" {
+		// The request names no origin that Auth-All can judge. A client that
+		// is not a browser sends none, and it carries no ambient credential.
+		if a.cfg.strictOriginCheck && a.hasSessionCookie(r) && !strictOriginOK(r) {
+			return apierr.ErrOriginNotAllowed
+		}
 		return nil
 	}
 	if a.originAllowed(r, origin) {
 		return nil
 	}
 	return apierr.ErrOriginNotAllowed
+}
+
+// hasSessionCookie reports whether the request carries the session cookie. An
+// ambient credential is the one that a cross-site page can use.
+func (a *Auth) hasSessionCookie(r *http.Request) bool {
+	c, err := r.Cookie(a.cfg.cookie.Name)
+	return err == nil && c.Value != ""
+}
+
+// strictOriginOK reports whether the fetch metadata of a request names a site
+// that Auth-All accepts. It runs only in strict mode, and only for an unsafe
+// request that names no origin.
+//
+// A browser that sends no Origin still sends Sec-Fetch-Site, so a request with
+// neither header is refused. An opaque origin reaches this point as well,
+// because "null" is never a trusted origin.
+//
+// Only "same-origin" passes. A same-site request comes from another origin of
+// the registrable domain, so it needs an Origin header that the trusted list
+// holds. The cross-site protection of the standard library applies the same
+// rule to a host route.
+func strictOriginOK(r *http.Request) bool {
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")), "same-origin")
 }
 
 func (a *Auth) originAllowed(r *http.Request, origin string) bool {

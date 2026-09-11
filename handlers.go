@@ -9,8 +9,6 @@ import (
 
 	"github.com/alternayte/auth-all/apierr"
 	"github.com/alternayte/auth-all/email"
-	"github.com/alternayte/auth-all/events"
-	"github.com/alternayte/auth-all/hook"
 	"github.com/alternayte/auth-all/internal/crypto"
 	"github.com/alternayte/auth-all/openapi"
 	"github.com/alternayte/auth-all/ratelimit"
@@ -35,6 +33,16 @@ func (a *Auth) dummyPasswordHash() string {
 		}
 	})
 	return a.dummyHash
+}
+
+// writeRateLimited writes the public error of one operation. A refused attempt
+// also carries the retry time in the Retry-After header.
+func (a *Auth) writeRateLimited(w http.ResponseWriter, r *http.Request, err error) {
+	var limited *RateLimitError
+	if asRateLimit(err, &limited) {
+		w.Header().Set("Retry-After", retryAfterSeconds(limited.RetryAfter))
+	}
+	a.writeError(w, r, err)
 }
 
 func (a *Auth) allow(ctx context.Context, w http.ResponseWriter, r *http.Request, key ratelimit.Key) bool {
@@ -188,24 +196,16 @@ func (a *Auth) handleSignOut(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, r, err)
 		return
 	}
-	sess, user, err := a.resolveSession(ctx, r)
+	sess, _, err := a.resolveSession(ctx, r)
 	if err != nil {
 		a.writeError(w, r, err)
 		return
 	}
-	if sess != nil {
-		if err := a.cfg.store.Sessions().Delete(ctx, sess.ID); err != nil && !isNotFound(err) {
-			a.writeError(w, r, apierr.ErrInternal.WithCause(err))
-			return
-		}
-		a.hooks.RunAfterSignOut(ctx, &hook.SignOut{UserID: sess.UserID, SessionID: sess.ID})
-		userID := ""
-		if user != nil {
-			userID = user.ID
-		}
-		a.emitter.Emit(ctx, events.SignOut, userID, map[string]any{"session_id": sess.ID})
+	if err := a.SignOut(ctx, sess); err != nil {
+		a.writeError(w, r, err)
+		return
 	}
-	a.clearCookie(w)
+	a.ClearSessionCookie(w)
 	a.writeJSON(w, http.StatusOK, successResponse{Success: true})
 }
 
@@ -291,82 +291,22 @@ func (a *Auth) handleSignInEmail(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, r, err)
 		return
 	}
-	normalized := email.Normalize(req.Email)
-	if !a.allow(ctx, w, r, ratelimit.Key{Operation: ratelimit.OpSignIn, IP: a.clientIP(r), Email: normalized}) {
-		return
-	}
-	user, err := a.cfg.store.Users().GetByNormalizedEmail(ctx, normalized)
-	if err != nil && !isNotFound(err) {
-		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
-		return
-	}
-	var cred *store.Credential
-	if user != nil {
-		cred, err = a.cfg.store.Users().GetCredential(ctx, user.ID)
-		if err != nil && !isNotFound(err) {
-			a.writeError(w, r, apierr.ErrInternal.WithCause(err))
-			return
-		}
-	}
-	if cred == nil {
-		// The work is equal for a known and an unknown address, so the response
-		// time does not disclose whether the account exists.
-		_, _, _ = crypto.VerifyPassword(req.Password, a.dummyPasswordHash())
-		a.emitter.Emit(ctx, events.SignInFailed, "", map[string]any{
-			"reason": "unknown_credential", "email_digest": crypto.HashToken(normalized)})
-		a.writeError(w, r, apierr.ErrInvalidCredentials)
-		return
-	}
-	ok, params, err := crypto.VerifyPassword(req.Password, cred.PasswordHash)
+	out, err := a.SignIn(ctx, SignInInput{
+		Email:    req.Email,
+		Password: req.Password,
+		ClientIP: a.clientIP(r),
+		// The route replaces the session that the request already carried, so
+		// a fixed token cannot survive the sign-in.
+		PreviousSessionToken: a.requestToken(r),
+	})
 	if err != nil {
-		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
+		a.writeRateLimited(w, r, err)
 		return
 	}
-	if !ok {
-		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{
-			"reason": "invalid_password", "email_digest": crypto.HashToken(normalized)})
-		a.writeError(w, r, apierr.ErrInvalidCredentials)
+	if out.MFARequired {
+		a.writeJSON(w, http.StatusOK, authResponse{MFARequired: true, MFAToken: out.MFAToken})
 		return
 	}
-	if user.DisabledAt != nil {
-		// The response names the disabled account only after a correct
-		// password, so it tells nothing to a caller without the password.
-		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{
-			"reason": "user_disabled", "email_digest": crypto.HashToken(normalized)})
-		a.writeError(w, r, apierr.ErrUserDisabled)
-		return
-	}
-	if a.cfg.emailPassword.RequireEmailVerification && user.EmailVerifiedAt == nil {
-		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{
-			"reason": "email_not_verified", "email_digest": crypto.HashToken(normalized)})
-		a.writeError(w, r, apierr.ErrEmailNotVerified)
-		return
-	}
-	if crypto.NeedsRehash(params, a.cfg.argon) {
-		if fresh, err := crypto.HashPassword(req.Password, a.cfg.argon); err == nil {
-			cred.PasswordHash = fresh
-			cred.UpdatedAt = a.cfg.now()
-			if err := a.cfg.store.Users().SetCredential(ctx, cred); err != nil {
-				a.cfg.logger.Error("authall: cannot rehash the password", "error", err.Error())
-			}
-		}
-	}
-	// The password is proven. A user with a live second factor receives a
-	// challenge instead of a session, so no cookie exists before the second
-	// proof.
-	challenge, required, err := a.mfaChallenge(ctx, user)
-	if err != nil {
-		a.writeError(w, r, err)
-		return
-	}
-	if required {
-		a.writeJSON(w, http.StatusOK, authResponse{MFARequired: true, MFAToken: challenge})
-		return
-	}
-	sess, err := a.issueSession(ctx, w, r, user, "email")
-	if err != nil {
-		a.writeError(w, r, err)
-		return
-	}
-	a.writeJSON(w, http.StatusOK, authResponse{User: a.toUserDTO(user), Session: toSessionDTO(sess)})
+	a.SetSessionCookie(w, out.Token, out.Session.ExpiresAt)
+	a.writeJSON(w, http.StatusOK, authResponse{User: a.toUserDTO(out.User), Session: toSessionDTO(out.Session)})
 }

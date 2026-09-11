@@ -7,6 +7,7 @@ export interface APIKey {
   id: string
   lastUsedAt?: string | null
   name: string
+  orgId?: string | null
   revokedAt?: string | null
   role: string
   start: string
@@ -25,6 +26,18 @@ export interface APIKeyListResponse {
 export interface AdminCreateUserResponse {
   temporaryPassword?: string
   user: AdminUser
+}
+
+export interface AdminOrganization {
+  createdAt: string
+  id: string
+  name: string
+  slug: string
+}
+
+export interface AdminOrganizationListResponse {
+  nextCursor?: string
+  organizations: AdminOrganization[]
 }
 
 export interface AdminPasswordResponse {
@@ -72,6 +85,26 @@ export interface ErrorResponse {
   }
 }
 
+export interface Invitation {
+  createdAt: string
+  email: string
+  expiresAt: string
+  id: string
+  orgId: string
+  role: string
+  status: string
+}
+
+export interface InvitationCreateResponse {
+  invitation: Invitation
+  token: string
+}
+
+export interface InvitationListResponse {
+  invitations: Invitation[]
+  nextCursor?: string
+}
+
 export interface LinkResponse {
   url: string
 }
@@ -80,8 +113,59 @@ export interface MagicLinkVerifyResponse {
   redirectTo: string
 }
 
+export interface MemberListResponse {
+  members: Membership[]
+  nextCursor?: string
+}
+
+export interface Membership {
+  id: string
+  joinedAt: string
+  orgId: string
+  role: string
+  status: string
+  userId: string
+}
+
+export interface MembershipResponse {
+  membership: Membership
+}
+
 export interface MessageResponse {
   message: string
+}
+
+export interface Organization {
+  createdAt: string
+  extra?: {
+  }
+  id: string
+  name: string
+  slug: string
+  updatedAt: string
+}
+
+export interface OrganizationListResponse {
+  nextCursor?: string
+  organizations: Organization[]
+}
+
+export interface OrganizationResponse {
+  organization: Organization
+}
+
+export interface OrganizationRole {
+  createdAt: string
+  name: string
+  permissions: string[]
+}
+
+export interface OrganizationRoleListResponse {
+  roles: OrganizationRole[]
+}
+
+export interface OrganizationRoleResponse {
+  role: OrganizationRole
 }
 
 export interface ProvidersResponse {
@@ -138,6 +222,22 @@ export interface TOTPEnrolResponse {
   uri: string
 }
 
+export interface Team {
+  createdAt: string
+  id: string
+  name: string
+  orgId: string
+  role?: string
+}
+
+export interface TeamListResponse {
+  teams: Team[]
+}
+
+export interface TeamResponse {
+  team: Team
+}
+
 export interface User {
   createdAt: string
   email: string
@@ -169,6 +269,7 @@ export interface AdminSetUserRoleBody {
 export interface CreateAPIKeyBody {
   expiresAt?: string | null
   name: string
+  orgId?: string
   role?: string
 }
 
@@ -198,6 +299,48 @@ export interface MagicLinkSendBody {
 export interface MagicLinkVerifyBody {
   callbackURL?: string
   token: string
+}
+
+export interface CreateOrganizationBody {
+  extra?: {
+  }
+  name: string
+  slug: string
+}
+
+export interface AcceptOrganizationInvitationBody {
+  token: string
+}
+
+export interface UpdateOrganizationBody {
+  extra?: {
+  }
+  name?: string
+  slug?: string
+}
+
+export interface CreateOrganizationInvitationBody {
+  email: string
+  role?: string
+}
+
+export interface UpdateOrganizationMemberBody {
+  role?: string
+  status?: string
+}
+
+export interface CreateOrganizationRoleBody {
+  name: string
+  permissions: string[]
+}
+
+export interface CreateOrganizationTeamBody {
+  name: string
+  role?: string
+}
+
+export interface AddOrganizationTeamMemberBody {
+  userId: string
 }
 
 export interface PasswordChangeBody {
@@ -378,10 +521,14 @@ export class AuthAllClient {
   readonly admin = {
     /** Create a user. */
     createUser: (body: AdminCreateUserBody): Promise<AdminCreateUserResponse> => this.http.request("POST", `/api/auth/admin/users`, body, undefined),
+    /** Delete one organization of the application. */
+    deleteOrganization: (id: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/admin/organizations/${id}`, undefined, undefined),
     /** Disable a user. */
     disableUser: (id: string): Promise<AdminUserResponse> => this.http.request("POST", `/api/auth/admin/users/${id}/disable`, undefined, undefined),
     /** Enable a user. */
     enableUser: (id: string): Promise<AdminUserResponse> => this.http.request("POST", `/api/auth/admin/users/${id}/enable`, undefined, undefined),
+    /** List every organization of the application. */
+    listOrganizations: (query: { cursor?: string; limit?: string } = {}): Promise<AdminOrganizationListResponse> => this.http.request("GET", `/api/auth/admin/organizations`, undefined, query),
     /** List the users. */
     listUsers: (): Promise<AdminUserListResponse> => this.http.request("GET", `/api/auth/admin/users`, undefined, undefined),
     /** Set a new password for a user. */
@@ -425,6 +572,53 @@ export class AuthAllClient {
     authorize: (provider: string, query: { redirect_to?: string } = {}): string => this.http.url(`/api/auth/oauth/${provider}`, query),
     /** Complete a provider sign-in. */
     callback: (provider: string, query: { code?: string; state?: string } = {}): string => this.http.url(`/api/auth/oauth/${provider}/callback`, query),
+  }
+
+  readonly organizations = {
+    /** Accept one invitation. */
+    acceptInvitation: (body: AcceptOrganizationInvitationBody): Promise<MembershipResponse> => this.http.request("POST", `/api/auth/organizations/invitations/accept`, body, undefined),
+    /** Put one member in one team. */
+    addTeamMember: (id: string, teamId: string, body: AddOrganizationTeamMemberBody): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/organizations/${id}/teams/${teamId}/members`, body, undefined),
+    /** End the active organization. */
+    clearActive: (): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/organizations/deactivate`, undefined, undefined),
+    /** Create an organization. */
+    create: (body: CreateOrganizationBody): Promise<OrganizationResponse> => this.http.request("POST", `/api/auth/organizations`, body, undefined),
+    /** Declare one custom role. */
+    createRole: (id: string, body: CreateOrganizationRoleBody): Promise<OrganizationRoleResponse> => this.http.request("POST", `/api/auth/organizations/${id}/roles`, body, undefined),
+    /** Create one team. */
+    createTeam: (id: string, body: CreateOrganizationTeamBody): Promise<TeamResponse> => this.http.request("POST", `/api/auth/organizations/${id}/teams`, body, undefined),
+    /** Delete one organization. */
+    delete: (id: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/organizations/${id}`, undefined, undefined),
+    /** Remove one custom role. */
+    deleteRole: (id: string, name: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/organizations/${id}/roles/${name}`, undefined, undefined),
+    /** Remove one team. */
+    deleteTeam: (id: string, teamId: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/organizations/${id}/teams/${teamId}`, undefined, undefined),
+    /** Read one organization. */
+    get: (id: string): Promise<OrganizationResponse> => this.http.request("GET", `/api/auth/organizations/${id}`, undefined, undefined),
+    /** Invite an address into one organization. */
+    invite: (id: string, body: CreateOrganizationInvitationBody): Promise<InvitationCreateResponse> => this.http.request("POST", `/api/auth/organizations/${id}/invitations`, body, undefined),
+    /** List the organizations of the caller. */
+    list: (): Promise<OrganizationListResponse> => this.http.request("GET", `/api/auth/organizations`, undefined, undefined),
+    /** List the invitations of one organization. */
+    listInvitations: (id: string): Promise<InvitationListResponse> => this.http.request("GET", `/api/auth/organizations/${id}/invitations`, undefined, undefined),
+    /** List the members of one organization. */
+    listMembers: (id: string): Promise<MemberListResponse> => this.http.request("GET", `/api/auth/organizations/${id}/members`, undefined, undefined),
+    /** List the custom roles of one organization. */
+    listRoles: (id: string): Promise<OrganizationRoleListResponse> => this.http.request("GET", `/api/auth/organizations/${id}/roles`, undefined, undefined),
+    /** List the teams of one organization. */
+    listTeams: (id: string): Promise<TeamListResponse> => this.http.request("GET", `/api/auth/organizations/${id}/teams`, undefined, undefined),
+    /** Remove one member. */
+    removeMember: (id: string, userId: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/organizations/${id}/members/${userId}`, undefined, undefined),
+    /** Take one member out of one team. */
+    removeTeamMember: (id: string, teamId: string, userId: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/organizations/${id}/teams/${teamId}/members/${userId}`, undefined, undefined),
+    /** Revoke one pending invitation. */
+    revokeInvitation: (id: string, invitationId: string): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/organizations/${id}/invitations/${invitationId}/revoke`, undefined, undefined),
+    /** Switch the active organization. */
+    setActive: (id: string): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/organizations/${id}/activate`, undefined, undefined),
+    /** Change the role or the status of one member. */
+    setMember: (id: string, userId: string, body: UpdateOrganizationMemberBody): Promise<MembershipResponse> => this.http.request("PATCH", `/api/auth/organizations/${id}/members/${userId}`, body, undefined),
+    /** Update one organization. */
+    update: (id: string, body: UpdateOrganizationBody): Promise<OrganizationResponse> => this.http.request("PATCH", `/api/auth/organizations/${id}`, body, undefined),
   }
 
   readonly password = {

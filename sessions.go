@@ -65,27 +65,29 @@ func (a *Auth) resolveSession(ctx context.Context, r *http.Request) (*store.Sess
 	if token == "" {
 		return nil, nil, nil
 	}
-	return a.lookupSession(ctx, crypto.HashToken(token))
+	sess, user, _, _, err := a.lookupSession(ctx, crypto.HashToken(token))
+	return sess, user, err
 }
 
-// lookupSession returns the valid session and user of one token hash. It reads
-// the credential row and the user row in one round trip when the store
-// implements store.SessionUserReader.
-func (a *Auth) lookupSession(ctx context.Context, tokenHash string) (*store.Session, *store.User, error) {
-	sess, user, err := a.readSessionAndUser(ctx, tokenHash)
+// lookupSession returns the valid session, user, active organization, and
+// membership of one token hash. It reads every row in one round trip when the
+// store implements store.SessionOrgReader.
+func (a *Auth) lookupSession(ctx context.Context, tokenHash string) (
+	*store.Session, *store.User, *store.Organization, *store.Membership, error) {
+	sess, user, org, member, err := a.readSessionAndUser(ctx, tokenHash)
 	if err != nil {
 		if isNotFound(err) {
-			return nil, nil, nil
+			return nil, nil, nil, nil, nil
 		}
-		return nil, nil, apierr.ErrInternal.WithCause(err)
+		return nil, nil, nil, nil, apierr.ErrInternal.WithCause(err)
 	}
 	if sess == nil {
-		return nil, nil, nil
+		return nil, nil, nil, nil, nil
 	}
 	if user != nil && user.DisabledAt != nil {
 		// A disabled user has no valid credential on any instance. The rows of
 		// the sessions are gone, so this is a second guard.
-		return nil, nil, nil
+		return nil, nil, nil, nil, nil
 	}
 	now := a.cfg.now()
 	// A session ends at the first of three deadlines. ExpiresAt carries the
@@ -97,7 +99,7 @@ func (a *Auth) lookupSession(ctx context.Context, tokenHash string) (*store.Sess
 		!now.Before(sess.LastSeenAt.Add(a.cfg.session.IdleTimeout)) {
 		// An expired session never authenticates. Remove it eagerly.
 		_ = a.cfg.store.Sessions().Delete(ctx, sess.ID)
-		return nil, nil, nil
+		return nil, nil, nil, nil, nil
 	}
 	if now.Sub(sess.LastSeenAt) >= a.cfg.session.TouchInterval {
 		// A revoked session returns ErrNotFound here, so a stale write cannot
@@ -106,37 +108,52 @@ func (a *Auth) lookupSession(ctx context.Context, tokenHash string) (*store.Sess
 			sess.LastSeenAt = now
 		}
 	}
-	return sess, user, nil
+	return sess, user, org, member, nil
 }
 
-// readSessionAndUser returns the session row and the user row of one token
-// hash. It returns nil values when no session matches.
-func (a *Auth) readSessionAndUser(ctx context.Context, tokenHash string) (*store.Session, *store.User, error) {
+// readSessionAndUser returns the session row, the user row, the active
+// organization, and the membership of one token hash. It returns nil values
+// when no session matches.
+//
+// The read costs one round trip when the store implements
+// store.SessionOrgReader, and the organizations plugin needs the membership.
+func (a *Auth) readSessionAndUser(ctx context.Context, tokenHash string) (
+	*store.Session, *store.User, *store.Organization, *store.Membership, error) {
+	if joined, ok := a.cfg.store.(store.SessionOrgReader); ok && a.organizations {
+		sess, user, org, member, err := joined.SessionWithUserAndMembership(ctx, tokenHash)
+		if err != nil {
+			if isNotFound(err) {
+				return nil, nil, nil, nil, nil
+			}
+			return nil, nil, nil, nil, apierr.ErrInternal.WithCause(err)
+		}
+		return sess, user, org, member, nil
+	}
 	if joined, ok := a.cfg.store.(store.SessionUserReader); ok {
 		sess, user, err := joined.SessionWithUser(ctx, tokenHash)
 		if err != nil {
 			if isNotFound(err) {
-				return nil, nil, nil
+				return nil, nil, nil, nil, nil
 			}
-			return nil, nil, apierr.ErrInternal.WithCause(err)
+			return nil, nil, nil, nil, apierr.ErrInternal.WithCause(err)
 		}
-		return sess, user, nil
+		return sess, user, nil, nil, nil
 	}
 	sess, err := a.cfg.store.Sessions().GetByTokenHash(ctx, tokenHash)
 	if err != nil {
 		if isNotFound(err) {
-			return nil, nil, nil
+			return nil, nil, nil, nil, nil
 		}
-		return nil, nil, apierr.ErrInternal.WithCause(err)
+		return nil, nil, nil, nil, apierr.ErrInternal.WithCause(err)
 	}
 	user, err := a.cfg.store.Users().GetByID(ctx, sess.UserID)
 	if err != nil {
 		if isNotFound(err) {
-			return nil, nil, nil
+			return nil, nil, nil, nil, nil
 		}
-		return nil, nil, apierr.ErrInternal.WithCause(err)
+		return nil, nil, nil, nil, apierr.ErrInternal.WithCause(err)
 	}
-	return sess, user, nil
+	return sess, user, nil, nil, nil
 }
 
 // issueSession creates a session for a user and writes the session cookie.
@@ -145,16 +162,34 @@ func (a *Auth) readSessionAndUser(ctx context.Context, tokenHash string) (*store
 // the hash. Any session that the request already carried is revoked first, so a
 // fixed token cannot survive authentication.
 func (a *Auth) issueSession(ctx context.Context, w http.ResponseWriter, r *http.Request, user *store.User, method string) (*store.Session, error) {
+	previous := ""
 	if r != nil {
-		if old := a.requestToken(r); old != "" {
-			if prev, err := a.cfg.store.Sessions().GetByTokenHash(ctx, crypto.HashToken(old)); err == nil {
-				_ = a.cfg.store.Sessions().Delete(ctx, prev.ID)
-			}
+		previous = a.requestToken(r)
+	}
+	sess, token, err := a.createSession(ctx, user, method, previous)
+	if err != nil {
+		return nil, err
+	}
+	if w != nil {
+		http.SetCookie(w, a.sessionCookie(token, sess.ExpiresAt))
+	}
+	return sess, nil
+}
+
+// createSession creates a session for a user and returns the plaintext token.
+//
+// A session token exists in plaintext only in this return value. The database
+// keeps the hash. The session of previousToken is revoked first, so a fixed
+// token cannot survive authentication.
+func (a *Auth) createSession(ctx context.Context, user *store.User, method, previousToken string) (*store.Session, string, error) {
+	if previousToken != "" {
+		if prev, err := a.cfg.store.Sessions().GetByTokenHash(ctx, crypto.HashToken(previousToken)); err == nil {
+			_ = a.cfg.store.Sessions().Delete(ctx, prev.ID)
 		}
 	}
 	token, err := crypto.NewToken()
 	if err != nil {
-		return nil, apierr.ErrInternal.WithCause(err)
+		return nil, "", apierr.ErrInternal.WithCause(err)
 	}
 	now := a.cfg.now()
 	sess := &store.Session{
@@ -174,16 +209,13 @@ func (a *Auth) issueSession(ctx context.Context, w http.ResponseWriter, r *http.
 		return tx.Sessions().Create(ctx, sess)
 	})
 	if err != nil {
-		return nil, publicError(err)
+		return nil, "", publicError(err)
 	}
 	ev.Tx = nil
 	a.hooks.RunAfterSessionCreate(ctx, ev)
 	a.hooks.RunAfterSignIn(ctx, &hook.SignIn{User: user, Session: sess, Method: method})
 	a.emitter.Emit(ctx, events.SignIn, user.ID, map[string]any{"method": method, "session_id": sess.ID})
-	if w != nil {
-		http.SetCookie(w, a.sessionCookie(token, sess.ExpiresAt))
-	}
-	return sess, nil
+	return sess, token, nil
 }
 
 // publicError maps an internal error to the public contract without leaking

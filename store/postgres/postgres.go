@@ -21,6 +21,7 @@ var dialect = sqlstore.Dialect{
 	NumberedPlaceholders: true,
 	TextTime:             false,
 	IsUniqueViolation:    isUniqueViolation,
+	StringAgg:            func(expr, sep string) string { return "string_agg(" + expr + ", '" + sep + "')" },
 }
 
 // New returns a PostgreSQL store over an application-owned database handle.

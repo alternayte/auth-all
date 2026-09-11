@@ -16,7 +16,12 @@ type APIKey struct {
 	KeyHash string
 	// Role is the role of the key at creation. The effective role is the lower
 	// of this role and the current role of the owner.
-	Role       string
+	Role string
+	// OrgID names the organization of the key. A nil value means a key of the
+	// whole application. The permissions of an organization key are the
+	// intersection of the key permissions and the live permissions of the
+	// owner in that organization.
+	OrgID      *string
 	CreatedAt  time.Time
 	ExpiresAt  *time.Time
 	LastUsedAt *time.Time

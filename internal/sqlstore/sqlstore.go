@@ -29,6 +29,10 @@ type Dialect struct {
 	TextTime bool
 	// IsUniqueViolation reports whether err is a uniqueness constraint failure.
 	IsUniqueViolation func(err error) bool
+	// StringAgg returns the aggregate expression that joins the values of one
+	// column with a separator. PostgreSQL uses string_agg and SQLite uses
+	// group_concat.
+	StringAgg func(expr, separator string) string
 }
 
 type execer interface {
@@ -46,11 +50,16 @@ type Store struct {
 	n schema.Names
 	// fields hold the host-owned columns of the users table.
 	fields []schema.UserField
+	// on holds the physical organization table names.
+	on schema.OrganizationNames
+	// orgFields hold the host-owned columns of the organizations table.
+	orgFields []schema.UserField
 }
 
 // New returns a store over db.
 func New(db *sql.DB, d Dialect) *Store {
-	return &Store{db: db, ex: db, d: d, n: schema.DefaultNames()}
+	return &Store{db: db, ex: db, d: d, n: schema.DefaultNames(),
+		on: schema.OrgTableNames(schema.DefaultOptions())}
 }
 
 // UseSchema implements store.SchemaConfigurable. It sets the physical table
@@ -61,7 +70,9 @@ func (s *Store) UseSchema(o schema.Options) error {
 		return err
 	}
 	s.n = schema.TableNames(o)
+	s.on = schema.OrgTableNames(o)
 	s.fields = append([]schema.UserField(nil), o.UserFields...)
+	s.orgFields = append([]schema.UserField(nil), o.OrgFields...)
 	return nil
 }
 
@@ -133,7 +144,8 @@ func (s *Store) Transaction(ctx context.Context, fn func(store.Store) error) err
 	if err != nil {
 		return err
 	}
-	txStore := &Store{db: s.db, ex: tx, d: s.d, n: s.n, fields: s.fields}
+	txStore := &Store{db: s.db, ex: tx, d: s.d, n: s.n, fields: s.fields,
+		on: s.on, orgFields: s.orgFields}
 	if err := fn(txStore); err != nil {
 		_ = tx.Rollback()
 		return err

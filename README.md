@@ -105,6 +105,10 @@ go run github.com/alternayte/auth-all/cmd/auth-all migrate \
   callback.
 - Authorization through an ordered role hierarchy. A route asks for a minimum
   role. A role that the configuration does not name ranks below every role.
+- Organizations with fine-grained permissions. A person belongs to many
+  organizations, a membership carries a role, and a route asks for a
+  permission of the form `resource:action`. The check runs in the process and
+  needs no round trip.
 - Machine access through API keys. One key carries 32 random bytes, the store
   keeps the digest, and the current owner role always caps the key role.
 - User administration with a temporary password, a disable that revokes every
@@ -144,6 +148,10 @@ go run github.com/alternayte/auth-all/cmd/auth-all migrate \
 | [Account linking](docs/guides/account-linking.md) | The linking policy and its threats. |
 | [Roles](docs/guides/roles.md) | The role hierarchy and the route checks. |
 | [API keys](docs/guides/api-keys.md) | Machine credentials and their limits. |
+| [Organizations](docs/guides/organizations.md) | Organizations, members, and the active organization. |
+| [Permissions](docs/guides/permissions.md) | The statements, the roles, the custom roles, and the teams. |
+| [Invitations](docs/guides/invitations.md) | The invitation token, the acceptance, and the message. |
+| [External policy](docs/guides/external-policy.md) | The per-object boundary and the ObjectChecker seam. |
 | [User administration](docs/guides/admin.md) | The administrative routes and the operator methods. |
 | [Bootstrap](docs/guides/bootstrap.md) | The first administrator and the CLI user commands. |
 | [Rate limits](docs/guides/rate-limits.md) | The rules and the store-backed limiter. |

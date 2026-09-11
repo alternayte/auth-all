@@ -18,6 +18,7 @@ type keyDTO struct {
 	Name       string     `json:"name"`
 	Start      string     `json:"start"`
 	Role       string     `json:"role"`
+	OrgID      *string    `json:"orgId"`
 	CreatedAt  time.Time  `json:"createdAt"`
 	ExpiresAt  *time.Time `json:"expiresAt"`
 	LastUsedAt *time.Time `json:"lastUsedAt"`
@@ -35,6 +36,9 @@ type createRequest struct {
 	Role string `json:"role"`
 	// ExpiresAt ends the key. A nil value means no expiry.
 	ExpiresAt *time.Time `json:"expiresAt"`
+	// OrgID names the organization of the key. An empty value creates a key of
+	// the whole application.
+	OrgID string `json:"orgId"`
 }
 
 // createResponse carries the plaintext key one time.
@@ -47,7 +51,7 @@ type createResponse struct {
 func toDTO(k *store.APIKey) keyDTO {
 	return keyDTO{
 		ID: k.ID, UserID: k.UserID, Name: k.Name, Start: k.Start, Role: k.Role,
-		CreatedAt: k.CreatedAt, ExpiresAt: k.ExpiresAt,
+		OrgID: k.OrgID, CreatedAt: k.CreatedAt, ExpiresAt: k.ExpiresAt,
 		LastUsedAt: k.LastUsedAt, RevokedAt: k.RevokedAt,
 	}
 }
@@ -67,6 +71,7 @@ func (p *Plugin) registerRoutes(r *plugin.Registry) {
 				"name":      openapi.String(),
 				"role":      openapi.String(),
 				"expiresAt": {Type: "string", Format: "date-time", Nullable: true},
+				"orgId":     openapi.String(),
 			})),
 			openapi.Ref("APIKeyCreateResponse"), "createKey", "400"),
 	})
@@ -177,7 +182,8 @@ func (p *Plugin) handleCreate(w http.ResponseWriter, r *http.Request, principal 
 		return
 	}
 	key, plaintext, err := p.Create(r.Context(), principal.User, CreateInput{
-		UserID: principal.User.ID, Name: req.Name, Role: req.Role, ExpiresAt: req.ExpiresAt,
+		UserID: principal.User.ID, Name: req.Name, Role: req.Role,
+		ExpiresAt: req.ExpiresAt, OrgID: req.OrgID,
 	})
 	if err != nil {
 		p.writeError(w, r, err)

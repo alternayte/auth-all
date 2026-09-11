@@ -55,6 +55,14 @@ type Principal struct {
 	Role string
 	// Method names the authentication method, for example "api_key".
 	Method string
+	// Organization is the active organization of the request. It is nil when
+	// no organization is active.
+	Organization *store.Organization
+	// Membership is the membership of the active organization. It is nil when
+	// no organization is active. Its Permissions field holds the statements
+	// that the credential read resolved, for a custom role and for every team
+	// role of the member.
+	Membership *store.Membership
 }
 
 // CredentialResolver turns a bearer value into a principal. A plugin registers

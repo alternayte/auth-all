@@ -58,6 +58,9 @@ type Auth struct {
 	// crossOrigin refuses an unsafe cross-site request on a host route. It is
 	// nil when the host turned the check off.
 	crossOrigin *http.CrossOriginProtection
+	// organizations reports whether the organizations plugin is enabled. The
+	// credential read then loads the active organization and the membership.
+	organizations bool
 	// roleHierarchy names the configured roles from the lowest to the highest.
 	// It is nil until the roles plugin installs it.
 	roleHierarchy []string

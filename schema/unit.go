@@ -103,6 +103,25 @@ func TableUnit(version, owner, name string, d []Dialect, tables []Table) (Unit, 
 	return u, nil
 }
 
+// ExtensionUnit returns one unit that adds the columns and the indexes of the
+// given extensions. A plugin uses it for a column on a table that another
+// owner declared.
+func ExtensionUnit(version, owner, name string, d []Dialect, extensions []Extension) (Unit, error) {
+	u := Unit{Version: version, Owner: owner, Name: name,
+		Up: map[Dialect][]Statement{}, Down: map[Dialect][]Statement{}}
+	for _, dialect := range d {
+		for _, e := range extensions {
+			up, err := renderExtension(dialect, e)
+			if err != nil {
+				return Unit{}, err
+			}
+			u.Up[dialect] = append(u.Up[dialect], up...)
+			u.Down[dialect] = append(u.Down[dialect], dropExtension(e)...)
+		}
+	}
+	return u, nil
+}
+
 // renderTables returns the create statements of the tables and their indexes.
 func renderTables(d Dialect, tables []Table) ([]Statement, error) {
 	if d != Postgres && d != SQLite {

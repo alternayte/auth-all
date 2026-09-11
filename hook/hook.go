@@ -96,6 +96,10 @@ type (
 	BeforeUserCreateFunc func(ctx context.Context, ev *UserCreate) error
 	// AfterUserCreateFunc runs after commit.
 	AfterUserCreateFunc func(ctx context.Context, ev *UserCreate) error
+	// AfterUserInsertFunc runs in the transaction of the creation, after the
+	// user row exists. A hook that writes a row with a foreign key to the user
+	// needs this point, and it can still reject the creation.
+	AfterUserInsertFunc func(ctx context.Context, ev *UserCreate) error
 	// BeforeSessionCreateFunc runs in the transaction and can reject.
 	BeforeSessionCreateFunc func(ctx context.Context, ev *SessionCreate) error
 	// AfterSessionCreateFunc runs after commit.
@@ -128,6 +132,7 @@ type Hooks struct {
 
 	beforeUserCreate    []BeforeUserCreateFunc
 	afterUserCreate     []AfterUserCreateFunc
+	afterUserInsert     []AfterUserInsertFunc
 	beforeSessionCreate []BeforeSessionCreateFunc
 	afterSessionCreate  []AfterSessionCreateFunc
 	afterSignIn         []AfterSignInFunc
@@ -140,6 +145,14 @@ type Hooks struct {
 	afterRoleChange     []AfterRoleChangeFunc
 	afterAPIKeyCreate   []AfterAPIKeyCreateFunc
 	afterAPIKeyRevoke   []AfterAPIKeyRevokeFunc
+	beforeOrgCreate     []BeforeOrganizationCreateFunc
+	afterOrgCreate      []AfterOrganizationCreateFunc
+	beforeOrgUpdate     []BeforeOrganizationUpdateFunc
+	afterOrgUpdate      []AfterOrganizationUpdateFunc
+	beforeOrgDelete     []BeforeOrganizationDeleteFunc
+	afterOrgDelete      []AfterOrganizationDeleteFunc
+	beforeMembership    []BeforeMembershipChangeFunc
+	afterMembership     []AfterMembershipChangeFunc
 
 	onError func(ctx context.Context, name string, err error)
 }
@@ -161,6 +174,27 @@ func (h *Hooks) OnAfterUserCreate(fn AfterUserCreateFunc) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.afterUserCreate = append(h.afterUserCreate, fn)
+}
+
+// OnAfterUserInsert registers a hook that runs in the transaction of the
+// creation, after the user row exists. It can reject the creation.
+func (h *Hooks) OnAfterUserInsert(fn AfterUserInsertFunc) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.afterUserInsert = append(h.afterUserInsert, fn)
+}
+
+// RunAfterUserInsert runs the registered hooks and stops at the first error.
+func (h *Hooks) RunAfterUserInsert(ctx context.Context, ev *UserCreate) error {
+	h.mu.RLock()
+	fns := append([]AfterUserInsertFunc(nil), h.afterUserInsert...)
+	h.mu.RUnlock()
+	for _, fn := range fns {
+		if err := fn(ctx, ev); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // OnBeforeSessionCreate registers a hook that runs in the transaction and can reject.

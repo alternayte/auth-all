@@ -62,8 +62,38 @@ var nextEndpoints = []struct{ Method, Path string }{
 	{"POST", "/api/auth/api-keys/{id}/revoke"},
 }
 
+// organizationEndpoints are the routes that the v0.4.0 release adds. The
+// reference configuration enables the organizations plugin that serves them.
+var organizationEndpoints = []struct{ Method, Path string }{
+	{"GET", "/api/auth/organizations"},
+	{"POST", "/api/auth/organizations"},
+	{"GET", "/api/auth/organizations/{id}"},
+	{"PATCH", "/api/auth/organizations/{id}"},
+	{"DELETE", "/api/auth/organizations/{id}"},
+	{"GET", "/api/auth/organizations/{id}/members"},
+	{"PATCH", "/api/auth/organizations/{id}/members/{userId}"},
+	{"DELETE", "/api/auth/organizations/{id}/members/{userId}"},
+	{"POST", "/api/auth/organizations/{id}/activate"},
+	{"POST", "/api/auth/organizations/deactivate"},
+	{"GET", "/api/auth/organizations/{id}/invitations"},
+	{"POST", "/api/auth/organizations/{id}/invitations"},
+	{"POST", "/api/auth/organizations/{id}/invitations/{invitationId}/revoke"},
+	{"POST", "/api/auth/organizations/invitations/accept"},
+	{"GET", "/api/auth/organizations/{id}/roles"},
+	{"POST", "/api/auth/organizations/{id}/roles"},
+	{"DELETE", "/api/auth/organizations/{id}/roles/{name}"},
+	{"GET", "/api/auth/organizations/{id}/teams"},
+	{"POST", "/api/auth/organizations/{id}/teams"},
+	{"DELETE", "/api/auth/organizations/{id}/teams/{teamId}"},
+	{"POST", "/api/auth/organizations/{id}/teams/{teamId}/members"},
+	{"DELETE", "/api/auth/organizations/{id}/teams/{teamId}/members/{userId}"},
+	{"GET", "/api/auth/admin/organizations"},
+	{"DELETE", "/api/auth/admin/organizations/{id}"},
+}
+
 // allEndpoints is the complete normative endpoint set.
-var allEndpoints = append(append([]struct{ Method, Path string }{}, v1Endpoints...), nextEndpoints...)
+var allEndpoints = append(append(append([]struct{ Method, Path string }{},
+	v1Endpoints...), nextEndpoints...), organizationEndpoints...)
 
 // TestAPI001OpenAPICompleteness covers API-001.
 func TestAPI001OpenAPICompleteness(t *testing.T) {

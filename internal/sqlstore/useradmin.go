@@ -148,3 +148,16 @@ func (s *Store) InsertRow(ctx context.Context, table string, columns []string, v
 	_, err := s.exec(ctx, query, values...)
 	return s.mapErr(err)
 }
+
+// DeleteRows implements store.RowDeleter.
+func (s *Store) DeleteRows(ctx context.Context, table, column string, value any) (int, error) {
+	result, err := s.exec(ctx, "DELETE FROM "+table+" WHERE "+column+" = ?", value)
+	if err != nil {
+		return 0, s.mapErr(err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(affected), nil
+}

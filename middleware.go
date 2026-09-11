@@ -3,6 +3,7 @@ package authall
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/alternayte/auth-all/apierr"
 	"github.com/alternayte/auth-all/store"
@@ -118,5 +119,21 @@ func (a *Auth) checkHostOrigin(r *http.Request, p *Principal) error {
 	if err := a.crossOrigin.Check(r); err != nil {
 		return apierr.ErrOriginNotAllowed.WithCause(err)
 	}
+	// The standard check passes a request that names no origin, because a
+	// client that is not a browser sends neither header. Strict mode refuses
+	// it, because this request carries the session cookie.
+	if a.cfg.strictOriginCheck && !isSafeMethod(r.Method) &&
+		strings.TrimSpace(r.Header.Get("Origin")) == "" && !strictOriginOK(r) {
+		return apierr.ErrOriginNotAllowed
+	}
 	return nil
+}
+
+// isSafeMethod reports whether a method changes no state.
+func isSafeMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	}
+	return false
 }

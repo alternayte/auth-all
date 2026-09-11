@@ -9,6 +9,7 @@ import (
 	"github.com/alternayte/auth-all/internal/crypto"
 	"github.com/alternayte/auth-all/plugin"
 	"github.com/alternayte/auth-all/schema"
+	"github.com/alternayte/auth-all/store"
 )
 
 // roleService reads the configured hierarchy. The roles plugin installs it.
@@ -125,4 +126,15 @@ func (s *services) HashPassword(password string) (string, error) {
 		return "", apierr.ErrInternal.WithCause(err)
 	}
 	return hash, nil
+}
+
+// EnableOrganizations implements plugin.OrganizationConfigurator. The
+// credential read then loads the active organization and the membership in the
+// same round trip.
+func (s *services) EnableOrganizations() error {
+	if _, ok := s.auth.cfg.store.(store.SessionOrgReader); !ok {
+		return fmt.Errorf("authall: the configured store cannot read a membership with a session")
+	}
+	s.auth.organizations = true
+	return nil
 }

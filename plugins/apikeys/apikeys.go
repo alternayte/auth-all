@@ -55,6 +55,10 @@ const startRandomChars = 4
 // unitVersion is the version of the migration unit of the key table.
 const unitVersion = "20260910000002"
 
+// orgColumnVersion is the version of the unit that adds the organization
+// column. The column is nullable, so the unit applies to a database with rows.
+const orgColumnVersion = "20261101000007"
+
 // prefixPattern is the accepted form of a key prefix.
 var prefixPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{1,15}$`)
 
@@ -65,6 +69,7 @@ type Plugin struct {
 	requireExpiry bool
 	touchInterval time.Duration
 	adminRole     string
+	organizations OrganizationResolver
 
 	svc           plugin.Services
 	roles         plugin.RoleService
@@ -76,8 +81,33 @@ type Plugin struct {
 	schemaOptions schema.Options
 }
 
+// OrganizationResolver answers the organization credential of one key. The
+// organizations plugin implements it.
+//
+// The permissions of an organization key are the intersection of the key
+// permissions and the live permissions of the owner in that organization, so a
+// demoted member keeps no stronger key.
+type OrganizationResolver interface {
+	// KeyCredential returns the organization, the membership, and the
+	// effective statements of one key. It returns an error when the owner
+	// holds no active membership of that organization.
+	KeyCredential(ctx context.Context, orgID, ownerID, keyRole string) (
+		*store.Organization, *store.Membership, []string, error)
+	// KnownRole reports whether the organization holds the role.
+	KnownRole(ctx context.Context, orgID, role string) (bool, error)
+}
+
 // Option configures the plugin.
 type Option func(*Plugin)
+
+// Organizations lets a key name an organization. The value is the
+// organizations plugin.
+//
+//	orgs := organizations.New(...)
+//	keys := apikeys.New(apikeys.Organizations(orgs))
+func Organizations(r OrganizationResolver) Option {
+	return func(p *Plugin) { p.organizations = r }
+}
 
 // Prefix starts every generated key. The default is ak_.
 func Prefix(value string) Option { return func(p *Plugin) { p.prefix = value } }
@@ -162,7 +192,13 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 		return err
 	}
 	r.Unit(unit)
+	orgUnit, err := orgColumnUnit(p.schemaOptions)
+	if err != nil {
+		return err
+	}
+	r.Unit(orgUnit)
 	r.Resolver(p)
+	p.registerOrganizationCleanup(r)
 
 	registerSchemas(r)
 	p.registerRoutes(r)
@@ -192,6 +228,9 @@ func Table(o schema.Options) schema.Table {
 			{Name: "last_used_at", Type: schema.TypeTimestamp, Nullable: true},
 			{Name: "revoked_at", Type: schema.TypeTimestamp, Nullable: true},
 			{Name: "revoked_by", Type: id, Nullable: true},
+			// The organization of the key. A null value means a key of the
+			// whole application.
+			{Name: "org_id", Type: id, Nullable: true},
 		},
 		Indexes: []schema.Index{
 			{Name: o.Name("apikeys_key_hash_key"), Columns: []string{"key_hash"}, Unique: true},
@@ -203,10 +242,34 @@ func Table(o schema.Options) schema.Table {
 	}
 }
 
-// unitOf returns the migration unit of the key table.
+// unitOf returns the migration unit of the key table. The unit holds the
+// columns of the v0.3.0 release, and it never changes.
 func unitOf(o schema.Options) (schema.Unit, error) {
+	table := Table(o)
+	// The released unit creates the v0.3.0 columns only. The organization
+	// column arrives in its own unit.
+	table.Columns = table.Columns[:len(table.Columns)-1]
 	return schema.TableUnit(unitVersion, ID, "authall_apikeys",
-		[]schema.Dialect{schema.Postgres, schema.SQLite}, []schema.Table{Table(o)})
+		[]schema.Dialect{schema.Postgres, schema.SQLite}, []schema.Table{table})
+}
+
+// orgColumnExtension returns the organization column of the key table.
+func orgColumnExtension(o schema.Options) schema.Extension {
+	n := schema.TableNames(o)
+	id := schema.TypeText
+	if o.IDType == schema.IDUUID {
+		id = schema.TypeUUID
+	}
+	return schema.Extension{
+		Table:   n.APIKeys,
+		Columns: []schema.Column{{Name: "org_id", Type: id, Nullable: true}},
+	}
+}
+
+// orgColumnUnit returns the unit that adds the organization column.
+func orgColumnUnit(o schema.Options) (schema.Unit, error) {
+	return schema.ExtensionUnit(orgColumnVersion, ID, "authall_apikeys_org_column",
+		[]schema.Dialect{schema.Postgres, schema.SQLite}, []schema.Extension{orgColumnExtension(o)})
 }
 
 // Claims implements plugin.CredentialResolver. It reads the shape of the value
@@ -239,8 +302,27 @@ func (p *Plugin) Resolve(ctx context.Context, bearer string) (*plugin.Principal,
 	if p.roles.Rank(ownerRole) < p.roles.Rank(role) {
 		role = ownerRole
 	}
+	principal := &plugin.Principal{User: user, APIKey: key, Role: role, Method: "api_key"}
+	if key.OrgID != nil && *key.OrgID != "" {
+		if p.organizations == nil {
+			// The key names an organization that this instance cannot resolve,
+			// so it authenticates nothing. Default deny.
+			return nil, apierr.ErrUnauthorized
+		}
+		org, member, permissions, err := p.organizations.KeyCredential(ctx, *key.OrgID, user.ID, key.Role)
+		if err != nil {
+			// A key of an organization that the owner left never
+			// authenticates.
+			return nil, apierr.ErrUnauthorized
+		}
+		// The membership carries the effective statements of the key, which are
+		// the intersection with the live permissions of the owner.
+		member.Permissions = strings.Join(permissions, " ")
+		principal.Organization = org
+		principal.Membership = member
+	}
 	p.touch(ctx, key, now)
-	return &plugin.Principal{User: user, APIKey: key, Role: role, Method: "api_key"}, nil
+	return principal, nil
 }
 
 // touch writes the last use time at most once for each interval.
@@ -271,6 +353,9 @@ type CreateInput struct {
 	Role string
 	// ExpiresAt ends the key. A nil value means no expiry.
 	ExpiresAt *time.Time
+	// OrgID names the organization of the key. An empty value creates a key of
+	// the whole application.
+	OrgID string
 }
 
 // Create returns a new key and its plaintext value. The plaintext exists only
@@ -294,15 +379,35 @@ func (p *Plugin) Create(ctx context.Context, owner *store.User, in CreateInput) 
 		}
 	}
 	role := in.Role
-	if role == "" {
-		role = p.roleOf(owner)
-	}
-	if p.roles.Rank(role) < 0 {
-		return nil, "", apierr.ErrRoleUnknown
-	}
-	if p.roles.Rank(role) > p.roles.Rank(p.roleOf(owner)) {
-		// A key never has more power than its owner.
-		return nil, "", apierr.ErrRoleNotAllowed
+	if in.OrgID != "" {
+		if p.organizations == nil {
+			return nil, "", apierr.ErrInvalidRequest.WithMessage("This application holds no organization.")
+		}
+		// The owner must hold an active membership of that organization. The
+		// resolver refuses every other case.
+		if _, _, _, err := p.organizations.KeyCredential(ctx, in.OrgID, owner.ID, role); err != nil {
+			return nil, "", err
+		}
+		if role != "" {
+			known, err := p.organizations.KnownRole(ctx, in.OrgID, role)
+			if err != nil {
+				return nil, "", err
+			}
+			if !known {
+				return nil, "", apierr.ErrRoleUnknown
+			}
+		}
+	} else {
+		if role == "" {
+			role = p.roleOf(owner)
+		}
+		if p.roles.Rank(role) < 0 {
+			return nil, "", apierr.ErrRoleUnknown
+		}
+		if p.roles.Rank(role) > p.roles.Rank(p.roleOf(owner)) {
+			// A key never has more power than its owner.
+			return nil, "", apierr.ErrRoleNotAllowed
+		}
 	}
 	plaintext, err := newKey(p.prefix)
 	if err != nil {
@@ -317,6 +422,10 @@ func (p *Plugin) Create(ctx context.Context, owner *store.User, in CreateInput) 
 		Role:      role,
 		CreatedAt: now,
 		ExpiresAt: in.ExpiresAt,
+	}
+	if in.OrgID != "" {
+		orgID := in.OrgID
+		key.OrgID = &orgID
 	}
 	if err := p.keys.CreateAPIKey(ctx, key); err != nil {
 		return nil, "", apierr.ErrInternal.WithCause(err)
@@ -415,6 +524,7 @@ func registerSchemas(r *plugin.Registry) {
 			"expiresAt":  {Type: "string", Format: "date-time", Nullable: true},
 			"lastUsedAt": {Type: "string", Format: "date-time", Nullable: true},
 			"revokedAt":  {Type: "string", Format: "date-time", Nullable: true},
+			"orgId":      {Type: "string", Nullable: true},
 		})
 	r.OpenAPISchema("APIKey", key)
 	r.OpenAPISchema("APIKeyListResponse", openapi.Object([]string{"keys"},
@@ -430,3 +540,23 @@ func registerSchemas(r *plugin.Registry) {
 // NewPlaintextKey returns one plaintext key with the given prefix. A test uses
 // it to check the shape of a key with no database.
 func NewPlaintextKey(prefix string) (string, error) { return newKey(prefix) }
+
+// registerOrganizationCleanup removes the keys of one organization in the
+// transaction of its deletion.
+//
+// The application deletes its own rows in the same transaction, so no orphan
+// survives. The hook runs only when the host wired the organizations plugin.
+func (p *Plugin) registerOrganizationCleanup(r *plugin.Registry) {
+	if p.organizations == nil {
+		return
+	}
+	table := schema.TableNames(p.schemaOptions).APIKeys
+	r.Hooks().OnBeforeOrganizationDelete(func(ctx context.Context, ev *hook.OrganizationEvent) error {
+		deleter, ok := ev.Tx.(store.RowDeleter)
+		if !ok {
+			return errors.New("authall/apikeys: the configured store cannot remove the keys of an organization")
+		}
+		_, err := deleter.DeleteRows(ctx, table, "org_id", ev.Org.ID)
+		return err
+	})
+}

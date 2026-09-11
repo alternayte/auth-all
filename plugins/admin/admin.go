@@ -39,6 +39,9 @@ const temporaryPasswordLength = 20
 // Plugin is the admin plugin.
 type Plugin struct {
 	adminRole string
+	// organizations serves the administrative organization routes. It is nil
+	// when the host wired no organizations plugin.
+	organizations OrganizationService
 
 	svc        plugin.Services
 	roles      plugin.RoleService
@@ -121,6 +124,7 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 
 	registerSchemas(r)
 	p.registerRoutes(r)
+	p.registerOrganizationRoutes(r)
 	return nil
 }
 

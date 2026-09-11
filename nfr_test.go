@@ -231,6 +231,8 @@ func TestNFR007EveryNewPluginHasAGuide(t *testing.T) {
 	for _, name := range []string{
 		"roles.md", "api-keys.md", "admin.md", "bootstrap.md",
 		"rate-limits.md", "host-migrations.md", "huma.md",
+		// The guides of the v0.4.0 release.
+		"organizations.md", "permissions.md", "invitations.md", "external-policy.md",
 	} {
 		info, err := os.Stat(filepath.Join("docs", "guides", name))
 		if err != nil {

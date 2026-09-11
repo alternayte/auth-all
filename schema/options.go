@@ -48,6 +48,9 @@ type Options struct {
 	IDType IDType
 	// UserFields are host-owned columns on the users table.
 	UserFields []UserField
+	// OrgFields are host-owned columns on the organizations table. They apply
+	// only when the organizations plugin is enabled.
+	OrgFields []UserField
 }
 
 // DefaultOptions returns the v1 physical schema.
@@ -88,6 +91,27 @@ func (o Options) Normalize() (Options, error) {
 			return Options{}, fmt.Errorf("authall/schema: the user field %q has the unsupported type %q", f.Name, f.Type)
 		}
 		seen[f.Name] = true
+	}
+	orgSeen := map[string]bool{}
+	for _, f := range o.OrgFields {
+		if f.Name == "" {
+			return Options{}, fmt.Errorf("authall/schema: an organization field has an empty name")
+		}
+		if !prefixPattern.MatchString(f.Name) {
+			return Options{}, fmt.Errorf("authall/schema: the organization field %q must match %s", f.Name, prefixPattern)
+		}
+		if orgSeen[f.Name] {
+			return Options{}, fmt.Errorf("authall/schema: the organization field %q is declared twice", f.Name)
+		}
+		if reservedOrgColumns[f.Name] {
+			return Options{}, fmt.Errorf("authall/schema: the organization field %q is an Auth-All column", f.Name)
+		}
+		switch f.Type {
+		case TypeText, TypeTimestamp, TypeInt, TypeBool:
+		default:
+			return Options{}, fmt.Errorf("authall/schema: the organization field %q has the unsupported type %q", f.Name, f.Type)
+		}
+		orgSeen[f.Name] = true
 	}
 	return o, nil
 }
@@ -162,6 +186,12 @@ var reservedUserColumns = map[string]bool{
 	"id": true, "email": true, "email_normalized": true, "email_verified_at": true,
 	"display_name": true, "image_url": true, "created_at": true, "updated_at": true,
 	"role": true, "disabled_at": true, "must_change_password": true,
+}
+
+// reservedOrgColumns names the columns that Auth-All owns on the organizations
+// table.
+var reservedOrgColumns = map[string]bool{
+	"id": true, "name": true, "slug": true, "created_at": true, "updated_at": true,
 }
 
 // Extension adds columns and indexes to a table that another owner declared.

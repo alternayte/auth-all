@@ -35,6 +35,14 @@ type Principal struct {
 	// ViaCookie reports whether a cookie carried the credential. Only a cookie
 	// request needs the origin check.
 	ViaCookie bool
+	// Organization is the active organization of the session. It is nil when
+	// the session names none, and when the organizations plugin is off.
+	Organization *store.Organization
+	// Membership is the membership of the active organization. It is nil when
+	// no organization is active, and when the membership is gone. Its
+	// Permissions field holds the statements that the credential read
+	// resolved, for a custom role and for every team role of the member.
+	Membership *store.Membership
 }
 
 // PrincipalFrom returns the principal that RequireAuth, LoadSession, or a role
@@ -60,6 +68,15 @@ func (a *Auth) withPrincipal(r *http.Request, p *Principal) *http.Request {
 	}
 	actor.Method = p.Method
 	ctx = events.WithActor(ctx, actor)
+	if p.Organization != nil && p.Membership != nil {
+		ctx = plugin.WithOrganization(ctx, plugin.OrganizationContext{
+			Organization: p.Organization,
+			Membership:   p.Membership,
+			// The credential read resolved the statements of a custom role and
+			// of every team role in the same round trip.
+			Permissions: strings.Fields(p.Membership.Permissions),
+		})
+	}
 	return r.WithContext(ctx)
 }
 
@@ -99,11 +116,11 @@ func (a *Auth) resolvePrincipal(ctx context.Context, r *http.Request) (*Principa
 // readPrincipal resolves the principal from the store.
 func (a *Auth) readPrincipal(ctx context.Context, r *http.Request) (*Principal, error) {
 	if c, err := r.Cookie(a.cfg.cookie.Name); err == nil && c.Value != "" {
-		sess, user, err := a.sessionByToken(ctx, c.Value)
+		sess, user, org, member, err := a.sessionByToken(ctx, c.Value)
 		if err != nil || sess == nil {
 			return nil, err
 		}
-		return a.sessionPrincipal(sess, user, true), nil
+		return withOrganization(a.sessionPrincipal(sess, user, true), org, member), nil
 	}
 	bearer := bearerToken(r)
 	if bearer == "" {
@@ -122,11 +139,11 @@ func (a *Auth) readPrincipal(ctx context.Context, r *http.Request) (*Principal, 
 		}
 		return fromPluginPrincipal(p), nil
 	}
-	sess, user, err := a.sessionByToken(ctx, bearer)
+	sess, user, org, member, err := a.sessionByToken(ctx, bearer)
 	if err != nil || sess == nil {
 		return nil, err
 	}
-	return a.sessionPrincipal(sess, user, false), nil
+	return withOrganization(a.sessionPrincipal(sess, user, false), org, member), nil
 }
 
 // sessionPrincipal returns the principal of a session request.
@@ -140,14 +157,28 @@ func (a *Auth) sessionPrincipal(sess *store.Session, user *store.User, viaCookie
 	}
 }
 
+// withOrganization returns the principal with the active organization of the
+// session. A removed or a suspended membership carries no organization, so the
+// next request of every instance refuses.
+func withOrganization(p *Principal, org *store.Organization, member *store.Membership) *Principal {
+	if p == nil || org == nil || member == nil || member.Status != store.MembershipActive {
+		return p
+	}
+	p.Organization = org
+	p.Membership = member
+	return p
+}
+
 // fromPluginPrincipal converts the principal of a credential resolver.
 func fromPluginPrincipal(p *plugin.Principal) *Principal {
 	return &Principal{
-		User:    p.User,
-		Session: p.Session,
-		APIKey:  p.APIKey,
-		Role:    p.Role,
-		Method:  p.Method,
+		User:         p.User,
+		Session:      p.Session,
+		APIKey:       p.APIKey,
+		Role:         p.Role,
+		Method:       p.Method,
+		Organization: p.Organization,
+		Membership:   p.Membership,
 	}
 }
 
@@ -164,6 +195,7 @@ func (a *Auth) effectiveRole(user *store.User) string {
 }
 
 // sessionByToken returns the valid session of one plaintext token.
-func (a *Auth) sessionByToken(ctx context.Context, token string) (*store.Session, *store.User, error) {
+func (a *Auth) sessionByToken(ctx context.Context, token string) (
+	*store.Session, *store.User, *store.Organization, *store.Membership, error) {
 	return a.lookupSession(ctx, crypto.HashToken(token))
 }
