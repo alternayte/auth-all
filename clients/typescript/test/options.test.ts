@@ -117,3 +117,26 @@ test("onResponse sees every answer, including a failed one", async () => {
   await assert.rejects(() => auth.getSession())
   assert.deepEqual(statuses, [403])
 })
+
+test("the default fetch keeps the global receiver", async () => {
+  const original = globalThis.fetch
+  // A browser fetch rejects a call with any other receiver. The stub holds the
+  // same rule, so an unbound default fails here too.
+  globalThis.fetch = function (this: unknown) {
+    if (this !== globalThis) {
+      throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation")
+    }
+    return Promise.resolve(
+      new Response(JSON.stringify({ user: null, session: null }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    )
+  } as typeof fetch
+  try {
+    const auth = createAuthClient({ baseUrl: "https://app.example.com" })
+    await auth.getSession()
+  } finally {
+    globalThis.fetch = original
+  }
+})

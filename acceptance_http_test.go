@@ -196,3 +196,22 @@ func TestSCNHTTP004TheHandlerServesUnderEveryRouter(t *testing.T) {
 		})
 	}
 }
+
+// TestSCNHTTP010HandlerServesBehindAStrippingRouter proves that a router which
+// removes the base path itself, for example chi Mount, still reaches the route
+// table.
+func TestSCNHTTP010HandlerServesBehindAStrippingRouter(t *testing.T) {
+	auth, err := authall.New(authall.WithStore(testsupport.NewSQLite(t)))
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/api/auth/", http.StripPrefix("/api/auth", auth.Handler()))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/session", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the stripped mount answered %d, want 200", rec.Code)
+	}
+}

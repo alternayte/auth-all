@@ -63,6 +63,9 @@ if err != nil {
 mux.Handle("/api/auth/", auth.Handler())
 ```
 
+A router that removes the base path itself, such as chi `Mount`, works too.
+`auth.Handler()` removes the base path only when the request still carries it.
+
 Authorization, machine access, and administration are opt-in plugins:
 
 ```go
