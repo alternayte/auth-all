@@ -403,7 +403,9 @@ export class AuthAllHttp {
   constructor(options: AuthAllClientOptions = {}) {
     const base = options.baseUrl ?? (typeof location !== "undefined" ? location.origin : "")
     this.baseUrl = base.replace(/\/$/, "")
-    this.fetchImpl = options.fetch ?? globalThis.fetch
+    // A browser fetch needs the global receiver. A plain property read loses
+    // it, and the call then throws "Illegal invocation".
+    this.fetchImpl = options.fetch ?? ((input, init) => globalThis.fetch(input, init))
     this.credentials = options.credentials ?? "include"
     this.options = options
   }

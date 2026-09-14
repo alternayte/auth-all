@@ -434,10 +434,23 @@ func (a *Auth) handle(method, path string, fn http.HandlerFunc, op *openapi.Oper
 
 // Handler returns the Auth-All HTTP handler. Mount it at the configured base
 // path, for example mux.Handle("/api/auth/", auth.Handler()).
+//
+// A router that removes the base path itself, such as chi Mount, also works.
+// The handler removes the base path only when the request still carries it.
 func (a *Auth) Handler() http.Handler {
 	inner := http.Handler(a.mux)
 	if a.cfg.basePath != "" {
-		inner = http.StripPrefix(a.cfg.basePath, a.mux)
+		stripped := http.StripPrefix(a.cfg.basePath, a.mux)
+		inner = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// A router such as chi Mount removes the base path before the
+			// handler runs. The route table then already matches the request,
+			// and a second removal would leave no path.
+			if _, pattern := a.mux.Handler(r); pattern != "" {
+				a.mux.ServeHTTP(w, r)
+				return
+			}
+			stripped.ServeHTTP(w, r)
+		})
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
@@ -484,8 +497,8 @@ func (a *Auth) RevokeOtherSessions(ctx context.Context, sessionID string) (int, 
 //
 //	mux.Handle("/api/auth/", http.StripPrefix("/api/auth", auth.HandlerStripped()))
 //
-// Handler removes the base path itself, so a router that also removes it would
-// leave no path for the route table.
+// Handler now detects a removed base path itself, so this method is no longer
+// necessary. It stays for compatibility.
 func (a *Auth) HandlerStripped() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
