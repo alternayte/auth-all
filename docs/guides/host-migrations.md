@@ -23,6 +23,30 @@ The goose format writes one file for each unit with the `-- +goose Up` and
 `-- +goose Down` markers. The plain format writes `<version>_<name>.up.sql` and
 `<version>_<name>.down.sql`.
 
+A tool that reads a migration set as `fs.FS` takes the plain files directly.
+No committed copy is necessary:
+
+```go
+fsys, err := auth.Migrations(schema.Postgres)
+```
+
+## Inspection commands
+
+A command that only lists routes, writes the OpenAPI document, or exports
+migrations runs with no OAuth secrets. `New` refuses an OAuth provider with no
+client id, no client secret, or no base URL. Pass `authall.WithoutProviderCheck()`
+in that command only:
+
+```go
+opts := []authall.Option{authall.WithStore(s), authall.WithProvider(github.New(...))}
+if avero.Inspecting(os.Args[1:]) {
+    opts = append(opts, authall.WithoutProviderCheck())
+}
+```
+
+The option does not remove the checks. They run on each OAuth request, and a
+request to an unconfigured provider fails with an internal error.
+
 ## The units
 
 | Version | Owner | Content |

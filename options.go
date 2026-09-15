@@ -159,6 +159,9 @@ type config struct {
 
 	schemaOptions schema.Options
 	schemaCheck   SchemaCheckMode
+	// skipProviderCheck moves the OAuth provider checks from New to the first
+	// OAuth request.
+	skipProviderCheck bool
 
 	limiter ratelimit.Limiter
 	// strictRateLimiting turns the missing-limiter warning into a construction
@@ -406,6 +409,16 @@ func WithRateLimiter(l ratelimit.Limiter) Option { return func(c *config) { c.li
 // enumeration attack run without a bound. The default only writes a warning,
 // because a test and a local run do not need a limiter.
 func WithStrictRateLimiting() Option { return func(c *config) { c.strictRateLimiting = true } }
+
+// WithoutProviderCheck lets New accept an OAuth provider with no client id, no
+// client secret, or no base URL.
+//
+// A tool that only inspects the instance uses it: a route listing, an OpenAPI
+// export, or a migration export. Such a tool runs with no secrets. Never pass
+// it to a serving process. The checks still run on each OAuth request, so a
+// request to an unconfigured provider fails with an internal error instead of
+// a redirect.
+func WithoutProviderCheck() Option { return func(c *config) { c.skipProviderCheck = true } }
 
 // WithLogger sets the logger.
 func WithLogger(l *slog.Logger) Option { return func(c *config) { c.logger = l } }

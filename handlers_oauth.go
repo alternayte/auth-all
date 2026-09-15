@@ -74,6 +74,11 @@ func (a *Auth) provider(id string) (oauth.Provider, error) {
 	if !ok {
 		return nil, apierr.ErrProviderNotFound
 	}
+	if a.cfg.skipProviderCheck {
+		if err := a.checkProvider(p); err != nil {
+			return nil, apierr.ErrInternal.WithCause(err)
+		}
+	}
 	return p, nil
 }
 

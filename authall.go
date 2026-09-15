@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"testing/fstest"
 	"time"
 
 	"github.com/alternayte/auth-all/apierr"
@@ -165,8 +167,8 @@ func New(opts ...Option) (*Auth, error) {
 		if _, exists := a.providers[id]; exists {
 			return nil, fmt.Errorf("authall: the OAuth provider %q is registered twice", id)
 		}
-		if v, ok := p.(interface{ Validate() error }); ok {
-			if err := v.Validate(); err != nil {
+		if !cfg.skipProviderCheck {
+			if err := a.checkProvider(p); err != nil {
 				return nil, err
 			}
 		}
@@ -350,9 +352,6 @@ func normalizeConfig(cfg *config) error {
 		if err != nil || u.Scheme == "" || u.Host == "" {
 			return fmt.Errorf("authall: the base URL must be absolute, for example https://app.example.com")
 		}
-	}
-	if len(cfg.providers) > 0 && cfg.baseURL == "" {
-		return fmt.Errorf("authall: an OAuth provider requires a base URL. Use authall.WithBaseURL")
 	}
 	if cfg.emailPasswordEnabled && cfg.sender == nil {
 		if cfg.emailPassword.RequireEmailVerification || cfg.emailPassword.SendVerificationOnSignUp {
@@ -682,10 +681,38 @@ func (a *Auth) MigrationPlan(ctx context.Context) ([]schema.Statement, error) {
 	return a.cfg.store.Migrator().Plan(ctx, a.effectiveSchema)
 }
 
+// Migrations returns the migration files of the enabled units as a file system,
+// in the plain format: <version>_<name>.up.sql and <version>_<name>.down.sql at
+// the root. A host that reads a migration set as fs.FS applies it directly,
+// with no committed copy of the export.
+func (a *Auth) Migrations(d schema.Dialect) (fs.FS, error) {
+	files, err := a.ExportMigrations(d, migrations.Plain)
+	if err != nil {
+		return nil, err
+	}
+	out := fstest.MapFS{}
+	for _, f := range files {
+		out[f.Name] = &fstest.MapFile{Data: []byte(f.Content), Mode: 0o444}
+	}
+	return out, nil
+}
+
 // MigrationSQL returns the complete deterministic DDL for one dialect. It needs
 // no database connection.
 func (a *Auth) MigrationSQL(d schema.Dialect) ([]schema.Statement, error) {
 	return schema.Render(d, a.effectiveSchema)
+}
+
+// checkProvider reports a provider that cannot serve: a missing base URL, or a
+// failed Validate of the provider.
+func (a *Auth) checkProvider(p oauth.Provider) error {
+	if a.cfg.baseURL == "" {
+		return fmt.Errorf("authall: an OAuth provider requires a base URL. Use authall.WithBaseURL")
+	}
+	if v, ok := p.(interface{ Validate() error }); ok {
+		return v.Validate()
+	}
+	return nil
 }
 
 // Session returns the session of a request. It returns nil when the request

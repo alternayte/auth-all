@@ -2,12 +2,14 @@ package authall_test
 
 import (
 	"context"
+	"io/fs"
 	"net/http"
 	"strings"
 	"testing"
 
 	authall "github.com/alternayte/auth-all"
 	"github.com/alternayte/auth-all/internal/testsupport"
+	"github.com/alternayte/auth-all/migrations"
 	"github.com/alternayte/auth-all/plugins/magiclink"
 	"github.com/alternayte/auth-all/schema"
 	"github.com/alternayte/auth-all/store/sqlite"
@@ -166,4 +168,33 @@ func TestPostgresAccountDelete(t *testing.T) {
 	s := testsupport.NewPostgres(t)
 	h := testsupport.NewHarnessWithStore(t, s, authall.WithEmailPassword())
 	runAccountDeleteWithPassword(t, h)
+}
+
+// TestMigrationsFS pins the fs.FS form to the plain export, file for file.
+func TestMigrationsFS(t *testing.T) {
+	auth := newEmptyAuth(t, authall.WithPlugins(magiclink.New()))
+	files, err := auth.ExportMigrations(schema.Postgres, migrations.Plain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fsys, err := auth.Migrations(schema.Postgres)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := fs.ReadDir(fsys, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != len(files) {
+		t.Fatalf("the file system holds %d files, the export %d", len(entries), len(files))
+	}
+	for _, f := range files {
+		got, err := fs.ReadFile(fsys, f.Name)
+		if err != nil {
+			t.Fatalf("%s: %v", f.Name, err)
+		}
+		if string(got) != f.Content {
+			t.Fatalf("%s differs from the export", f.Name)
+		}
+	}
 }

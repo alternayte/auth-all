@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -354,5 +355,36 @@ func TestConfigRefusesAnOIDCProviderThatClaimsAPreset(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "registered twice") {
 		t.Fatalf("the error does not name the cause: %v", err)
+	}
+}
+
+// TestConfigWithoutProviderCheck covers the inspection option. New accepts
+// providers with no credentials and no base URL, the routes stay registered,
+// and an OAuth request still refuses to redirect.
+func TestConfigWithoutProviderCheck(t *testing.T) {
+	auth, err := authall.New(
+		authall.WithStore(testsupport.NewSQLite(t)),
+		authall.WithoutProviderCheck(),
+		// GitHub has credentials, so only the missing base URL stops it.
+		authall.WithProvider(github.New(github.WithClientID("id"), github.WithClientSecret("secret")), google.New()),
+	)
+	if err != nil {
+		t.Fatalf("New refused an unconfigured provider under WithoutProviderCheck: %v", err)
+	}
+	found := false
+	for _, r := range auth.Routes() {
+		if strings.HasSuffix(r.Path, "/oauth/{provider}") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the OAuth start route is not registered")
+	}
+	for _, id := range []string{"github", "google"} {
+		rec := httptest.NewRecorder()
+		auth.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/auth/oauth/"+id, nil))
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("%s: status %d, want 500. Location %q", id, rec.Code, rec.Header().Get("Location"))
+		}
 	}
 }
