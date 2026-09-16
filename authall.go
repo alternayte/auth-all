@@ -29,7 +29,12 @@ import (
 	"github.com/alternayte/auth-all/store"
 )
 
-// Version is the Auth-All API contract version.
+// Version is the version of the Auth-All API contract, and it names the
+// OpenAPI document. It is not the release version: a release tag moves, and
+// this value does not, because every release so far only adds to the contract.
+//
+// The value stays a constant, so a change to it is an incompatible change that
+// apidiff reports. A later contract that removes or changes a route raises it.
 const Version = "1.0.0"
 
 // Token kinds used by core flows.
