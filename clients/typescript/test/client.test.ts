@@ -110,3 +110,42 @@ test("the client sends extra headers", async () => {
   assert.equal(auth.baseUrl, "https://app.example.com")
   assert.equal(calls[0]?.headers["X-Request-Id"], "abc")
 })
+
+test("a body that is no JSON document raises an Auth-All error", async () => {
+  // A proxy, a gateway, or a wrong base URL answers with HTML or with plain
+  // text. The client must name the status, and it must not raise a parse error
+  // that says nothing about the request.
+  const impl = (async () =>
+    new Response("404 page not found", {
+      status: 404,
+      headers: { "Content-Type": "text/plain" },
+    })) as typeof fetch
+  const auth = createAuthClient({ baseUrl: "https://app.example.com", fetch: impl })
+
+  await assert.rejects(
+    () => auth.sessions.list(),
+    (error: unknown) => {
+      assert.ok(error instanceof AuthAllError, `the client raised ${error}`)
+      assert.equal(error.status, 404)
+      return true
+    },
+  )
+})
+
+test("a success that carries no JSON document raises an Auth-All error", async () => {
+  const impl = (async () =>
+    new Response("<html>ok</html>", {
+      status: 200,
+      headers: { "Content-Type": "text/html" },
+    })) as typeof fetch
+  const auth = createAuthClient({ baseUrl: "https://app.example.com", fetch: impl })
+
+  await assert.rejects(
+    () => auth.sessions.list(),
+    (error: unknown) => {
+      assert.ok(error instanceof AuthAllError, `the client raised ${error}`)
+      assert.equal(error.status, 200)
+      return true
+    },
+  )
+})

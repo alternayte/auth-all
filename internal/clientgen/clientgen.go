@@ -6,6 +6,7 @@ package clientgen
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/alternayte/auth-all/openapi"
@@ -184,8 +185,13 @@ func typeOfIndented(s *openapi.Schema, indent int) string {
 	return base
 }
 
+// responseType returns the TypeScript type of the success answer.
+//
+// The document names the status the route answers with, so a route that
+// creates a row names 201. The generator reads the lowest success status, and
+// a route that documents none returns void.
 func responseType(op *openapi.Operation) string {
-	resp, ok := op.Responses["200"]
+	resp, ok := successResponse(op)
 	if !ok {
 		return "void"
 	}
@@ -194,6 +200,24 @@ func responseType(op *openapi.Operation) string {
 		return "void"
 	}
 	return typeOf(media.Schema)
+}
+
+// successResponse returns the documented answer with the lowest 2xx status.
+func successResponse(op *openapi.Operation) (openapi.Response, bool) {
+	best := ""
+	for status := range op.Responses {
+		code, err := strconv.Atoi(status)
+		if err != nil || code < 200 || code > 299 {
+			continue
+		}
+		if best == "" || status < best {
+			best = status
+		}
+	}
+	if best == "" {
+		return openapi.Response{}, false
+	}
+	return op.Responses[best], true
 }
 
 func pathParams(op *openapi.Operation) []openapi.Parameter {
@@ -452,7 +476,23 @@ export class AuthAllHttp {
     if (this.options.onResponse) await this.options.onResponse(response)
 
     const text = await response.text()
-    const payload = text ? JSON.parse(text) : undefined
+    // A proxy, a gateway, or a wrong base URL answers with HTML or with plain
+    // text. A parse error would say nothing about the request, so the client
+    // raises its own error with the status.
+    let payload: any = undefined
+    if (text) {
+      try {
+        payload = JSON.parse(text)
+      } catch {
+        const error = new AuthAllError(
+          "INVALID_RESPONSE",
+          "The server answered with a body that is no JSON document.",
+          response.status,
+        )
+        if (this.options.onError) await this.options.onError(error)
+        throw error
+      }
+    }
     if (!response.ok) {
       const failure = payload?.error
       const error = new AuthAllError(
