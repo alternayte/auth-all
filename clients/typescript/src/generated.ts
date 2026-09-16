@@ -547,7 +547,23 @@ export class AuthAllHttp {
     if (this.options.onResponse) await this.options.onResponse(response)
 
     const text = await response.text()
-    const payload = text ? JSON.parse(text) : undefined
+    // A proxy, a gateway, or a wrong base URL answers with HTML or with plain
+    // text. A parse error would say nothing about the request, so the client
+    // raises its own error with the status.
+    let payload: any = undefined
+    if (text) {
+      try {
+        payload = JSON.parse(text)
+      } catch {
+        const error = new AuthAllError(
+          "INVALID_RESPONSE",
+          "The server answered with a body that is no JSON document.",
+          response.status,
+        )
+        if (this.options.onError) await this.options.onError(error)
+        throw error
+      }
+    }
     if (!response.ok) {
       const failure = payload?.error
       const error = new AuthAllError(
@@ -691,7 +707,17 @@ export class AuthAllClient {
   }[]
 }> => this.http.request("GET", `/api/auth/oauth2/consents`, undefined, undefined),
     /** Register one client as the signed-in user. */
-    createClient: (body: OauthProviderCreateClientBody): Promise<void> => this.http.request("POST", `/api/auth/oauth2/clients`, body, undefined),
+    createClient: (body: OauthProviderCreateClientBody): Promise<{
+  clientId: string
+  clientSecret?: string
+  createdAt: string
+  dpopRequired: boolean
+  grantTypes: string[]
+  name: string
+  redirectUris: string[]
+  scopes: string[]
+  tokenEndpointAuthMethod: string
+}> => this.http.request("POST", `/api/auth/oauth2/clients`, body, undefined),
     /** Approve or deny one authorization request. */
     decide: (body: OauthProviderDecideBody): Promise<{
   redirectTo: string
