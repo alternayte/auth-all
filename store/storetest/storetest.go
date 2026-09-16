@@ -75,6 +75,7 @@ func RunWithOptions(t *testing.T, newStore Factory, o schema.Options) {
 		})
 	}
 	runOrganizationTests(t, newStore, o)
+	runOAuthProviderTests(t, newStore, o)
 }
 
 func ctx(t *testing.T) context.Context {

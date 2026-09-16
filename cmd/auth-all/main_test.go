@@ -30,6 +30,10 @@ func TestSCNSCH003TheCLIExportsTheMigrationFiles(t *testing.T) {
 			"20261101000005_authall_org_teams.sql",
 			"20261101000006_authall_org_columns.sql",
 			"20261101000007_authall_apikeys_org_column.sql",
+			"20261201000001_authall_oauth_keys.sql",
+			"20261201000002_authall_oauth_clients.sql",
+			"20261201000003_authall_oauth_grants.sql",
+			"20261201000004_authall_oauth_tokens.sql",
 		}},
 		{"plain", []string{
 			"20260101000000_authall_core.up.sql",
@@ -54,6 +58,14 @@ func TestSCNSCH003TheCLIExportsTheMigrationFiles(t *testing.T) {
 			"20261101000006_authall_org_columns.down.sql",
 			"20261101000007_authall_apikeys_org_column.up.sql",
 			"20261101000007_authall_apikeys_org_column.down.sql",
+			"20261201000001_authall_oauth_keys.up.sql",
+			"20261201000001_authall_oauth_keys.down.sql",
+			"20261201000002_authall_oauth_clients.up.sql",
+			"20261201000002_authall_oauth_clients.down.sql",
+			"20261201000003_authall_oauth_grants.up.sql",
+			"20261201000003_authall_oauth_grants.down.sql",
+			"20261201000004_authall_oauth_tokens.up.sql",
+			"20261201000004_authall_oauth_tokens.down.sql",
 		}},
 	}
 	for _, c := range cases {

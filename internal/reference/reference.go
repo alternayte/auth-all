@@ -16,6 +16,7 @@ import (
 	"github.com/alternayte/auth-all/plugins/admin"
 	"github.com/alternayte/auth-all/plugins/apikeys"
 	"github.com/alternayte/auth-all/plugins/magiclink"
+	"github.com/alternayte/auth-all/plugins/oauthprovider"
 	"github.com/alternayte/auth-all/plugins/organizations"
 	"github.com/alternayte/auth-all/plugins/roles"
 	"github.com/alternayte/auth-all/ratelimit"
@@ -45,6 +46,10 @@ func OrganizationRoles() []organizations.RoleDefinition {
 		organizations.Role("viewer", "organization:read", "project:read"),
 	}
 }
+
+// ReferenceKeyEncryptionKey returns the placeholder key encryption key of the
+// reference configuration. An application supplies its own 32 bytes.
+func ReferenceKeyEncryptionKey() []byte { return make([]byte, 32) }
 
 // noopSender satisfies the email boundary of the reference configuration. The
 // reference instance never sends a message, because it only describes the API.
@@ -85,6 +90,15 @@ func Options(s store.Store) []authall.Option {
 			orgs,
 			admin.New(admin.Organizations(orgs)),
 			apikeys.New(apikeys.Organizations(orgs)),
+			oauthprovider.New(
+				// The reference instance only describes the API. The key
+				// encryption key is a fixed placeholder, and it wraps nothing,
+				// because the instance signs no token.
+				oauthprovider.KeyEncryptionKey(ReferenceKeyEncryptionKey()),
+				oauthprovider.LoginPath("/sign-in"),
+				oauthprovider.ConsentPath("/consent"),
+				oauthprovider.AllowDynamicRegistration(),
+			),
 		),
 	}
 }

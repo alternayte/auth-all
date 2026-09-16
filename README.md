@@ -9,8 +9,11 @@ authentication, magic links, OAuth and OpenID Connect, account linking, roles,
 API keys, user administration, rate limits, audit events, plugins, schema
 tooling, an OpenAPI contract, and a generated TypeScript client.
 
-Auth-All is not an identity server. The application keeps its database, its
-HTTP server, and its user interface.
+Auth-All also serves as an OAuth 2.1 and OpenID Connect authorization server,
+so another application signs its users in with yours. See
+[the OAuth provider guide](docs/guides/oauth-provider.md).
+
+The application keeps its database, its HTTP server, and its user interface.
 
 ## Install
 

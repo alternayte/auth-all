@@ -57,6 +57,11 @@ const (
 	CodeLastOwner            Code = "LAST_OWNER"
 	CodeInvitationInvalid    Code = "INVITATION_INVALID"
 	CodeMemberLimit          Code = "MEMBER_LIMIT"
+
+	// Codes of the OAuth provider release. A released code never changes its
+	// meaning.
+	CodeOAuthRequestInvalid Code = "OAUTH_REQUEST_INVALID"
+	CodeOAuthClientUnknown  Code = "OAUTH_CLIENT_UNKNOWN"
 )
 
 // Error is a public Auth-All error. It carries a stable code, a safe public
