@@ -76,6 +76,16 @@ type SchemaService interface {
 	SchemaOptions() schema.Options
 }
 
+// RequestResolver resolves a credential that needs the request itself, for
+// example an access token that a proof of possession key binds. Auth-All
+// prefers it over CredentialResolver.Resolve, and it caches no principal of
+// such a credential, because the proof belongs to one request.
+type RequestResolver interface {
+	CredentialResolver
+	// ResolveRequest returns the principal of the bearer value of a request.
+	ResolveRequest(ctx context.Context, bearer string, r *http.Request) (*Principal, error)
+}
+
 // PasswordService applies the password policy and the hash parameters of
 // Auth-All, so a plugin writes the same credential as a core route.
 type PasswordService interface {

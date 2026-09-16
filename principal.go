@@ -96,7 +96,7 @@ func bearerToken(r *http.Request) string {
 // value is a session token, which keeps every v1 bearer client working.
 func (a *Auth) resolvePrincipal(ctx context.Context, r *http.Request) (*Principal, error) {
 	credential := a.requestToken(r)
-	if credential != "" {
+	if credential != "" && !a.perRequestCredential(credential) {
 		if cached, ok := a.principals.get(credential); ok {
 			// The entry cannot outlive the consistency bound, so the cached
 			// principal is fresh enough for every check.
@@ -107,10 +107,24 @@ func (a *Auth) resolvePrincipal(ctx context.Context, r *http.Request) (*Principa
 	if err != nil || p == nil {
 		return p, err
 	}
-	if credential != "" {
+	if credential != "" && !a.perRequestCredential(credential) {
 		a.principals.put(credential, p)
 	}
 	return p, nil
+}
+
+// perRequestCredential reports a credential that a resolver must read together
+// with its request. The principal of such a credential is never cached.
+func (a *Auth) perRequestCredential(credential string) bool {
+	for _, res := range a.resolvers {
+		if _, ok := res.(plugin.RequestResolver); !ok {
+			continue
+		}
+		if res.Claims(credential) {
+			return true
+		}
+	}
+	return false
 }
 
 // readPrincipal resolves the principal from the store.
@@ -130,7 +144,13 @@ func (a *Auth) readPrincipal(ctx context.Context, r *http.Request) (*Principal, 
 		if !res.Claims(bearer) {
 			continue
 		}
-		p, err := res.Resolve(ctx, bearer)
+		var p *plugin.Principal
+		var err error
+		if rr, ok := res.(plugin.RequestResolver); ok {
+			p, err = rr.ResolveRequest(ctx, bearer, r)
+		} else {
+			p, err = res.Resolve(ctx, bearer)
+		}
 		if err != nil {
 			return nil, err
 		}

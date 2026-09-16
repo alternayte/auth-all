@@ -301,6 +301,22 @@ export interface MagicLinkVerifyBody {
   token: string
 }
 
+export interface OauthProviderCreateClientBody {
+  client_name: string
+  dpop_bound_access_tokens?: boolean
+  grant_types?: string[]
+  logo_uri?: string
+  redirect_uris: string[]
+  response_types?: string[]
+  scope?: string
+  token_endpoint_auth_method?: string
+}
+
+export interface OauthProviderDecideBody {
+  approve: boolean
+  requestId: string
+}
+
 export interface CreateOrganizationBody {
   extra?: {
   }
@@ -648,6 +664,58 @@ export class AuthAllClient {
     authorize: (provider: string, query: { redirect_to?: string } = {}): string => this.http.url(`/api/auth/oauth/${provider}`, query),
     /** Complete a provider sign-in. */
     callback: (provider: string, query: { code?: string; state?: string } = {}): string => this.http.url(`/api/auth/oauth/${provider}/callback`, query),
+  }
+
+  readonly oauthProvider = {
+    /** List the clients of the signed-in user. */
+    clients: (): Promise<{
+  clients: {
+    clientId: string
+    clientSecret?: string
+    createdAt: string
+    dpopRequired: boolean
+    grantTypes: string[]
+    name: string
+    redirectUris: string[]
+    scopes: string[]
+    tokenEndpointAuthMethod: string
+  }[]
+}> => this.http.request("GET", `/api/auth/oauth2/clients`, undefined, undefined),
+    /** List the standing consents of the user. */
+    consents: (): Promise<{
+  consents: {
+    clientId: string
+    clientName: string
+    resources?: string[]
+    scopes: string[]
+  }[]
+}> => this.http.request("GET", `/api/auth/oauth2/consents`, undefined, undefined),
+    /** Register one client as the signed-in user. */
+    createClient: (body: OauthProviderCreateClientBody): Promise<void> => this.http.request("POST", `/api/auth/oauth2/clients`, body, undefined),
+    /** Approve or deny one authorization request. */
+    decide: (body: OauthProviderDecideBody): Promise<{
+  redirectTo: string
+}> => this.http.request("POST", `/api/auth/oauth2/decide`, body, undefined),
+    /** Remove one client of the signed-in user. */
+    deleteClient: (clientID: string): Promise<{
+  deleted: boolean
+}> => this.http.request("DELETE", `/api/auth/oauth2/clients/${clientID}`, undefined, undefined),
+    /** Read one authorization request. */
+    request: (query: { request_id?: string } = {}): Promise<{
+  clientId: string
+  clientName: string
+  consentGranted: boolean
+  firstParty: boolean
+  logoUri?: string
+  needsSignIn: boolean
+  requestId: string
+  resources?: string[]
+  scopes: string[]
+}> => this.http.request("GET", `/api/auth/oauth2/request`, undefined, query),
+    /** Withdraw the consent of one client. */
+    withdrawConsent: (clientID: string): Promise<{
+  withdrawn: boolean
+}> => this.http.request("DELETE", `/api/auth/oauth2/consents/${clientID}`, undefined, undefined),
   }
 
   readonly organizations = {

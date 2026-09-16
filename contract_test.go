@@ -91,9 +91,34 @@ var organizationEndpoints = []struct{ Method, Path string }{
 	{"DELETE", "/api/auth/admin/organizations/{id}"},
 }
 
+// oauthProviderEndpoints are the routes of the OAuth provider plugin. The
+// reference configuration enables the plugin with dynamic registration.
+var oauthProviderEndpoints = []struct{ Method, Path string }{
+	{"GET", "/api/auth/oauth2/authorize"},
+	{"POST", "/api/auth/oauth2/token"},
+	{"GET", "/api/auth/oauth2/userinfo"},
+	{"POST", "/api/auth/oauth2/userinfo"},
+	{"GET", "/api/auth/oauth2/jwks"},
+	{"POST", "/api/auth/oauth2/introspect"},
+	{"POST", "/api/auth/oauth2/revoke"},
+	{"GET", "/api/auth/.well-known/openid-configuration"},
+	{"GET", "/api/auth/.well-known/oauth-authorization-server"},
+	{"POST", "/api/auth/oauth2/register"},
+	{"GET", "/api/auth/oauth2/register/{clientID}"},
+	{"PUT", "/api/auth/oauth2/register/{clientID}"},
+	{"DELETE", "/api/auth/oauth2/register/{clientID}"},
+	{"GET", "/api/auth/oauth2/request"},
+	{"POST", "/api/auth/oauth2/decide"},
+	{"GET", "/api/auth/oauth2/consents"},
+	{"DELETE", "/api/auth/oauth2/consents/{clientID}"},
+	{"POST", "/api/auth/oauth2/clients"},
+	{"GET", "/api/auth/oauth2/clients"},
+	{"DELETE", "/api/auth/oauth2/clients/{clientID}"},
+}
+
 // allEndpoints is the complete normative endpoint set.
-var allEndpoints = append(append(append([]struct{ Method, Path string }{},
-	v1Endpoints...), nextEndpoints...), organizationEndpoints...)
+var allEndpoints = append(append(append(append([]struct{ Method, Path string }{},
+	v1Endpoints...), nextEndpoints...), organizationEndpoints...), oauthProviderEndpoints...)
 
 // TestAPI001OpenAPICompleteness covers API-001.
 func TestAPI001OpenAPICompleteness(t *testing.T) {

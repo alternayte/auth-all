@@ -143,6 +143,7 @@ coverage:
         --package github.com/alternayte/auth-all/plugins/admin \
         --package github.com/alternayte/auth-all/plugins/organizations \
         --package github.com/alternayte/auth-all/plugins/organizations/permission \
+        --package github.com/alternayte/auth-all/plugins/oauthprovider \
         --package github.com/alternayte/auth-all/ratelimit/storelimit \
         --package github.com/alternayte/auth-all/migrations
     just _record "new package coverage" "go run ./tools/coverage --minimum 85"
