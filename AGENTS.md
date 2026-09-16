@@ -29,6 +29,8 @@ module.
 - `internal/testsupport` holds the harness, the fake sender, the fake OAuth
   provider, and the database helpers. Use it instead of a new fixture.
 - `store/storetest` holds the storage contract. Both adapters run it.
+- Write the test first where a wrong answer is silent: a token check, a replay
+  guard, an audience test, a redirect match. Test the plumbing after the code.
 
 ## Stack rules
 
