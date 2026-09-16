@@ -37,7 +37,7 @@ await auth.signOut()
 
 | Option | Purpose |
 | --- | --- |
-| `baseUrl` | The origin of the application. The page origin is the default. |
+| `baseUrl` | The origin of the application, and never the Auth-All base path. Every generated method already carries the base path, so `https://app.example.com` is right and `https://app.example.com/api/auth` produces a 404. The page origin is the default. |
 | `fetch` | The fetch implementation. The global fetch is the default. |
 | `credentials` | The credentials mode. `include` is the default, so the session cookie travels. |
 | `headers` | Extra headers for every request. |
