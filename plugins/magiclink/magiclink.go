@@ -351,6 +351,30 @@ func setLinkHeaders(w http.ResponseWriter, referrerPolicy string) {
 	head.Set("Pragma", "no-cache")
 }
 
+// browserError answers an error on a route that a browser reached by
+// navigation or by a form submission. It honours the browser error redirect of
+// the host when the Auth-All version offers it.
+func (p *Plugin) browserError(w http.ResponseWriter, r *http.Request, err error) {
+	httpSvc := p.svc.HTTP()
+	if writer, ok := httpSvc.(interface {
+		WriteBrowserError(http.ResponseWriter, *http.Request, error)
+	}); ok {
+		writer.WriteBrowserError(w, r, err)
+		return
+	}
+	httpSvc.WriteError(w, err)
+}
+
+// fail answers an error of the confirmation step. A JSON client receives the
+// error envelope, and a browser receives the browser answer.
+func (p *Plugin) fail(w http.ResponseWriter, r *http.Request, err error, asJSON bool) {
+	if asJSON {
+		p.svc.HTTP().WriteError(w, err)
+		return
+	}
+	p.browserError(w, r, err)
+}
+
 // verifyPath returns the path that the confirmation form posts to.
 func (p *Plugin) verifyPath() string { return p.svc.BasePath() + "/magic-link/verify" }
 
@@ -372,7 +396,7 @@ func (p *Plugin) handleVerifyGet(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	tok, err := p.svc.Tokens().Peek(r.Context(), TokenKind, token)
 	if err != nil {
-		httpSvc.WriteError(w, err)
+		p.browserError(w, r, err)
 		return
 	}
 	data := confirmationData{
@@ -399,12 +423,12 @@ type verifyRequest struct {
 func (p *Plugin) handleVerifyPost(w http.ResponseWriter, r *http.Request) {
 	setLinkHeaders(w, "no-referrer")
 	httpSvc := p.svc.HTTP()
-	if err := httpSvc.CheckOrigin(r); err != nil {
-		httpSvc.WriteError(w, err)
-		return
-	}
 	var req verifyRequest
 	wantJSON := strings.HasPrefix(r.Header.Get("Content-Type"), "application/json")
+	if err := httpSvc.CheckOrigin(r); err != nil {
+		p.fail(w, r, err, wantJSON)
+		return
+	}
 	if wantJSON {
 		if err := httpSvc.DecodeJSON(r, &req); err != nil {
 			httpSvc.WriteError(w, err)
@@ -414,7 +438,7 @@ func (p *Plugin) handleVerifyPost(w http.ResponseWriter, r *http.Request) {
 		// The confirmation page submits a plain HTML form.
 		r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
 		if err := r.ParseForm(); err != nil {
-			httpSvc.WriteError(w, apierr.ErrInvalidRequest)
+			p.browserError(w, r, apierr.ErrInvalidRequest)
 			return
 		}
 		req.Token = r.PostFormValue("token")
@@ -435,19 +459,19 @@ func (p *Plugin) completeVerify(w http.ResponseWriter, r *http.Request, token, c
 	httpSvc := p.svc.HTTP()
 	tok, err := p.svc.Tokens().Consume(ctx, TokenKind, token)
 	if err != nil {
-		httpSvc.WriteError(w, err)
+		p.fail(w, r, err, asJSON)
 		return
 	}
 	user, err := p.resolveUser(r, tok.UserID, tok.Identifier)
 	if err != nil {
-		httpSvc.WriteError(w, err)
+		p.fail(w, r, err, asJSON)
 		return
 	}
 	// A used link proves that the person controls the address. An unverified
 	// address can carry a password and a session that somebody else planted, so
 	// the proof removes both before the plugin issues the new session.
 	if err := p.svc.Users().ProveEmailOwnership(ctx, user.ID); err != nil {
-		httpSvc.WriteError(w, err)
+		p.fail(w, r, err, asJSON)
 		return
 	}
 	// A used link proves the address. It does not prove the second factor, so
@@ -455,12 +479,12 @@ func (p *Plugin) completeVerify(w http.ResponseWriter, r *http.Request, token, c
 	// guards only the password path is not a gate.
 	challenge, mfaRequired, err := p.svc.MFA().Challenge(ctx, user)
 	if err != nil {
-		httpSvc.WriteError(w, err)
+		p.fail(w, r, err, asJSON)
 		return
 	}
 	if !mfaRequired {
 		if _, err := p.svc.Sessions().Issue(ctx, w, r, user, ID); err != nil {
-			httpSvc.WriteError(w, err)
+			p.fail(w, r, err, asJSON)
 			return
 		}
 	}

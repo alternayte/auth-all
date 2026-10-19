@@ -99,6 +99,12 @@ the browser goes after success. Auth-All accepts a relative path or an
 absolute URL of a trusted origin. Any other value falls back to the configured
 callback URL.
 
+A browser reaches the confirmation page from the email and posts its form, so
+the default JSON error renders as text. `authall.WithBrowserErrorRedirect`
+sends the browser to a host page with the public code, for example
+`/login?error=INVALID_TOKEN` for an expired or used link. A JSON request to
+`POST /magic-link/verify` still receives the error envelope.
+
 ## From the browser
 
 ```ts

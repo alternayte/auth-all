@@ -90,6 +90,11 @@ account linking needs.
 | `OAUTH_FAILED` | GitHub refused the exchange or returned no usable account. |
 | `EMAIL_ALREADY_EXISTS` | The address belongs to an existing account. Read the [account linking guide](account-linking.md). |
 
+The browser reaches the callback through a redirect from the provider, so the
+default JSON error renders as text. `authall.WithBrowserErrorRedirect("/login")`
+sends the browser to `/login?error=<code>` instead. The redirect carries the
+code only, never the message or the cause.
+
 ## Tests
 
 The test suite drives the complete flow against a deterministic fake GitHub

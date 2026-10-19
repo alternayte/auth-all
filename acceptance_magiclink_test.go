@@ -273,3 +273,37 @@ func TestMagicLinkSendFromGo(t *testing.T) {
 		t.Fatalf("an invalid address returned %v", err)
 	}
 }
+
+// TestMagicLinkFormErrorRedirectsTheBrowser checks that a used link sends the
+// browser to the host page. A JSON client still receives the envelope.
+func TestMagicLinkFormErrorRedirectsTheBrowser(t *testing.T) {
+	h := magicLinkHarness(t, authall.WithBrowserErrorRedirect("/login"))
+	sendMagicLink(t, h, "used@example.com")
+	msg := h.Mail.Last(t, email.IntentMagicLink)
+	if done := followMagicLink(t, h, msg.URL); done.Status != http.StatusSeeOther {
+		t.Fatalf("the first use returned %d: %s", done.Status, string(done.Body))
+	}
+	h.ClearCookies()
+
+	// The confirmation page of a used link.
+	page := h.DoURL(http.MethodGet, msg.URL, nil)
+	if page.Status != http.StatusFound || page.Location() != "/login?error=INVALID_TOKEN" {
+		t.Fatalf("the page returned %d to %q", page.Status, page.Location())
+	}
+
+	// The form post of a used link.
+	u, err := url.Parse(msg.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	form := h.DoForm(u.Scheme+"://"+u.Host+u.Path, map[string]string{"token": u.Query().Get("token")})
+	if form.Status != http.StatusSeeOther || form.Location() != "/login?error=INVALID_TOKEN" {
+		t.Fatalf("the form returned %d to %q", form.Status, form.Location())
+	}
+
+	// A JSON client keeps the envelope.
+	resp := h.Do(http.MethodPost, "/magic-link/verify", map[string]string{"token": u.Query().Get("token")})
+	if resp.Status != http.StatusBadRequest || resp.ErrorCode(t) != "INVALID_TOKEN" {
+		t.Fatalf("the JSON request returned %d: %s", resp.Status, string(resp.Body))
+	}
+}

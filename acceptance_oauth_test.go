@@ -550,3 +550,48 @@ func TestOAuthUserCreateHookRejectsByUsername(t *testing.T) {
 		t.Fatalf("a rejected creation opened a session")
 	}
 }
+
+// TestOAuthCallbackErrorRedirectsTheBrowser checks the browser error redirect.
+// The browser reaches the callback through the provider, so a JSON body would
+// render as text. The redirect carries the public code and nothing else.
+func TestOAuthCallbackErrorRedirectsTheBrowser(t *testing.T) {
+	f := newOAuthFixture(t, authall.WithBrowserErrorRedirect("/login?from=oauth"))
+	f.h.Auth.Hooks().OnBeforeUserCreate(func(context.Context, *hook.UserCreate) error {
+		return apierr.ErrForbidden.WithMessage("This address is not on the allowlist.")
+	})
+
+	state := f.startGitHub(t)
+	resp := f.callback(t, "github", "valid-code", state)
+	if resp.Status != http.StatusFound {
+		t.Fatalf("expected a redirect, got %d: %s", resp.Status, string(resp.Body))
+	}
+	target, err := url.Parse(resp.Location())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Path != "/login" || target.Query().Get("error") != "FORBIDDEN" || target.Query().Get("from") != "oauth" {
+		t.Fatalf("the redirect goes to %q", resp.Location())
+	}
+	if len(target.Query()) != 2 {
+		t.Fatalf("the redirect carries more than the code: %q", resp.Location())
+	}
+
+	// A replayed callback and a provider refusal take the same path.
+	if resp := f.callback(t, "github", "valid-code", state); testsupport.QueryParam(t, resp.Location(), "error") != "OAUTH_STATE_INVALID" {
+		t.Fatalf("the replayed callback returned %d to %q", resp.Status, resp.Location())
+	}
+	state = f.startGitHub(t)
+	refused := f.h.Do(http.MethodGet, "/oauth/github/callback?error=access_denied&state="+url.QueryEscape(state), nil)
+	if testsupport.QueryParam(t, refused.Location(), "error") != "OAUTH_FAILED" {
+		t.Fatalf("the provider refusal returned %d to %q", refused.Status, refused.Location())
+	}
+}
+
+// TestOAuthCallbackErrorStaysJSONWithoutTheOption checks the default.
+func TestOAuthCallbackErrorStaysJSONWithoutTheOption(t *testing.T) {
+	f := newOAuthFixture(t)
+	resp := f.callback(t, "github", "valid-code", "not-a-real-state")
+	if resp.Status != http.StatusBadRequest || resp.ErrorCode(t) != "OAUTH_STATE_INVALID" {
+		t.Fatalf("the callback returned %d: %s", resp.Status, string(resp.Body))
+	}
+}

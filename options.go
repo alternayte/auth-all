@@ -143,6 +143,9 @@ type config struct {
 	linking  AccountLinkingOptions
 
 	errorWriter apierr.Writer
+	// browserErrorRedirect is the page that a browser-navigated route sends an
+	// error to. An empty value keeps the JSON error envelope.
+	browserErrorRedirect string
 
 	// hostOriginCheck runs the origin check on a host route that a cookie
 	// authenticated. normalizeConfig fills it, so the default is on.
@@ -208,6 +211,22 @@ func WithOrganizationFields(fields ...schema.UserField) Option {
 // Retry-After on status 429.
 func WithErrorWriter(f func(w http.ResponseWriter, r *http.Request, e *Error)) Option {
 	return func(c *config) { c.errorWriter = apierr.Writer(f) }
+}
+
+// WithBrowserErrorRedirect sends the browser to target when a route that a
+// browser reaches by navigation or by a form submission fails. The routes are
+// the OAuth start, the OAuth callback, the magic-link confirmation page, and a
+// form submission of the magic-link confirmation. A JSON request to the same
+// routes still receives the JSON error envelope.
+//
+// The redirect adds the public error code as the error query parameter, for
+// example /login?error=FORBIDDEN. It never carries the message or the cause.
+// target must be a relative path or an absolute URL of a trusted origin, and
+// New fails for any other value.
+//
+//	authall.WithBrowserErrorRedirect("/login")
+func WithBrowserErrorRedirect(target string) Option {
+	return func(c *config) { c.browserErrorRedirect = target }
 }
 
 // WithHostOriginCheck turns the origin check of the host routes on or off. The

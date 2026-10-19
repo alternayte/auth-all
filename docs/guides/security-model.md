@@ -208,6 +208,11 @@ exposes SQL, a stack trace, a password hash, a session token, a one-time
 token, or a provider secret. The private cause reaches the configured logger
 and stays out of the response.
 
+`WithBrowserErrorRedirect` sends a browser-navigated error to a host page. The
+redirect carries the public code only. The target must be a relative path or
+a URL of a trusted origin, and `New` refuses any other target, so the option
+opens no redirect to another site.
+
 An event never carries a secret value.
 
 ## The second factor
