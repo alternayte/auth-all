@@ -55,6 +55,26 @@ key role and the current role of the owner, so a demoted owner keeps no
 stronger key. A create with a role above the owner role fails with
 `ROLE_NOT_ALLOWED`.
 
+## Refuse a key
+
+A Before hook decides whether one owner may hold a key. It runs inside the
+transaction of the create, for the `POST /api-keys` route and for a call to
+`Create` from Go. An error refuses the key, and an `apierr` error keeps its
+status:
+
+```go
+auth.Hooks().OnBeforeAPIKeyCreate(func(ctx context.Context, ev *hook.APIKeyEvent) error {
+    if !isAutomationAccount(ev.User) {
+        return apierr.ErrForbidden.WithMessage("Only automation accounts hold keys.")
+    }
+    return nil
+})
+```
+
+`ev.Key` is the row that the create is about to insert, with its role and its
+organization. It never carries the plaintext. `ev.Tx` is the transactional
+store.
+
 ## Failure responses
 
 A revoked key, an expired key, an unknown key, and a key of a disabled owner

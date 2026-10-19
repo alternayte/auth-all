@@ -3,6 +3,7 @@ package authall_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	authall "github.com/alternayte/auth-all"
 	"github.com/alternayte/auth-all/apierr"
+	"github.com/alternayte/auth-all/hook"
 	"github.com/alternayte/auth-all/internal/testsupport"
 	"github.com/alternayte/auth-all/plugins/admin"
 	"github.com/alternayte/auth-all/plugins/apikeys"
@@ -494,5 +496,51 @@ func TestATouchedKeyWritesTheLastUseTimeAgain(t *testing.T) {
 	}
 	if !second.LastUsedAt.After(*first.LastUsedAt) {
 		t.Fatal("the second request wrote no new last use time")
+	}
+}
+
+// TestTheBeforeHookRefusesAKey checks that a host refuses a key for one owner.
+// The refusal holds on the HTTP route and on the Go method, and no row
+// remains.
+func TestTheBeforeHookRefusesAKey(t *testing.T) {
+	h, k := keysHarness(t)
+	h.Auth.Hooks().OnBeforeAPIKeyCreate(func(_ context.Context, ev *hook.APIKeyEvent) error {
+		if ev.Tx == nil || ev.Key == nil || ev.Key.KeyHash == "" {
+			t.Errorf("the hook received an incomplete event: %+v", ev)
+		}
+		if strings.HasPrefix(ev.User.Email, "human") {
+			return apierr.ErrForbidden.WithMessage("Only automation accounts hold keys.")
+		}
+		return nil
+	})
+
+	h.SignUp("human@example.com", testPassword)
+	resp, _, _ := createKey(t, h, map[string]any{"name": "refused"})
+	if resp.Status != http.StatusForbidden {
+		t.Fatalf("the refused key returned %d: %s", resp.Status, string(resp.Body))
+	}
+	if code := resp.ErrorCode(t); code != "FORBIDDEN" {
+		t.Fatalf("unexpected code %q", code)
+	}
+	human := h.GetSession().User
+	owner, err := h.Store.Users().GetByID(context.Background(), human.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := k.Create(context.Background(), owner, apikeys.CreateInput{UserID: owner.ID, Name: "go"}); !errors.Is(err, apierr.ErrForbidden) {
+		t.Fatalf("the Go method returned %v", err)
+	}
+	keys, err := k.List(context.Background(), owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 0 {
+		t.Fatalf("a refused create left %d keys", len(keys))
+	}
+
+	h.ClearCookies()
+	h.SignUp("bot@example.com", testPassword)
+	if resp, plaintext, _ := createKey(t, h, map[string]any{"name": "allowed"}); resp.Status != http.StatusCreated || plaintext == "" {
+		t.Fatalf("the allowed key returned %d: %s", resp.Status, string(resp.Body))
 	}
 }
