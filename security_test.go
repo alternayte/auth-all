@@ -746,8 +746,10 @@ func TestSEC014MagicLinkGetCreatesNoSession(t *testing.T) {
 		t.Fatalf("the confirmation page created a session")
 	}
 
-	// The page carries the required headers.
-	if got := page.Header.Get("Referrer-Policy"); got != "no-referrer" {
+	// The page carries the required headers. The policy is same-origin and not
+	// no-referrer: under no-referrer a browser posts the form with the origin
+	// "null" and no Referer, so the origin check refuses the confirmation.
+	if got := page.Header.Get("Referrer-Policy"); got != "same-origin" {
 		t.Fatalf("unexpected referrer policy %q", got)
 	}
 	if got := page.Header.Get("Cache-Control"); got != "no-store" {

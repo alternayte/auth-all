@@ -299,9 +299,14 @@ func (p *Plugin) handleSend(w http.ResponseWriter, r *http.Request) {
 // setLinkHeaders keeps a sign-in link out of a cache and out of a Referer
 // header. The token sits in the query string, so a leak of the referrer leaks
 // the token.
-func setLinkHeaders(w http.ResponseWriter) {
+//
+// The confirmation page sends same-origin and not no-referrer. Its form
+// inherits the policy of the page, and under no-referrer a browser posts the
+// form with the origin "null" and no Referer, so the origin check refuses it.
+// Under same-origin the Referer reaches this application only.
+func setLinkHeaders(w http.ResponseWriter, referrerPolicy string) {
 	head := w.Header()
-	head.Set("Referrer-Policy", "no-referrer")
+	head.Set("Referrer-Policy", referrerPolicy)
 	head.Set("Cache-Control", "no-store")
 	head.Set("Pragma", "no-cache")
 }
@@ -317,11 +322,12 @@ func (p *Plugin) verifyPath() string { return p.svc.BasePath() + "/magic-link/ve
 // consumes the one-time token. A scanner submits no form, so the token
 // survives.
 func (p *Plugin) handleVerifyGet(w http.ResponseWriter, r *http.Request) {
-	setLinkHeaders(w)
 	if p.noConfirm {
+		setLinkHeaders(w, "no-referrer")
 		p.completeVerify(w, r, r.URL.Query().Get("token"), r.URL.Query().Get("callbackURL"), false)
 		return
 	}
+	setLinkHeaders(w, "same-origin")
 	httpSvc := p.svc.HTTP()
 	token := r.URL.Query().Get("token")
 	tok, err := p.svc.Tokens().Peek(r.Context(), TokenKind, token)
@@ -351,7 +357,7 @@ type verifyRequest struct {
 // handleVerifyPost completes the sign-in. It runs the origin check, so a
 // forged cross-site submission fails.
 func (p *Plugin) handleVerifyPost(w http.ResponseWriter, r *http.Request) {
-	setLinkHeaders(w)
+	setLinkHeaders(w, "no-referrer")
 	httpSvc := p.svc.HTTP()
 	if err := httpSvc.CheckOrigin(r); err != nil {
 		httpSvc.WriteError(w, err)

@@ -37,9 +37,15 @@ The step exists for three reasons.
   cross-site submission.
 - It stops the loss of a link to a mail scanner. A scanner that pre-fetches the
   link receives the page and submits no form, so the one-time token survives.
-- It keeps the token out of the `Referer` header of the callback host. Both
-  endpoints also send `Referrer-Policy: no-referrer`, `Cache-Control:
-  no-store`, and `Pragma: no-cache`.
+- It keeps the token out of the `Referer` header of the callback host. The
+  page sends `Referrer-Policy: same-origin`, so the form post carries a valid
+  origin and no other origin receives the token. The POST endpoint sends
+  `Referrer-Policy: no-referrer`. Both endpoints send `Cache-Control: no-store`
+  and `Pragma: no-cache`.
+
+A host that renders its own confirmation page must not send `Referrer-Policy:
+no-referrer` on that page. Under that policy, the browser posts the form with
+the origin `null`, and the origin check refuses it. Use `same-origin`.
 
 The page carries no third-party asset and no script, so a strict content
 security policy blocks nothing.
