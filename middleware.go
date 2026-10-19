@@ -80,13 +80,20 @@ func (a *Auth) RequireAuthFunc(next http.HandlerFunc) http.Handler {
 // Use LoadSession for a route that serves an anonymous visitor and a signed-in
 // user from one handler. The handler tests the result with UserFrom.
 //
-// A storage failure never blocks the request. LoadSession logs it and treats
-// the request as anonymous.
+// A storage failure never blocks the request. LoadSession logs it at the error
+// level and treats the request as anonymous. A credential that is not valid
+// also leaves the request anonymous, and it writes a debug-level entry only.
 func (a *Auth) LoadSession(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p, err := a.resolvePrincipal(r.Context(), r)
 		if err != nil {
-			a.cfg.logger.Error("authall: the credential lookup failed", "error", err.Error())
+			// A credential that is unknown, revoked, or expired is a client
+			// condition. Only a failure on the server side is an error.
+			if apierr.From(err).Status >= http.StatusInternalServerError {
+				a.cfg.logger.Error("authall: the credential lookup failed", "error", err.Error())
+			} else {
+				a.cfg.logger.Debug("authall: the request carries no valid credential", "error", err.Error())
+			}
 			next.ServeHTTP(w, r)
 			return
 		}

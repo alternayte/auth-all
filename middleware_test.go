@@ -1,11 +1,14 @@
 package authall_test
 
 import (
+	"log/slog"
 	"net/http"
 	"testing"
 
 	authall "github.com/alternayte/auth-all"
 	"github.com/alternayte/auth-all/internal/testsupport"
+	"github.com/alternayte/auth-all/plugins/apikeys"
+	"github.com/alternayte/auth-all/plugins/roles"
 )
 
 // protectedHarness mounts one application route behind RequireAuth. The route
@@ -132,5 +135,29 @@ func TestRequireAuthResolvesTheSessionOneTime(t *testing.T) {
 	// mistake an unmounted route for an authenticated one.
 	if authall.UserFrom(t.Context()) != nil || authall.SessionFrom(t.Context()) != nil {
 		t.Fatal("the accessors returned a value for a context with no session")
+	}
+}
+
+// TestLoadSessionLogsNoErrorForAnInvalidBearerToken checks that a credential
+// that a client sent wrong writes no error-level log entry. An operator who
+// alerts on an error must not be paged by any caller.
+func TestLoadSessionLogsNoErrorForAnInvalidBearerToken(t *testing.T) {
+	capture := &captureHandler{}
+	h := emailPasswordHarness(t,
+		authall.WithLogger(slog.New(capture)),
+		authall.WithPlugins(roles.New(roles.Hierarchy(testHierarchy...), roles.Default("viewer")), apikeys.New()))
+	h.Handle("/app/maybe", h.Auth.LoadSession(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusNoContent) })))
+
+	resp := h.DoURL(http.MethodGet, h.BaseURL+"/app/maybe", nil, testsupport.WithBearer("ak_not-a-real-key"))
+	if resp.Status != http.StatusNoContent {
+		t.Fatalf("status %d: %s", resp.Status, string(resp.Body))
+	}
+	capture.mu.Lock()
+	defer capture.mu.Unlock()
+	for _, r := range capture.records {
+		if r.Level >= slog.LevelError {
+			t.Fatalf("an invalid bearer token wrote an error-level entry: %q", r.Message)
+		}
 	}
 }
