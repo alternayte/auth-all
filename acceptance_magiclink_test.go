@@ -2,16 +2,20 @@ package authall_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"sync"
 	"testing"
 	"time"
 
 	authall "github.com/alternayte/auth-all"
+	"github.com/alternayte/auth-all/apierr"
 	"github.com/alternayte/auth-all/email"
 	"github.com/alternayte/auth-all/internal/testsupport"
 	"github.com/alternayte/auth-all/plugins/magiclink"
+	"github.com/alternayte/auth-all/ratelimit"
 )
 
 func magicLinkHarness(t *testing.T, opts ...authall.Option) *testsupport.Harness {
@@ -222,5 +226,50 @@ func TestMagicLinkWithoutConfirmation(t *testing.T) {
 	// The headers stay in place on the opt-out route.
 	if got := resp.Header.Get("Referrer-Policy"); got != "no-referrer" {
 		t.Fatalf("unexpected referrer policy %q", got)
+	}
+}
+
+// TestMagicLinkSendFromGo checks the Go method that a server-rendered form
+// calls. It sends the same link as the route, and it keeps the origin check
+// and the rate limit of the route.
+func TestMagicLinkSendFromGo(t *testing.T) {
+	plug := magiclink.New()
+	h := testsupport.NewHarness(t,
+		authall.WithPlugins(plug),
+		authall.WithRateLimiter(ratelimit.NewMemory(1, time.Minute)))
+	ctx := context.Background()
+
+	form := httptest.NewRequest(http.MethodPost, h.BaseURL+"/sign-in", nil)
+	form.Header.Set("Origin", h.BaseURL)
+	if err := plug.Send(ctx, form, "form@example.com", "/welcome"); err != nil {
+		t.Fatalf("Send returned %v", err)
+	}
+	msg := h.Mail.Last(t, email.IntentMagicLink)
+	if msg.To != "form@example.com" {
+		t.Fatalf("the link went to %q", msg.To)
+	}
+	if done := followMagicLink(t, h, msg.URL); done.Status != http.StatusSeeOther || done.Location() != "/welcome" {
+		t.Fatalf("the link returned %d to %q", done.Status, done.Location())
+	}
+
+	// The limit allows one request for one address and one client.
+	if err := plug.Send(ctx, form, "form@example.com", ""); !errors.Is(err, apierr.ErrRateLimited) {
+		t.Fatalf("the second request returned %v", err)
+	}
+
+	// A forged cross-site form sends nothing.
+	h.Mail.Reset()
+	forged := httptest.NewRequest(http.MethodPost, h.BaseURL+"/sign-in", nil)
+	forged.Header.Set("Origin", "https://evil.example.com")
+	if err := plug.Send(ctx, forged, "victim@example.com", ""); !errors.Is(err, apierr.ErrOriginNotAllowed) {
+		t.Fatalf("the forged form returned %v", err)
+	}
+	if h.Mail.Count() != 0 {
+		t.Fatal("a forged form sent a link")
+	}
+
+	// An invalid address discloses nothing.
+	if err := plug.Send(ctx, nil, "not-an-address", ""); err != nil {
+		t.Fatalf("an invalid address returned %v", err)
 	}
 }

@@ -5,6 +5,8 @@
 package magiclink
 
 import (
+	"context"
+	"errors"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -220,7 +222,6 @@ func (p *Plugin) linkURL(token, callback string) string {
 }
 
 func (p *Plugin) handleSend(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
 	httpSvc := p.svc.HTTP()
 	if err := httpSvc.CheckOrigin(r); err != nil {
 		httpSvc.WriteError(w, err)
@@ -231,27 +232,65 @@ func (p *Plugin) handleSend(w http.ResponseWriter, r *http.Request) {
 		httpSvc.WriteError(w, err)
 		return
 	}
-	normalized := email.Normalize(req.Email)
-	ok, err := p.svc.RateLimiter().Allow(ctx, ratelimit.Key{
-		Operation: ratelimit.OpMagicLinkRequest, IP: httpSvc.ClientIP(r), Email: normalized,
-	})
+	if err := p.send(r.Context(), r, req.Email, req.CallbackURL); err != nil {
+		httpSvc.WriteError(w, err)
+		return
+	}
+	httpSvc.WriteJSON(w, http.StatusOK, map[string]string{"message": messageSent})
+}
+
+// Send sends a sign-in link to an address. It does the work of
+// POST /magic-link/send, so a server-rendered form can send a link from its
+// own handler and render its own confirmation.
+//
+// Send applies the magic-link-request rate limit and returns
+// apierr.ErrRateLimited when the limit refuses the request. It returns nil in
+// every other case, including an invalid address and an unknown address when
+// account creation is off, so the caller discloses nothing about the account.
+//
+// r is the request of the host form. Send reads the client IP from it for the
+// rate limit, and it runs the origin check on it, so a forged cross-site form
+// fails with apierr.ErrOriginNotAllowed. A nil request skips the origin check,
+// and the rate limit then keys on the address only.
+//
+// callbackURL is where the browser goes after the sign-in. It passes the same
+// safe-redirect check as the route, and an empty value takes the configured
+// callback.
+func (p *Plugin) Send(ctx context.Context, r *http.Request, address, callbackURL string) error {
+	if p.svc == nil {
+		return errors.New("authall/magiclink: the plugin is not registered")
+	}
+	if r != nil {
+		if err := p.svc.HTTP().CheckOrigin(r); err != nil {
+			return err
+		}
+	}
+	return p.send(ctx, r, address, callbackURL)
+}
+
+// send issues and sends one link. It returns an error only for a refused rate
+// limit. Every other outcome looks the same to the caller.
+func (p *Plugin) send(ctx context.Context, r *http.Request, address, callbackURL string) error {
+	httpSvc := p.svc.HTTP()
+	normalized := email.Normalize(address)
+	key := ratelimit.Key{Operation: ratelimit.OpMagicLinkRequest, Email: normalized}
+	if r != nil {
+		key.IP = httpSvc.ClientIP(r)
+	}
+	ok, err := p.svc.RateLimiter().Allow(ctx, key)
 	if err != nil {
 		p.svc.Logger().Error("magiclink: the rate limiter failed", "error", err.Error())
 	} else if !ok {
-		httpSvc.WriteError(w, apierr.ErrRateLimited)
-		return
+		return apierr.ErrRateLimited
 	}
 
-	// The response never discloses whether the address has an account.
-	defer httpSvc.WriteJSON(w, http.StatusOK, map[string]string{"message": messageSent})
-
 	if !email.Valid(normalized) {
-		return
+		return nil
 	}
 	sender := p.svc.Email()
 	if sender == nil {
 		p.svc.Logger().Error("magiclink: a sign-in link needs an email sender")
-		return
+		return nil
 	}
 	var userID *string
 	user, err := p.svc.Users().ByEmail(ctx, normalized)
@@ -260,7 +299,7 @@ func (p *Plugin) handleSend(w http.ResponseWriter, r *http.Request) {
 	} else if !p.createUser {
 		// The plugin does not create accounts, so an unknown address gets no
 		// link. The response stays the same.
-		return
+		return nil
 	}
 	token, tok, err := p.svc.Tokens().Issue(ctx, plugin.IssueTokenInput{
 		Kind:            TokenKind,
@@ -271,9 +310,9 @@ func (p *Plugin) handleSend(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		p.svc.Logger().Error("magiclink: cannot issue a token", "error", err.Error())
-		return
+		return nil
 	}
-	callback := httpSvc.SafeRedirect(req.CallbackURL, p.callbackURL)
+	callback := httpSvc.SafeRedirect(callbackURL, p.callbackURL)
 	msg := email.Message{
 		Intent:    email.IntentMagicLink,
 		To:        normalized,
@@ -287,13 +326,14 @@ func (p *Plugin) handleSend(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := sender.Send(ctx, msg); err != nil {
 		p.svc.Logger().Error("magiclink: cannot send the message", "error", err.Error())
-		return
+		return nil
 	}
 	emitted := ""
 	if userID != nil {
 		emitted = *userID
 	}
 	p.svc.Events().Emit(ctx, events.MagicLinkRequested, emitted, nil)
+	return nil
 }
 
 // setLinkHeaders keeps a sign-in link out of a cache and out of a Referer

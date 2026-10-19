@@ -105,6 +105,36 @@ callback URL.
 await auth.magicLink.send({ email: "user@example.com" })
 ```
 
+## From a server-rendered form
+
+The send route accepts JSON only. A form handler of the host calls `Send`
+instead, and renders its own confirmation:
+
+```go
+links := magiclink.New()
+// ... authall.WithPlugins(links) ...
+
+mux.HandleFunc("POST /sign-in", func(w http.ResponseWriter, r *http.Request) {
+    err := links.Send(r.Context(), r, r.PostFormValue("email"), "/dashboard")
+    if errors.Is(err, apierr.ErrRateLimited) {
+        renderSignIn(w, "Too many requests. Try again later.")
+        return
+    }
+    if err != nil {
+        renderSignIn(w, "The request was refused.")
+        return
+    }
+    renderCheckYourEmail(w)
+})
+```
+
+`Send` does the work of the route. It applies the `magic-link-request` rate
+limit to the address and to the client IP of `r`. It runs the origin check on
+`r`, so a forged cross-site form gets `ORIGIN_NOT_ALLOWED`. It returns `nil`
+for an invalid address and for an address that gets no link, so the page
+discloses nothing about the account. A `nil` request skips the origin check,
+and the rate limit then counts the address only.
+
 ## Plugin parity
 
 Magic Link uses only the public `plugin` package. It receives no private
