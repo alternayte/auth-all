@@ -56,6 +56,26 @@ and the exact callback URL.
 One browser runs one provider flow at a time. A second start replaces the
 binding cookie, so the first flow can no longer complete.
 
+## The identity
+
+The GitHub account id keys the account. The profile name becomes the display
+name. When the profile name is empty, the login becomes the display name.
+
+The login is always in `Identity.Username`. A host reads it in a Before hook of
+the user creation, for example to propose a handle or to refuse the account:
+
+```go
+auth.Hooks().OnBeforeUserCreate(func(ctx context.Context, ev *hook.UserCreate) error {
+    if ev.Provider == "github" && reserved(ev.Identity.Username) {
+        return apierr.ErrForbidden.WithMessage("This handle is reserved.")
+    }
+    return nil
+})
+```
+
+`ev.Provider` and `ev.Identity` are set only when a provider sign-in creates the
+user. They are empty for every other creation path.
+
 ## Scopes
 
 The default scopes are `read:user` and `user:email`. `github.WithScopes`

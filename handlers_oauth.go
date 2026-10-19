@@ -396,7 +396,7 @@ func (a *Auth) createUserWithAccount(ctx context.Context, identity *oauth.Identi
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}
-	ev := &hook.UserCreate{User: user}
+	ev := &hook.UserCreate{User: user, Provider: providerID, Identity: identity}
 	err := a.cfg.store.Transaction(ctx, func(tx store.Store) error {
 		ev.Tx = tx
 		if err := a.hooks.RunBeforeUserCreate(ctx, ev); err != nil {

@@ -34,6 +34,8 @@ type Claims struct {
 	EmailVerified any    `json:"email_verified"`
 	Name          string `json:"name"`
 	Picture       string `json:"picture"`
+	// PreferredUsername is the preferred_username claim of OpenID Connect.
+	PreferredUsername string `json:"preferred_username"`
 }
 
 // VerifiedEmail reports the boolean form of the email_verified claim, which

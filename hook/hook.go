@@ -15,15 +15,26 @@ import (
 	"context"
 	"sync"
 
+	"github.com/alternayte/auth-all/oauth"
 	"github.com/alternayte/auth-all/store"
 )
 
 // UserCreate carries a user creation.
 //
 // Tx is the transactional store in a Before hook. Tx is nil in an After hook.
+//
+// Provider and Identity are set when a sign-in through an OAuth provider
+// creates the user. A Before hook can read the provider username from
+// Identity.Username and reject the creation.
 type UserCreate struct {
 	User *store.User
 	Tx   store.Store
+	// Provider is the identifier of the OAuth provider, for example "github".
+	// It is empty for every other creation path.
+	Provider string
+	// Identity is the identity that the provider reported. It is nil when
+	// Provider is empty.
+	Identity *oauth.Identity
 }
 
 // SessionCreate carries a session creation.

@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	authall "github.com/alternayte/auth-all"
+	"github.com/alternayte/auth-all/apierr"
+	"github.com/alternayte/auth-all/hook"
 	"github.com/alternayte/auth-all/internal/testsupport"
 	"github.com/alternayte/auth-all/oauth/github"
 	"github.com/alternayte/auth-all/oauth/google"
@@ -501,5 +503,50 @@ func TestUnlinkCannotRemoveEveryAuthenticationMethod(t *testing.T) {
 	_, credErr := f.h.Store.Users().GetCredential(context.Background(), userID)
 	if len(accounts) == 0 && credErr != nil {
 		t.Fatalf("the user lost every authentication method")
+	}
+}
+
+// TestOAuthUserCreateHookReadsTheGitHubLogin checks that a Before hook of the
+// user creation reads the provider username. A host proposes a handle from it,
+// so the login must arrive even when the profile name is set.
+func TestOAuthUserCreateHookReadsTheGitHubLogin(t *testing.T) {
+	f := newOAuthFixture(t)
+	var seen hook.UserCreate
+	f.h.Auth.Hooks().OnBeforeUserCreate(func(_ context.Context, ev *hook.UserCreate) error {
+		seen = *ev
+		return nil
+	})
+	state := f.startGitHub(t)
+	if resp := f.callback(t, "github", "valid-code", state); resp.Status != http.StatusFound {
+		t.Fatalf("callback failed with %d: %s", resp.Status, string(resp.Body))
+	}
+	if seen.Provider != "github" {
+		t.Fatalf("the hook saw the provider %q", seen.Provider)
+	}
+	if seen.Identity == nil || seen.Identity.Username != "octocat" {
+		t.Fatalf("the hook saw the identity %+v", seen.Identity)
+	}
+	if seen.Identity.DisplayName != "Octo Cat" || seen.User.DisplayName != "Octo Cat" {
+		t.Fatalf("the display name changed: %+v", seen.Identity)
+	}
+}
+
+// TestOAuthUserCreateHookRejectsByUsername checks that a Before hook that
+// refuses a provider username blocks the account.
+func TestOAuthUserCreateHookRejectsByUsername(t *testing.T) {
+	f := newOAuthFixture(t)
+	f.h.Auth.Hooks().OnBeforeUserCreate(func(_ context.Context, ev *hook.UserCreate) error {
+		if ev.Identity != nil && ev.Identity.Username == "octocat" {
+			return apierr.ErrForbidden.WithMessage("This handle is taken.")
+		}
+		return nil
+	})
+	state := f.startGitHub(t)
+	resp := f.callback(t, "github", "valid-code", state)
+	if resp.Status != http.StatusForbidden {
+		t.Fatalf("expected status 403, got %d: %s", resp.Status, string(resp.Body))
+	}
+	if session := f.h.GetSession(); session.User != nil {
+		t.Fatalf("a rejected creation opened a session")
 	}
 }

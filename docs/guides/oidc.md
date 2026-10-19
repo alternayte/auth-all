@@ -89,8 +89,9 @@ subject does not.
 both report `subject-1` name two different people. The provider identifier is
 part of the account key, so the two never meet.
 
-Auth-All reads `email`, `email_verified`, `name`, and `picture` when the issuer
-sends them. It links an existing user only for a verified address. See the
+Auth-All reads `email`, `email_verified`, `name`, `picture`, and
+`preferred_username` when the issuer sends them. `preferred_username` becomes
+`Identity.Username`. It links an existing user only for a verified address. See the
 [account linking guide](account-linking.md).
 
 ## Scopes

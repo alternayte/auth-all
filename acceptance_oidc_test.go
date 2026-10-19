@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	authall "github.com/alternayte/auth-all"
+	"github.com/alternayte/auth-all/hook"
 	"github.com/alternayte/auth-all/internal/testsupport"
+	"github.com/alternayte/auth-all/oauth"
 	"github.com/alternayte/auth-all/oauth/oidc"
 )
 
@@ -159,5 +161,26 @@ func TestOIDCProviderRoutesUseTheIdentifier(t *testing.T) {
 	}
 	if code := resp.ErrorCode(t); code != "PROVIDER_NOT_FOUND" {
 		t.Fatalf("the error code is %q", code)
+	}
+}
+
+// TestOIDCProviderReportsThePreferredUsername checks that the
+// preferred_username claim reaches the user creation hook.
+func TestOIDCProviderReportsThePreferredUsername(t *testing.T) {
+	f := newOIDCFixture(t)
+	f.first.SetAccount("subject-1", "person@example.com", true)
+	f.first.SetPreferredUsername("person")
+	var identity *oauth.Identity
+	f.h.Auth.Hooks().OnBeforeUserCreate(func(_ context.Context, ev *hook.UserCreate) error {
+		identity = ev.Identity
+		return nil
+	})
+
+	state := f.start(t, "first", f.first)
+	if resp := f.callback(t, "first", state); resp.Status != http.StatusFound {
+		t.Fatalf("the callback returned %d: %s", resp.Status, string(resp.Body))
+	}
+	if identity == nil || identity.Username != "person" {
+		t.Fatalf("the hook saw the identity %+v", identity)
 	}
 }
