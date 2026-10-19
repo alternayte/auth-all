@@ -37,9 +37,15 @@ The step exists for three reasons.
   cross-site submission.
 - It stops the loss of a link to a mail scanner. A scanner that pre-fetches the
   link receives the page and submits no form, so the one-time token survives.
-- It keeps the token out of the `Referer` header of the callback host. Both
-  endpoints also send `Referrer-Policy: no-referrer`, `Cache-Control:
-  no-store`, and `Pragma: no-cache`.
+- It keeps the token out of the `Referer` header of the callback host. The
+  page sends `Referrer-Policy: same-origin`, so the form post carries a valid
+  origin and no other origin receives the token. The POST endpoint sends
+  `Referrer-Policy: no-referrer`. Both endpoints send `Cache-Control: no-store`
+  and `Pragma: no-cache`.
+
+A host that renders its own confirmation page must not send `Referrer-Policy:
+no-referrer` on that page. Under that policy, the browser posts the form with
+the origin `null`, and the origin check refuses it. Use `same-origin`.
 
 The page carries no third-party asset and no script, so a strict content
 security policy blocks nothing.
@@ -93,11 +99,47 @@ the browser goes after success. Auth-All accepts a relative path or an
 absolute URL of a trusted origin. Any other value falls back to the configured
 callback URL.
 
+A browser reaches the confirmation page from the email and posts its form, so
+the default JSON error renders as text. `authall.WithBrowserErrorRedirect`
+sends the browser to a host page with the public code, for example
+`/login?error=INVALID_TOKEN` for an expired or used link. A JSON request to
+`POST /magic-link/verify` still receives the error envelope.
+
 ## From the browser
 
 ```ts
 await auth.magicLink.send({ email: "user@example.com" })
 ```
+
+## From a server-rendered form
+
+The send route accepts JSON only. A form handler of the host calls `Send`
+instead, and renders its own confirmation:
+
+```go
+links := magiclink.New()
+// ... authall.WithPlugins(links) ...
+
+mux.HandleFunc("POST /sign-in", func(w http.ResponseWriter, r *http.Request) {
+    err := links.Send(r.Context(), r, r.PostFormValue("email"), "/dashboard")
+    if errors.Is(err, apierr.ErrRateLimited) {
+        renderSignIn(w, "Too many requests. Try again later.")
+        return
+    }
+    if err != nil {
+        renderSignIn(w, "The request was refused.")
+        return
+    }
+    renderCheckYourEmail(w)
+})
+```
+
+`Send` does the work of the route. It applies the `magic-link-request` rate
+limit to the address and to the client IP of `r`. It runs the origin check on
+`r`, so a forged cross-site form gets `ORIGIN_NOT_ALLOWED`. It returns `nil`
+for an invalid address and for an address that gets no link, so the page
+discloses nothing about the account. A `nil` request skips the origin check,
+and the rate limit then counts the address only.
 
 ## Plugin parity
 

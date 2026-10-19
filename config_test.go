@@ -70,6 +70,13 @@ func TestConfigurationValidation(t *testing.T) {
 			authall.WithStore(s),
 			authall.WithPasswordPolicy(authall.PasswordPolicy{MinLength: 12, MaxLength: 4}),
 		}, "maximum length"},
+		{"browser error redirect to another origin", []authall.Option{
+			authall.WithStore(s), authall.WithBaseURL("https://app.example.com"),
+			authall.WithBrowserErrorRedirect("https://evil.example.com/login"),
+		}, "browser error redirect"},
+		{"scheme-relative browser error redirect", []authall.Option{
+			authall.WithStore(s), authall.WithBrowserErrorRedirect("//evil.example.com/login"),
+		}, "browser error redirect"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

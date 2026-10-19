@@ -56,6 +56,26 @@ and the exact callback URL.
 One browser runs one provider flow at a time. A second start replaces the
 binding cookie, so the first flow can no longer complete.
 
+## The identity
+
+The GitHub account id keys the account. The profile name becomes the display
+name. When the profile name is empty, the login becomes the display name.
+
+The login is always in `Identity.Username`. A host reads it in a Before hook of
+the user creation, for example to propose a handle or to refuse the account:
+
+```go
+auth.Hooks().OnBeforeUserCreate(func(ctx context.Context, ev *hook.UserCreate) error {
+    if ev.Provider == "github" && reserved(ev.Identity.Username) {
+        return apierr.ErrForbidden.WithMessage("This handle is reserved.")
+    }
+    return nil
+})
+```
+
+`ev.Provider` and `ev.Identity` are set only when a provider sign-in creates the
+user. They are empty for every other creation path.
+
 ## Scopes
 
 The default scopes are `read:user` and `user:email`. `github.WithScopes`
@@ -69,6 +89,11 @@ account linking needs.
 | `OAUTH_STATE_INVALID` | The state is unknown, expired, replayed, or foreign. |
 | `OAUTH_FAILED` | GitHub refused the exchange or returned no usable account. |
 | `EMAIL_ALREADY_EXISTS` | The address belongs to an existing account. Read the [account linking guide](account-linking.md). |
+
+The browser reaches the callback through a redirect from the provider, so the
+default JSON error renders as text. `authall.WithBrowserErrorRedirect("/login")`
+sends the browser to `/login?error=<code>` instead. The redirect carries the
+code only, never the message or the cause.
 
 ## Tests
 

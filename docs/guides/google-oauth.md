@@ -67,6 +67,11 @@ The default scopes are `openid`, `email`, and `profile`.
 | `OAUTH_FAILED` | The exchange failed or the identity token is invalid. |
 | `EMAIL_ALREADY_EXISTS` | The address belongs to an existing account. |
 
+The browser reaches the callback through a redirect from the provider, so the
+default JSON error renders as text. `authall.WithBrowserErrorRedirect("/login")`
+sends the browser to `/login?error=<code>` instead. The redirect carries the
+code only, never the message or the cause.
+
 ## Tests
 
 The test suite drives the complete flow against a deterministic fake Google

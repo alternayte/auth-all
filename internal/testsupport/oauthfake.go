@@ -101,6 +101,7 @@ type FakeGoogle struct {
 	email             string
 	emailVerified     bool
 	name              string
+	preferredUsername string
 	nonce             string
 	expectedChallenge string
 	issuerOverride    string
@@ -200,6 +201,14 @@ func (f *FakeGoogle) SetAccount(subject, address string, verified bool) {
 	f.subject, f.email, f.emailVerified = subject, address, verified
 }
 
+// SetPreferredUsername makes the identity token carry the preferred_username
+// claim. An empty value leaves the claim out.
+func (f *FakeGoogle) SetPreferredUsername(v string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.preferredUsername = v
+}
+
 // SetExpectedChallenge makes the token endpoint validate the PKCE verifier.
 func (f *FakeGoogle) SetExpectedChallenge(challenge string) {
 	f.mu.Lock()
@@ -264,6 +273,9 @@ func (f *FakeGoogle) IDToken() string {
 	}
 	if f.nonce != "" {
 		claims["nonce"] = f.nonce
+	}
+	if f.preferredUsername != "" {
+		claims["preferred_username"] = f.preferredUsername
 	}
 	f.mu.Unlock()
 

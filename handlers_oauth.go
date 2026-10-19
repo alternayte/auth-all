@@ -188,13 +188,13 @@ func (a *Auth) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	p, err := a.provider(r.PathValue("provider"))
 	if err != nil {
-		a.writeError(w, r, err)
+		a.writeBrowserError(w, r, err)
 		return
 	}
 	redirectTo := a.safeRedirect(r.URL.Query().Get("redirect_to"), a.cfg.baseURL)
 	url, err := a.startOAuth(ctx, w, p, redirectTo, nil)
 	if err != nil {
-		a.writeError(w, r, err)
+		a.writeBrowserError(w, r, err)
 		return
 	}
 	http.Redirect(w, r, url, http.StatusFound)
@@ -204,49 +204,49 @@ func (a *Auth) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	p, err := a.provider(r.PathValue("provider"))
 	if err != nil {
-		a.writeError(w, r, err)
+		a.writeBrowserError(w, r, err)
 		return
 	}
 	query := r.URL.Query()
 	if providerErr := query.Get("error"); providerErr != "" {
-		a.writeError(w, r, apierr.ErrOAuthFailed)
+		a.writeBrowserError(w, r, apierr.ErrOAuthFailed)
 		return
 	}
 	state := query.Get("state")
 	code := query.Get("code")
 	if state == "" || code == "" {
-		a.writeError(w, r, apierr.ErrOAuthStateInvalid)
+		a.writeBrowserError(w, r, apierr.ErrOAuthStateInvalid)
 		return
 	}
 	// The browser that completes the flow must be the browser that started it.
 	if !a.requestBindsState(r, state) {
 		a.clearOAuthStateCookie(w)
-		a.writeError(w, r, apierr.ErrOAuthStateInvalid)
+		a.writeBrowserError(w, r, apierr.ErrOAuthStateInvalid)
 		return
 	}
 	a.clearOAuthStateCookie(w)
 	record, err := a.cfg.store.OAuthStates().Consume(ctx, crypto.HashToken(state), a.cfg.now())
 	if err != nil {
 		if isNotFound(err) {
-			a.writeError(w, r, apierr.ErrOAuthStateInvalid)
+			a.writeBrowserError(w, r, apierr.ErrOAuthStateInvalid)
 			return
 		}
-		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
+		a.writeBrowserError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	if record.Provider != p.ID() {
-		a.writeError(w, r, apierr.ErrOAuthStateInvalid)
+		a.writeBrowserError(w, r, apierr.ErrOAuthStateInvalid)
 		return
 	}
 	if record.LinkUserID != nil {
 		// A link completes only for the authenticated user that started it.
 		_, current, err := a.resolveSession(ctx, r)
 		if err != nil {
-			a.writeError(w, r, err)
+			a.writeBrowserError(w, r, err)
 			return
 		}
 		if current == nil || current.ID != *record.LinkUserID {
-			a.writeError(w, r, apierr.ErrUnauthorized.WithMessage(
+			a.writeBrowserError(w, r, apierr.ErrUnauthorized.WithMessage(
 				"Sign in again and start the provider link from your account."))
 			return
 		}
@@ -259,19 +259,19 @@ func (a *Auth) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if errors.Is(err, oauth.ErrProviderRejected) {
-			a.writeError(w, r, apierr.ErrOAuthFailed.WithCause(err))
+			a.writeBrowserError(w, r, apierr.ErrOAuthFailed.WithCause(err))
 			return
 		}
-		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
+		a.writeBrowserError(w, r, apierr.ErrInternal.WithCause(err))
 		return
 	}
 	if identity == nil || identity.ProviderAccountID == "" {
-		a.writeError(w, r, apierr.ErrOAuthFailed)
+		a.writeBrowserError(w, r, apierr.ErrOAuthFailed)
 		return
 	}
 	user, err := a.resolveOAuthUser(ctx, p.ID(), identity, record)
 	if err != nil {
-		a.writeError(w, r, err)
+		a.writeBrowserError(w, r, err)
 		return
 	}
 	// A user with a live second factor receives a challenge instead of a
@@ -280,7 +280,7 @@ func (a *Auth) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// that the application leaks. The challenge cookie carries it instead.
 	challenge, required, err := a.mfaChallenge(ctx, user)
 	if err != nil {
-		a.writeError(w, r, err)
+		a.writeBrowserError(w, r, err)
 		return
 	}
 	target := a.safeRedirect(record.RedirectTo, a.cfg.baseURL)
@@ -290,7 +290,7 @@ func (a *Auth) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := a.issueSession(ctx, w, r, user, p.ID()); err != nil {
-		a.writeError(w, r, err)
+		a.writeBrowserError(w, r, err)
 		return
 	}
 	a.emitter.Emit(ctx, events.OAuthCompleted, user.ID, map[string]any{"provider": p.ID()})
@@ -396,7 +396,7 @@ func (a *Auth) createUserWithAccount(ctx context.Context, identity *oauth.Identi
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}
-	ev := &hook.UserCreate{User: user}
+	ev := &hook.UserCreate{User: user, Provider: providerID, Identity: identity}
 	err := a.cfg.store.Transaction(ctx, func(tx store.Store) error {
 		ev.Tx = tx
 		if err := a.hooks.RunBeforeUserCreate(ctx, ev); err != nil {

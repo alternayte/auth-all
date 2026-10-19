@@ -22,6 +22,9 @@ type Identity struct {
 	EmailVerified bool
 	DisplayName   string
 	ImageURL      string
+	// Username is the stable, human-readable account name at the provider,
+	// for example the GitHub login. It can be empty.
+	Username string
 }
 
 // AuthRequest is the data core supplies to build an authorization URL.

@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	authall "github.com/alternayte/auth-all"
+	"github.com/alternayte/auth-all/apierr"
+	"github.com/alternayte/auth-all/hook"
 	"github.com/alternayte/auth-all/internal/testsupport"
 	"github.com/alternayte/auth-all/oauth/github"
 	"github.com/alternayte/auth-all/oauth/google"
@@ -501,5 +503,95 @@ func TestUnlinkCannotRemoveEveryAuthenticationMethod(t *testing.T) {
 	_, credErr := f.h.Store.Users().GetCredential(context.Background(), userID)
 	if len(accounts) == 0 && credErr != nil {
 		t.Fatalf("the user lost every authentication method")
+	}
+}
+
+// TestOAuthUserCreateHookReadsTheGitHubLogin checks that a Before hook of the
+// user creation reads the provider username. A host proposes a handle from it,
+// so the login must arrive even when the profile name is set.
+func TestOAuthUserCreateHookReadsTheGitHubLogin(t *testing.T) {
+	f := newOAuthFixture(t)
+	var seen hook.UserCreate
+	f.h.Auth.Hooks().OnBeforeUserCreate(func(_ context.Context, ev *hook.UserCreate) error {
+		seen = *ev
+		return nil
+	})
+	state := f.startGitHub(t)
+	if resp := f.callback(t, "github", "valid-code", state); resp.Status != http.StatusFound {
+		t.Fatalf("callback failed with %d: %s", resp.Status, string(resp.Body))
+	}
+	if seen.Provider != "github" {
+		t.Fatalf("the hook saw the provider %q", seen.Provider)
+	}
+	if seen.Identity == nil || seen.Identity.Username != "octocat" {
+		t.Fatalf("the hook saw the identity %+v", seen.Identity)
+	}
+	if seen.Identity.DisplayName != "Octo Cat" || seen.User.DisplayName != "Octo Cat" {
+		t.Fatalf("the display name changed: %+v", seen.Identity)
+	}
+}
+
+// TestOAuthUserCreateHookRejectsByUsername checks that a Before hook that
+// refuses a provider username blocks the account.
+func TestOAuthUserCreateHookRejectsByUsername(t *testing.T) {
+	f := newOAuthFixture(t)
+	f.h.Auth.Hooks().OnBeforeUserCreate(func(_ context.Context, ev *hook.UserCreate) error {
+		if ev.Identity != nil && ev.Identity.Username == "octocat" {
+			return apierr.ErrForbidden.WithMessage("This handle is taken.")
+		}
+		return nil
+	})
+	state := f.startGitHub(t)
+	resp := f.callback(t, "github", "valid-code", state)
+	if resp.Status != http.StatusForbidden {
+		t.Fatalf("expected status 403, got %d: %s", resp.Status, string(resp.Body))
+	}
+	if session := f.h.GetSession(); session.User != nil {
+		t.Fatalf("a rejected creation opened a session")
+	}
+}
+
+// TestOAuthCallbackErrorRedirectsTheBrowser checks the browser error redirect.
+// The browser reaches the callback through the provider, so a JSON body would
+// render as text. The redirect carries the public code and nothing else.
+func TestOAuthCallbackErrorRedirectsTheBrowser(t *testing.T) {
+	f := newOAuthFixture(t, authall.WithBrowserErrorRedirect("/login?from=oauth"))
+	f.h.Auth.Hooks().OnBeforeUserCreate(func(context.Context, *hook.UserCreate) error {
+		return apierr.ErrForbidden.WithMessage("This address is not on the allowlist.")
+	})
+
+	state := f.startGitHub(t)
+	resp := f.callback(t, "github", "valid-code", state)
+	if resp.Status != http.StatusFound {
+		t.Fatalf("expected a redirect, got %d: %s", resp.Status, string(resp.Body))
+	}
+	target, err := url.Parse(resp.Location())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if target.Path != "/login" || target.Query().Get("error") != "FORBIDDEN" || target.Query().Get("from") != "oauth" {
+		t.Fatalf("the redirect goes to %q", resp.Location())
+	}
+	if len(target.Query()) != 2 {
+		t.Fatalf("the redirect carries more than the code: %q", resp.Location())
+	}
+
+	// A replayed callback and a provider refusal take the same path.
+	if resp := f.callback(t, "github", "valid-code", state); testsupport.QueryParam(t, resp.Location(), "error") != "OAUTH_STATE_INVALID" {
+		t.Fatalf("the replayed callback returned %d to %q", resp.Status, resp.Location())
+	}
+	state = f.startGitHub(t)
+	refused := f.h.Do(http.MethodGet, "/oauth/github/callback?error=access_denied&state="+url.QueryEscape(state), nil)
+	if testsupport.QueryParam(t, refused.Location(), "error") != "OAUTH_FAILED" {
+		t.Fatalf("the provider refusal returned %d to %q", refused.Status, refused.Location())
+	}
+}
+
+// TestOAuthCallbackErrorStaysJSONWithoutTheOption checks the default.
+func TestOAuthCallbackErrorStaysJSONWithoutTheOption(t *testing.T) {
+	f := newOAuthFixture(t)
+	resp := f.callback(t, "github", "valid-code", "not-a-real-state")
+	if resp.Status != http.StatusBadRequest || resp.ErrorCode(t) != "OAUTH_STATE_INVALID" {
+		t.Fatalf("the callback returned %d: %s", resp.Status, string(resp.Body))
 	}
 }

@@ -427,8 +427,20 @@ func (p *Plugin) Create(ctx context.Context, owner *store.User, in CreateInput) 
 		orgID := in.OrgID
 		key.OrgID = &orgID
 	}
-	if err := p.keys.CreateAPIKey(ctx, key); err != nil {
-		return nil, "", apierr.ErrInternal.WithCause(err)
+	err = p.svc.Store().Transaction(ctx, func(tx store.Store) error {
+		keys, ok := tx.(store.APIKeyStore)
+		if !ok {
+			return apierr.ErrInternal.WithCause(errors.New("authall/apikeys: the transactional store holds no API key"))
+		}
+		// A Before hook can refuse the key, for example for an owner that the
+		// host allows no machine credential.
+		if err := p.hooks.RunBeforeAPIKeyCreate(ctx, &hook.APIKeyEvent{Key: key, User: owner, Tx: tx}); err != nil {
+			return err
+		}
+		return keys.CreateAPIKey(ctx, key)
+	})
+	if err != nil {
+		return nil, "", apierr.From(err)
 	}
 	p.hooks.RunAfterAPIKeyCreate(ctx, &hook.APIKeyEvent{Key: key, User: owner})
 	p.emit(ctx, events.APIKeyCreated, owner.ID, map[string]any{"key_id": key.ID, "role": role})

@@ -143,6 +143,11 @@ func New(opts ...Option) (*Auth, error) {
 		a.principals = newPrincipalCache(cfg.principalCacheTTL, cfg.now)
 	}
 	a.trustedOrigins = buildTrustedOrigins(cfg)
+	if cfg.browserErrorRedirect != "" && a.safeRedirect(cfg.browserErrorRedirect, "") == "" {
+		return nil, fmt.Errorf(
+			"authall: the browser error redirect %q must be a relative path or a URL of a trusted origin",
+			cfg.browserErrorRedirect)
+	}
 	if cfg.hostOriginCheck == nil {
 		on := true
 		cfg.hostOriginCheck = &on

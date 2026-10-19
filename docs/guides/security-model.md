@@ -49,8 +49,9 @@ account delete use one-time tokens.
   page and consumes nothing, so a mail scanner that pre-fetches the link
   destroys no token and signs nobody in. `POST /magic-link/verify` runs the
   origin check and creates the session, so a login cross-site request forgery
-  fails. Both routes send `Referrer-Policy: no-referrer`, so the token in the
-  query string stays out of the callback host.
+  fails. The page sends `Referrer-Policy: same-origin` and the POST route sends
+  `Referrer-Policy: no-referrer`, so the token in the query string reaches no
+  other origin.
 
 ## Pre-account hijacking
 
@@ -206,6 +207,11 @@ A public error carries a stable code and a safe message. Auth-All never
 exposes SQL, a stack trace, a password hash, a session token, a one-time
 token, or a provider secret. The private cause reaches the configured logger
 and stays out of the response.
+
+`WithBrowserErrorRedirect` sends a browser-navigated error to a host page. The
+redirect carries the public code only. The target must be a relative path or
+a URL of a trusted origin, and `New` refuses any other target, so the option
+opens no redirect to another site.
 
 An event never carries a secret value.
 

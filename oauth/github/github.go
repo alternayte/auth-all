@@ -166,6 +166,7 @@ func (p *Provider) Exchange(ctx context.Context, req oauth.ExchangeRequest) (*oa
 		ProviderAccountID: strconv.FormatInt(user.ID, 10),
 		DisplayName:       user.Name,
 		ImageURL:          user.AvatarURL,
+		Username:          user.Login,
 	}
 	if identity.DisplayName == "" {
 		identity.DisplayName = user.Login

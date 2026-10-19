@@ -15,15 +15,26 @@ import (
 	"context"
 	"sync"
 
+	"github.com/alternayte/auth-all/oauth"
 	"github.com/alternayte/auth-all/store"
 )
 
 // UserCreate carries a user creation.
 //
 // Tx is the transactional store in a Before hook. Tx is nil in an After hook.
+//
+// Provider and Identity are set when a sign-in through an OAuth provider
+// creates the user. A Before hook can read the provider username from
+// Identity.Username and reject the creation.
 type UserCreate struct {
 	User *store.User
 	Tx   store.Store
+	// Provider is the identifier of the OAuth provider, for example "github".
+	// It is empty for every other creation path.
+	Provider string
+	// Identity is the identity that the provider reported. It is nil when
+	// Provider is empty.
+	Identity *oauth.Identity
 }
 
 // SessionCreate carries a session creation.
@@ -84,6 +95,9 @@ type RoleChange struct {
 
 // APIKeyEvent carries a created or a revoked API key. The plaintext key is
 // never part of it.
+//
+// In a Before hook, Key is the row that the creation is about to insert and Tx
+// is the transactional store. Tx is nil in an After hook.
 type APIKeyEvent struct {
 	Key  *store.APIKey
 	User *store.User
@@ -120,6 +134,8 @@ type (
 	BeforeRoleChangeFunc func(ctx context.Context, ev *RoleChange) error
 	// AfterRoleChangeFunc runs after commit.
 	AfterRoleChangeFunc func(ctx context.Context, ev *RoleChange) error
+	// BeforeAPIKeyCreateFunc runs in the transaction and can reject.
+	BeforeAPIKeyCreateFunc func(ctx context.Context, ev *APIKeyEvent) error
 	// AfterAPIKeyCreateFunc runs after commit.
 	AfterAPIKeyCreateFunc func(ctx context.Context, ev *APIKeyEvent) error
 	// AfterAPIKeyRevokeFunc runs after commit.
@@ -143,6 +159,7 @@ type Hooks struct {
 	afterUserUpdate     []AfterUserUpdateFunc
 	beforeRoleChange    []BeforeRoleChangeFunc
 	afterRoleChange     []AfterRoleChangeFunc
+	beforeAPIKeyCreate  []BeforeAPIKeyCreateFunc
 	afterAPIKeyCreate   []AfterAPIKeyCreateFunc
 	afterAPIKeyRevoke   []AfterAPIKeyRevokeFunc
 	beforeOrgCreate     []BeforeOrganizationCreateFunc
@@ -362,6 +379,14 @@ func (h *Hooks) OnAfterRoleChange(fn AfterRoleChangeFunc) {
 	h.afterRoleChange = append(h.afterRoleChange, fn)
 }
 
+// OnBeforeAPIKeyCreate registers a hook that runs in the transaction and can
+// reject. It runs for the HTTP route and for a key that Go code creates.
+func (h *Hooks) OnBeforeAPIKeyCreate(fn BeforeAPIKeyCreateFunc) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.beforeAPIKeyCreate = append(h.beforeAPIKeyCreate, fn)
+}
+
 // OnAfterAPIKeyCreate registers a hook that runs after commit.
 func (h *Hooks) OnAfterAPIKeyCreate(fn AfterAPIKeyCreateFunc) {
 	h.mu.Lock()
@@ -420,6 +445,19 @@ func (h *Hooks) RunAfterRoleChange(ctx context.Context, ev *RoleChange) {
 	for _, fn := range fns {
 		h.report(ctx, "AfterRoleChange", fn(ctx, ev))
 	}
+}
+
+// RunBeforeAPIKeyCreate runs the registered hooks and stops at the first error.
+func (h *Hooks) RunBeforeAPIKeyCreate(ctx context.Context, ev *APIKeyEvent) error {
+	h.mu.RLock()
+	fns := append([]BeforeAPIKeyCreateFunc(nil), h.beforeAPIKeyCreate...)
+	h.mu.RUnlock()
+	for _, fn := range fns {
+		if err := fn(ctx, ev); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // RunAfterAPIKeyCreate runs the registered hooks after commit.

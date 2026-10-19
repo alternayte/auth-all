@@ -44,6 +44,33 @@ func (a *Auth) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	a.cfg.errorWriter(w, r, public)
 }
 
+// writeBrowserError answers an error on a route that a browser reaches by
+// navigation or by a form submission. With WithBrowserErrorRedirect it sends
+// the browser to the host page with the public code, and otherwise it writes
+// the error envelope.
+func (a *Auth) writeBrowserError(w http.ResponseWriter, r *http.Request, err error) {
+	if a.cfg.browserErrorRedirect == "" || r == nil {
+		a.writeError(w, r, err)
+		return
+	}
+	e := apierr.From(err)
+	if cause := e.Unwrap(); cause != nil {
+		a.cfg.logger.Error("authall: request failed", "code", string(e.Code), "error", cause.Error())
+	}
+	// New proved that the target parses and passes the redirect check.
+	u, _ := url.Parse(a.cfg.browserErrorRedirect)
+	q := u.Query()
+	q.Set("error", string(e.Code))
+	u.RawQuery = q.Encode()
+	status := http.StatusFound
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		// The browser must follow the redirect of a form post with a GET.
+		status = http.StatusSeeOther
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, u.String(), status)
+}
+
 // decodeJSON reads a bounded JSON request body.
 func (a *Auth) decodeJSON(r *http.Request, dst any) error {
 	if r.Body == nil {

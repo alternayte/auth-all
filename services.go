@@ -121,6 +121,13 @@ func (h *httpService) WriteErrorFor(w http.ResponseWriter, r *http.Request, err 
 	h.auth.writeError(w, r, err)
 }
 
+// WriteBrowserError answers an error on a route that a browser reaches by
+// navigation or by a form submission. It honours WithBrowserErrorRedirect. A
+// plugin asserts the method on the HTTP service.
+func (h *httpService) WriteBrowserError(w http.ResponseWriter, r *http.Request, err error) {
+	h.auth.writeBrowserError(w, r, err)
+}
+
 func (h *httpService) SafeRedirect(candidate, fallback string) string {
 	return h.auth.safeRedirect(candidate, fallback)
 }
