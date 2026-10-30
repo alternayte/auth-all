@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -59,8 +60,15 @@ const unitVersion = "20260910000002"
 // column. The column is nullable, so the unit applies to a database with rows.
 const orgColumnVersion = "20261101000007"
 
+// scopesColumnVersion is the version of the unit that adds the scope column.
+// The column is nullable, so the unit applies to a database with rows.
+const scopesColumnVersion = "20261215000001"
+
 // prefixPattern is the accepted form of a key prefix.
 var prefixPattern = regexp.MustCompile(`^[a-z][a-z0-9_]{1,15}$`)
+
+// scopePattern is the accepted form of a scope name.
+var scopePattern = regexp.MustCompile(`^[a-z][a-z0-9_:.-]{0,63}$`)
 
 // Plugin is the API keys plugin.
 type Plugin struct {
@@ -70,6 +78,9 @@ type Plugin struct {
 	touchInterval time.Duration
 	adminRole     string
 	organizations OrganizationResolver
+	scopes        []string
+	defaultScopes []string
+	defaultsSet   bool
 
 	svc           plugin.Services
 	roles         plugin.RoleService
@@ -133,6 +144,23 @@ func TouchInterval(d time.Duration) Option { return func(p *Plugin) { p.touchInt
 // The default is "admin".
 func AdminRole(name string) Option { return func(p *Plugin) { p.adminRole = name } }
 
+// Scopes declares the scopes that the application knows. A name must match
+// ^[a-z][a-z0-9_:.-]{0,63}$. With no declared scope the plugin refuses a key
+// that asks for a scope, and every scope check passes.
+func Scopes(names ...string) Option {
+	return func(p *Plugin) { p.scopes = normalizeScopes(names) }
+}
+
+// DefaultScopes sets the scopes of a key that is created with none, and of a
+// key from before the scope column. Each name must be a declared scope. Without
+// this option such a key holds every declared scope.
+func DefaultScopes(names ...string) Option {
+	return func(p *Plugin) {
+		p.defaultScopes = normalizeScopes(names)
+		p.defaultsSet = true
+	}
+}
+
 // New returns the API keys plugin.
 func New(opts ...Option) *Plugin {
 	p := &Plugin{
@@ -153,6 +181,9 @@ func (p *Plugin) ID() string { return ID }
 func (p *Plugin) Register(r *plugin.Registry) error {
 	if !prefixPattern.MatchString(p.prefix) {
 		return fmt.Errorf("authall/apikeys: the prefix %q must match %s", p.prefix, prefixPattern)
+	}
+	if err := p.checkScopes(); err != nil {
+		return err
 	}
 	svc := r.Services()
 	reader, ok := svc.(plugin.RoleServices)
@@ -197,6 +228,11 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 		return err
 	}
 	r.Unit(orgUnit)
+	scopesUnit, err := scopesColumnUnit(p.schemaOptions)
+	if err != nil {
+		return err
+	}
+	r.Unit(scopesUnit)
 	r.Resolver(p)
 	p.registerOrganizationCleanup(r)
 
@@ -231,6 +267,9 @@ func Table(o schema.Options) schema.Table {
 			// The organization of the key. A null value means a key of the
 			// whole application.
 			{Name: "org_id", Type: id, Nullable: true},
+			// The space-separated scope names. A null value means a key from
+			// before this column, and it takes the default scopes.
+			{Name: "scopes", Type: schema.TypeText, Nullable: true},
 		},
 		Indexes: []schema.Index{
 			{Name: o.Name("apikeys_key_hash_key"), Columns: []string{"key_hash"}, Unique: true},
@@ -247,8 +286,8 @@ func Table(o schema.Options) schema.Table {
 func unitOf(o schema.Options) (schema.Unit, error) {
 	table := Table(o)
 	// The released unit creates the v0.3.0 columns only. The organization
-	// column arrives in its own unit.
-	table.Columns = table.Columns[:len(table.Columns)-1]
+	// column and the scope column arrive in their own units.
+	table.Columns = table.Columns[:len(table.Columns)-2]
 	return schema.TableUnit(unitVersion, ID, "authall_apikeys",
 		[]schema.Dialect{schema.Postgres, schema.SQLite}, []schema.Table{table})
 }
@@ -270,6 +309,15 @@ func orgColumnExtension(o schema.Options) schema.Extension {
 func orgColumnUnit(o schema.Options) (schema.Unit, error) {
 	return schema.ExtensionUnit(orgColumnVersion, ID, "authall_apikeys_org_column",
 		[]schema.Dialect{schema.Postgres, schema.SQLite}, []schema.Extension{orgColumnExtension(o)})
+}
+
+// scopesColumnUnit returns the unit that adds the scope column.
+func scopesColumnUnit(o schema.Options) (schema.Unit, error) {
+	return schema.ExtensionUnit(scopesColumnVersion, ID, "authall_apikeys_scopes_column",
+		[]schema.Dialect{schema.Postgres, schema.SQLite}, []schema.Extension{{
+			Table:   schema.TableNames(o).APIKeys,
+			Columns: []schema.Column{{Name: "scopes", Type: schema.TypeText, Nullable: true}},
+		}})
 }
 
 // Claims implements plugin.CredentialResolver. It reads the shape of the value
@@ -302,6 +350,7 @@ func (p *Plugin) Resolve(ctx context.Context, bearer string) (*plugin.Principal,
 	if p.roles.Rank(ownerRole) < p.roles.Rank(role) {
 		role = ownerRole
 	}
+	key.Scopes = p.effectiveScopes(key.Scopes)
 	principal := &plugin.Principal{User: user, APIKey: key, Role: role, Method: "api_key"}
 	if key.OrgID != nil && *key.OrgID != "" {
 		if p.organizations == nil {
@@ -356,6 +405,10 @@ type CreateInput struct {
 	// OrgID names the organization of the key. An empty value creates a key of
 	// the whole application.
 	OrgID string
+	// Scopes names the scopes of the key, separated by a space. An empty value
+	// takes the default scopes. The scopes of a key never change after the
+	// create.
+	Scopes string
 }
 
 // Create returns a new key and its plaintext value. The plaintext exists only
@@ -377,6 +430,10 @@ func (p *Plugin) Create(ctx context.Context, owner *store.User, in CreateInput) 
 		if p.maxTTL > 0 && in.ExpiresAt.Sub(now) > p.maxTTL {
 			return nil, "", apierr.ErrAPIKeyExpiryTooLong
 		}
+	}
+	scopes, err := p.scopesOf(in.Scopes)
+	if err != nil {
+		return nil, "", err
 	}
 	role := in.Role
 	if in.OrgID != "" {
@@ -422,6 +479,7 @@ func (p *Plugin) Create(ctx context.Context, owner *store.User, in CreateInput) 
 		Role:      role,
 		CreatedAt: now,
 		ExpiresAt: in.ExpiresAt,
+		Scopes:    scopes,
 	}
 	if in.OrgID != "" {
 		orgID := in.OrgID
@@ -443,7 +501,11 @@ func (p *Plugin) Create(ctx context.Context, owner *store.User, in CreateInput) 
 		return nil, "", apierr.From(err)
 	}
 	p.hooks.RunAfterAPIKeyCreate(ctx, &hook.APIKeyEvent{Key: key, User: owner})
-	p.emit(ctx, events.APIKeyCreated, owner.ID, map[string]any{"key_id": key.ID, "role": role})
+	fields := map[string]any{"key_id": key.ID, "role": role}
+	if scopes != "" {
+		fields["scopes"] = key.ScopeList()
+	}
+	p.emit(ctx, events.APIKeyCreated, owner.ID, fields)
 	return key, plaintext, nil
 }
 
@@ -471,13 +533,132 @@ func (p *Plugin) Revoke(ctx context.Context, keyID string, actor *store.User, is
 	return nil
 }
 
-// List returns every key of one owner.
+// List returns every key of one owner. A key from before the scope column shows
+// the scopes that it resolves with.
 func (p *Plugin) List(ctx context.Context, userID string) ([]store.APIKey, error) {
 	keys, err := p.keys.ListAPIKeys(ctx, userID)
 	if err != nil {
 		return nil, apierr.ErrInternal.WithCause(err)
 	}
+	for i := range keys {
+		keys[i].Scopes = p.effectiveScopes(keys[i].Scopes)
+	}
 	return keys, nil
+}
+
+// checkScopes refuses an invalid scope configuration. A default of no scope is
+// refused too, because an empty scope value on a resolved key means that the
+// application declares no scope.
+func (p *Plugin) checkScopes() error {
+	for _, name := range p.scopes {
+		if !scopePattern.MatchString(name) {
+			return fmt.Errorf("authall/apikeys: the scope %q must match %s", name, scopePattern)
+		}
+	}
+	if !p.defaultsSet {
+		return nil
+	}
+	if len(p.defaultScopes) == 0 {
+		return errors.New("authall/apikeys: DefaultScopes needs at least one scope")
+	}
+	for _, name := range p.defaultScopes {
+		if !slices.Contains(p.scopes, name) {
+			return fmt.Errorf("authall/apikeys: the default scope %q is not declared", name)
+		}
+	}
+	return nil
+}
+
+// scopesOf returns the scopes to store for one create.
+func (p *Plugin) scopesOf(requested string) (string, error) {
+	names := normalizeScopes(strings.Fields(requested))
+	if len(p.scopes) == 0 {
+		if len(names) > 0 {
+			return "", apierr.ErrScopeUnknown
+		}
+		return "", nil
+	}
+	if len(names) == 0 {
+		return p.fallbackScopes(), nil
+	}
+	for _, name := range names {
+		if !slices.Contains(p.scopes, name) {
+			return "", apierr.ErrScopeUnknown
+		}
+	}
+	return strings.Join(names, " "), nil
+}
+
+// effectiveScopes returns the scopes of a stored key. With no declared scope it
+// returns an empty value, so every scope check passes even for a key that holds
+// a scope from an earlier configuration.
+func (p *Plugin) effectiveScopes(stored string) string {
+	if len(p.scopes) == 0 {
+		return ""
+	}
+	if stored == "" {
+		return p.fallbackScopes()
+	}
+	return stored
+}
+
+// fallbackScopes returns the scopes of a key that names none.
+func (p *Plugin) fallbackScopes() string {
+	if p.defaultsSet {
+		return strings.Join(p.defaultScopes, " ")
+	}
+	return strings.Join(p.scopes, " ")
+}
+
+// normalizeScopes returns the names sorted and without duplicates.
+func normalizeScopes(names []string) []string {
+	out := slices.Clone(names)
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+// HasScope reports whether a principal may use one scope.
+//
+// A session holds every scope. An API key holds the scopes of its row, and a key
+// of an application that declares no scope passes every check. Any other
+// credential fails the check, because API key scopes do not describe it. A host
+// handler uses authall.PrincipalFrom(ctx).HasScope, which has the same result.
+func HasScope(p *plugin.Principal, scope string) bool {
+	if p == nil {
+		return false
+	}
+	if p.APIKey != nil {
+		return p.APIKey.Scopes == "" || slices.Contains(p.APIKey.ScopeList(), scope)
+	}
+	return p.Method == "session"
+}
+
+// RequireScope returns a middleware that refuses a request with no principal
+// with 401 UNAUTHORIZED, and a key that does not hold the scope with 403
+// SCOPE_MISSING. It panics when the application declares scopes and the scope is
+// not one of them. Scopes never add a permission: a role check or an
+// organization check beside it still applies.
+func (p *Plugin) RequireScope(scope string) func(http.Handler) http.Handler {
+	if len(p.scopes) > 0 && !slices.Contains(p.scopes, scope) {
+		panic(fmt.Sprintf("authall/apikeys: the scope %q is not declared. Declared: %v", scope, p.scopes))
+	}
+	return func(next http.Handler) http.Handler {
+		gate := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			principal := p.principals.Current(r.Context())
+			if principal == nil {
+				p.writeError(w, r, apierr.ErrUnauthorized)
+				return
+			}
+			if !HasScope(principal, scope) {
+				p.writeError(w, r, apierr.ErrScopeMissing)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+		// Protect resolves the principal and runs the origin check of the host
+		// routes, so a scope route needs no second middleware.
+		return p.protect(gate)
+	}
 }
 
 // emit sends one audit event with the caller as the actor.
@@ -525,13 +706,14 @@ func digest(plaintext string) string {
 // registerSchemas adds the component schemas of the key responses.
 func registerSchemas(r *plugin.Registry) {
 	key := openapi.Object(
-		[]string{"id", "name", "start", "role", "createdAt"},
+		[]string{"id", "name", "start", "role", "scopes", "createdAt"},
 		map[string]*openapi.Schema{
 			"id":         openapi.String(),
 			"userId":     openapi.String(),
 			"name":       openapi.String(),
 			"start":      openapi.String(),
 			"role":       openapi.String(),
+			"scopes":     {Type: "array", Items: openapi.String()},
 			"createdAt":  {Type: "string", Format: "date-time"},
 			"expiresAt":  {Type: "string", Format: "date-time", Nullable: true},
 			"lastUsedAt": {Type: "string", Format: "date-time", Nullable: true},

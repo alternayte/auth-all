@@ -13,6 +13,7 @@ import (
 	"github.com/alternayte/auth-all/apierr"
 	"github.com/alternayte/auth-all/hook"
 	"github.com/alternayte/auth-all/internal/testsupport"
+	"github.com/alternayte/auth-all/plugin"
 	"github.com/alternayte/auth-all/plugins/admin"
 	"github.com/alternayte/auth-all/plugins/apikeys"
 	"github.com/alternayte/auth-all/plugins/roles"
@@ -542,5 +543,305 @@ func TestTheBeforeHookRefusesAKey(t *testing.T) {
 	h.SignUp("bot@example.com", testPassword)
 	if resp, plaintext, _ := createKey(t, h, map[string]any{"name": "allowed"}); resp.Status != http.StatusCreated || plaintext == "" {
 		t.Fatalf("the allowed key returned %d: %s", resp.Status, string(resp.Body))
+	}
+}
+
+// scopeHarness returns a key harness and one route for each named scope.
+func scopeHarness(t *testing.T, routes []string, opts ...apikeys.Option) (*testsupport.Harness, *apikeys.Plugin) {
+	t.Helper()
+	h, k := keysHarness(t, opts...)
+	for _, scope := range routes {
+		h.Handle("/host/scope/"+scope, k.RequireScope(scope)(http.HandlerFunc(
+			func(w http.ResponseWriter, req *http.Request) { w.WriteHeader(http.StatusNoContent) })))
+	}
+	return h, k
+}
+
+// scopesOfResponse decodes the scopes of one key response.
+func scopesOfResponse(t *testing.T, resp *testsupport.Response) []string {
+	t.Helper()
+	var out struct {
+		Key struct {
+			Scopes []string `json:"scopes"`
+		} `json:"key"`
+	}
+	resp.Decode(t, &out)
+	return out.Key.Scopes
+}
+
+// execKeySQL runs one statement on the store of the harness.
+func execKeySQL(t *testing.T, s store.Store, statement string) {
+	t.Helper()
+	handle, ok := s.(interface{ DB() *sql.DB })
+	if !ok {
+		t.Fatal("the store exposes no database handle")
+	}
+	if _, err := handle.DB().ExecContext(context.Background(), statement); err != nil {
+		t.Fatalf("%s: %v", statement, err)
+	}
+}
+
+// TestSCNKEY012CreateStoresAndReturnsTheScopes covers acceptance test 1 of
+// issue 18.
+func TestSCNKEY012CreateStoresAndReturnsTheScopes(t *testing.T) {
+	h, k := scopeHarness(t, nil, apikeys.Scopes("read", "propose"))
+	var hooked string
+	h.Auth.Hooks().OnBeforeAPIKeyCreate(func(_ context.Context, ev *hook.APIKeyEvent) error {
+		hooked = ev.Key.Scopes
+		if !strings.Contains(strings.Join(ev.Key.ScopeList(), ","), "propose,read") {
+			t.Errorf("the hook list is %v", ev.Key.ScopeList())
+		}
+		return nil
+	})
+	h.SignUp("owner@example.com", testPassword)
+
+	resp := h.Do(http.MethodPost, "/api-keys", map[string]any{
+		"name": "agent", "scopes": []string{"read", "propose", "read"},
+	})
+	if resp.Status != http.StatusCreated {
+		t.Fatalf("status %d: %s", resp.Status, string(resp.Body))
+	}
+	if got := strings.Join(scopesOfResponse(t, resp), " "); got != "propose read" {
+		t.Fatalf("the create returned %q", got)
+	}
+	if hooked != "propose read" {
+		t.Fatalf("the hook saw %q", hooked)
+	}
+
+	list := h.Do(http.MethodGet, "/api-keys", nil)
+	var listed struct {
+		Keys []struct {
+			Scopes []string `json:"scopes"`
+		} `json:"keys"`
+	}
+	list.Decode(t, &listed)
+	if len(listed.Keys) != 1 || strings.Join(listed.Keys[0].Scopes, " ") != "propose read" {
+		t.Fatalf("the list returned %s", string(list.Body))
+	}
+
+	owner, err := h.Store.Users().GetByNormalizedEmail(context.Background(), "owner@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys, err := k.List(context.Background(), owner.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keys[0].Scopes != "propose read" {
+		t.Fatalf("the store returned %q", keys[0].Scopes)
+	}
+}
+
+// TestSCNKEY013AnUnknownScopeFails covers acceptance test 2 of issue 18.
+func TestSCNKEY013AnUnknownScopeFails(t *testing.T) {
+	h, _ := scopeHarness(t, nil, apikeys.Scopes("read"))
+	h.SignUp("owner@example.com", testPassword)
+	resp := h.Do(http.MethodPost, "/api-keys", map[string]any{"name": "a", "scopes": []string{"read", "admin"}})
+	if resp.Status != http.StatusBadRequest || resp.ErrorCode(t) != "SCOPE_UNKNOWN" {
+		t.Fatalf("status %d: %s", resp.Status, string(resp.Body))
+	}
+}
+
+// TestSCNKEY014AKeyWithNoScopesTakesTheDefaults covers acceptance test 3 of
+// issue 18.
+func TestSCNKEY014AKeyWithNoScopesTakesTheDefaults(t *testing.T) {
+	cases := []struct {
+		name string
+		opts []apikeys.Option
+		want string
+	}{
+		{"the named default", []apikeys.Option{apikeys.Scopes("read", "propose"), apikeys.DefaultScopes("read")}, "read"},
+		{"every declared scope", []apikeys.Option{apikeys.Scopes("read", "propose")}, "propose read"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h, _ := scopeHarness(t, nil, tc.opts...)
+			h.SignUp("owner@example.com", testPassword)
+			resp := h.Do(http.MethodPost, "/api-keys", map[string]any{"name": "a"})
+			if resp.Status != http.StatusCreated {
+				t.Fatalf("status %d: %s", resp.Status, string(resp.Body))
+			}
+			if got := strings.Join(scopesOfResponse(t, resp), " "); got != tc.want {
+				t.Fatalf("got %q", got)
+			}
+		})
+	}
+}
+
+// TestSCNKEY015RequireScopeLimitsAKeyAndNoSession covers acceptance test 4 of
+// issue 18.
+func TestSCNKEY015RequireScopeLimitsAKeyAndNoSession(t *testing.T) {
+	h, _ := scopeHarness(t, []string{"read", "propose"}, apikeys.Scopes("read", "propose"))
+	h.Handle("/host/scope/principal", h.Auth.RequireAuth(http.HandlerFunc(
+		func(w http.ResponseWriter, req *http.Request) {
+			if !authall.PrincipalFrom(req.Context()).HasScope("read") ||
+				authall.PrincipalFrom(req.Context()).HasScope("propose") {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		})))
+	h.SignUp("owner@example.com", testPassword)
+	_, plaintext, _ := createKey(t, h, map[string]any{"name": "a", "scopes": []string{"read"}})
+
+	for _, path := range []string{"/host/scope/read", "/host/scope/propose"} {
+		if resp := h.DoURL(http.MethodGet, h.Server.URL+path, nil); resp.Status != http.StatusNoContent {
+			t.Fatalf("the session got %d on %s", resp.Status, path)
+		}
+	}
+
+	h.ClearCookies()
+	if resp := h.DoURL(http.MethodGet, h.Server.URL+"/host/scope/read", nil, withKey(plaintext)); resp.Status != http.StatusNoContent {
+		t.Fatalf("the key got %d: %s", resp.Status, string(resp.Body))
+	}
+	resp := h.DoURL(http.MethodGet, h.Server.URL+"/host/scope/propose", nil, withKey(plaintext))
+	if resp.Status != http.StatusForbidden || resp.ErrorCode(t) != "SCOPE_MISSING" {
+		t.Fatalf("the key got %d: %s", resp.Status, string(resp.Body))
+	}
+	if resp := h.DoURL(http.MethodGet, h.Server.URL+"/host/scope/principal", nil, withKey(plaintext)); resp.Status != http.StatusNoContent {
+		t.Fatalf("Principal.HasScope gave %d", resp.Status)
+	}
+	if resp := h.DoURL(http.MethodGet, h.Server.URL+"/host/scope/read", nil); resp.Status != http.StatusUnauthorized {
+		t.Fatalf("the anonymous request got %d", resp.Status)
+	}
+}
+
+// TestSCNKEY016AKeyFromBeforeTheColumnTakesTheDefaults covers acceptance test 5
+// of issue 18.
+func TestSCNKEY016AKeyFromBeforeTheColumnTakesTheDefaults(t *testing.T) {
+	h, _ := scopeHarness(t, []string{"read", "propose"},
+		apikeys.Scopes("read", "propose"), apikeys.DefaultScopes("read"))
+	h.SignUp("owner@example.com", testPassword)
+	_, plaintext, _ := createKey(t, h, map[string]any{"name": "old", "scopes": []string{"propose"}})
+	execKeySQL(t, h.Store, "UPDATE "+h.Auth.Schema().Names().APIKeys+" SET scopes = NULL")
+
+	h.ClearCookies()
+	if resp := h.DoURL(http.MethodGet, h.Server.URL+"/host/scope/read", nil, withKey(plaintext)); resp.Status != http.StatusNoContent {
+		t.Fatalf("the old key got %d on the default scope", resp.Status)
+	}
+	if resp := h.DoURL(http.MethodGet, h.Server.URL+"/host/scope/propose", nil, withKey(plaintext)); resp.Status != http.StatusForbidden {
+		t.Fatalf("the old key got %d outside the default scope", resp.Status)
+	}
+}
+
+// TestSCNKEY017WithNoDeclaredScopeEveryCheckPasses covers acceptance test 6 of
+// issue 18.
+func TestSCNKEY017WithNoDeclaredScopeEveryCheckPasses(t *testing.T) {
+	h, _ := scopeHarness(t, []string{"anything"})
+	h.SignUp("owner@example.com", testPassword)
+	resp := h.Do(http.MethodPost, "/api-keys", map[string]any{"name": "a", "scopes": []string{"read"}})
+	if resp.Status != http.StatusBadRequest || resp.ErrorCode(t) != "SCOPE_UNKNOWN" {
+		t.Fatalf("status %d: %s", resp.Status, string(resp.Body))
+	}
+	created, plaintext, _ := createKey(t, h, map[string]any{"name": "a"})
+	if got := scopesOfResponse(t, created); got == nil || len(got) != 0 {
+		t.Fatalf("the create returned %v", got)
+	}
+	// A row from an earlier configuration still passes.
+	execKeySQL(t, h.Store, "UPDATE "+h.Auth.Schema().Names().APIKeys+" SET scopes = 'read'")
+	h.ClearCookies()
+	if resp := h.DoURL(http.MethodGet, h.Server.URL+"/host/scope/anything", nil, withKey(plaintext)); resp.Status != http.StatusNoContent {
+		t.Fatalf("the key got %d", resp.Status)
+	}
+}
+
+// TestSCNKEY018TheScopeColumnArrivesOnADatabaseWithKeys covers acceptance test 7
+// of issue 18 on both store backends.
+func TestSCNKEY018TheScopeColumnArrivesOnADatabaseWithKeys(t *testing.T) {
+	backends := map[string]func(*testing.T) store.Store{
+		"sqlite":   testsupport.NewSQLite,
+		"postgres": testsupport.NewPostgres,
+	}
+	for name, open := range backends {
+		t.Run(name, func(t *testing.T) {
+			r := roles.New(roles.Hierarchy(testHierarchy...), roles.Default("viewer"))
+			k := apikeys.New(apikeys.Scopes("read", "propose"), apikeys.DefaultScopes("read"))
+			h := testsupport.NewHarnessWithStore(t, open(t), authall.WithEmailPassword(), authall.WithPlugins(r, k))
+			h.Handle("/host/scope/read", k.RequireScope("read")(http.HandlerFunc(
+				func(w http.ResponseWriter, req *http.Request) { w.WriteHeader(http.StatusNoContent) })))
+			if _, err := h.Auth.Migrate(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			h.SignUp("owner@example.com", testPassword)
+			_, plaintext, _ := createKey(t, h, map[string]any{"name": "old"})
+
+			// The database returns to the shape before the unit, with one key.
+			names := h.Auth.Schema().Names()
+			execKeySQL(t, h.Store, "ALTER TABLE "+names.APIKeys+" DROP COLUMN scopes")
+			execKeySQL(t, h.Store, "DELETE FROM "+names.Migrations+" WHERE id LIKE '%scopes%'")
+			if _, err := h.Auth.Migrate(context.Background()); err != nil {
+				t.Fatalf("the unit failed on a database with keys: %v", err)
+			}
+
+			h.ClearCookies()
+			if resp := h.DoURL(http.MethodGet, h.Server.URL+"/host/scope/read", nil, withKey(plaintext)); resp.Status != http.StatusNoContent {
+				t.Fatalf("the old key got %d: %s", resp.Status, string(resp.Body))
+			}
+			h.SignIn("owner@example.com", testPassword)
+			resp := h.Do(http.MethodPost, "/api-keys", map[string]any{"name": "new", "scopes": []string{"read", "propose"}})
+			if resp.Status != http.StatusCreated {
+				t.Fatalf("status %d: %s", resp.Status, string(resp.Body))
+			}
+			owner, err := h.Store.Users().GetByNormalizedEmail(context.Background(), "owner@example.com")
+			if err != nil {
+				t.Fatal(err)
+			}
+			keys, err := k.List(context.Background(), owner.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(keys) != 2 || keys[0].Scopes != "propose read" || keys[1].Scopes != "read" {
+				t.Fatalf("the column did not round-trip: %+v", keys)
+			}
+		})
+	}
+}
+
+// TestTheScopeConfigurationIsChecked covers the construction guards of the
+// scope options.
+func TestTheScopeConfigurationIsChecked(t *testing.T) {
+	cases := map[string][]apikeys.Option{
+		"a bad name":             {apikeys.Scopes("Read")},
+		"an undeclared default":  {apikeys.Scopes("read"), apikeys.DefaultScopes("propose")},
+		"a default and no scope": {apikeys.DefaultScopes("read")},
+		"an empty default":       {apikeys.Scopes("read"), apikeys.DefaultScopes()},
+	}
+	for name, opts := range cases {
+		t.Run(name, func(t *testing.T) {
+			r := roles.New(roles.Hierarchy(testHierarchy...), roles.Default("viewer"))
+			if _, err := authall.New(authall.WithStore(testsupport.NewSQLite(t)),
+				authall.WithBaseURL("https://app.example.com"),
+				authall.WithPlugins(r, apikeys.New(opts...))); err == nil {
+				t.Fatal("the configuration was accepted")
+			}
+		})
+	}
+
+	_, k := scopeHarness(t, nil, apikeys.Scopes("read"))
+	defer func() {
+		if recover() == nil {
+			t.Fatal("an undeclared scope was accepted")
+		}
+	}()
+	k.RequireScope("reed")
+}
+
+// TestAnOtherCredentialFailsTheScopeCheck pins the default deny of HasScope.
+func TestAnOtherCredentialFailsTheScopeCheck(t *testing.T) {
+	if apikeys.HasScope(nil, "read") {
+		t.Fatal("no principal passed")
+	}
+	if apikeys.HasScope(&plugin.Principal{Method: "oauthprovider"}, "read") {
+		t.Fatal("an OAuth token passed")
+	}
+	if !apikeys.HasScope(&plugin.Principal{Method: "session"}, "read") {
+		t.Fatal("a session failed")
+	}
+	if !apikeys.HasScope(&plugin.Principal{Method: "api_key", APIKey: &store.APIKey{Scopes: "read"}}, "read") {
+		t.Fatal("a key with the scope failed")
+	}
+	var none *authall.Principal
+	if none.HasScope("read") || (&authall.Principal{Method: "oauthprovider"}).HasScope("read") {
+		t.Fatal("a principal with no scope source passed")
 	}
 }

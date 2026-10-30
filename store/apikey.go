@@ -1,6 +1,9 @@
 package store
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // APIKey is one machine credential of a user. The plaintext key exists only in
 // the response of the create route. The store keeps the digest.
@@ -21,10 +24,20 @@ type APIKey struct {
 	// whole application. The permissions of an organization key are the
 	// intersection of the key permissions and the live permissions of the
 	// owner in that organization.
-	OrgID      *string
+	OrgID *string
+	// Scopes holds the sorted scope names of the key, separated by one space,
+	// the form of Membership.Permissions. An empty value in the store means a
+	// key from before the scope column, or a key of a plugin with no declared
+	// scope. On a resolved principal the plugin has replaced an empty value with
+	// the default scopes, so an empty value there means that the application
+	// declares no scope.
+	Scopes     string
 	CreatedAt  time.Time
 	ExpiresAt  *time.Time
 	LastUsedAt *time.Time
 	RevokedAt  *time.Time
 	RevokedBy  *string
 }
+
+// ScopeList returns the scope names of the key.
+func (k *APIKey) ScopeList() []string { return strings.Fields(k.Scopes) }

@@ -68,6 +68,8 @@ var newCodes = []struct {
 	{apierr.ErrLastAdmin, "LAST_ADMIN", http.StatusConflict},
 	{apierr.ErrAPIKeyExpiryTooLong, "API_KEY_EXPIRY_TOO_LONG", http.StatusBadRequest},
 	{apierr.ErrAPIKeyExpiryRequired, "API_KEY_EXPIRY_REQUIRED", http.StatusBadRequest},
+	{apierr.ErrScopeUnknown, "SCOPE_UNKNOWN", http.StatusBadRequest},
+	{apierr.ErrScopeMissing, "SCOPE_MISSING", http.StatusForbidden},
 }
 
 // TestSCNHTTP002EveryNewCodeHasAStatusAndAMessage proves REQ-HTTP-004. The test

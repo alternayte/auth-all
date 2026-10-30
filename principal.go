@@ -3,6 +3,7 @@ package authall
 import (
 	"context"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/alternayte/auth-all/apierr"
@@ -43,6 +44,22 @@ type Principal struct {
 	// Permissions field holds the statements that the credential read
 	// resolved, for a custom role and for every team role of the member.
 	Membership *store.Membership
+}
+
+// HasScope reports whether the request may use one API key scope.
+//
+// A session holds every scope. An API key holds the scopes of its row, and a key
+// of an application that declares no scope passes every check. Any other
+// credential, for example an OAuth access token, fails the check, because API
+// key scopes do not describe it.
+func (p *Principal) HasScope(scope string) bool {
+	if p == nil {
+		return false
+	}
+	if p.APIKey != nil {
+		return p.APIKey.Scopes == "" || slices.Contains(p.APIKey.ScopeList(), scope)
+	}
+	return p.Method == MethodSession
 }
 
 // PrincipalFrom returns the principal that RequireAuth, LoadSession, or a role

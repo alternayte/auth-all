@@ -192,3 +192,38 @@ func TestSCNORG003TheDeletionRemovesTheOrganizationKeys(t *testing.T) {
 		t.Fatalf("the plain key got status %d, want 403: %s", kept.Status, string(kept.Body))
 	}
 }
+
+// TestSCNKEY019AnOrganizationKeyNeedsTheScopeAndThePermission covers the
+// organization rule of issue 18: a request passes only when both allow it.
+func TestSCNKEY019AnOrganizationKeyNeedsTheScopeAndThePermission(t *testing.T) {
+	orgs := organizations.New(testRoles(), organizations.DefaultRole("member"),
+		organizations.OwnerRole("owner"))
+	hierarchy := roles.New(roles.Hierarchy("viewer", "admin"), roles.Default("viewer"))
+	keys := apikeys.New(apikeys.Organizations(orgs), apikeys.Scopes("read", "propose"))
+	h := testsupport.NewHarness(t, authall.WithEmailPassword(), authall.WithPlugins(hierarchy, orgs, keys))
+	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+	h.Handle("/host/both", keys.RequireScope("read")(orgs.Require("project:read", ok)))
+	h.Handle("/host/noscope", keys.RequireScope("propose")(orgs.Require("project:read", ok)))
+	h.Handle("/host/nopermission", keys.RequireScope("read")(orgs.Require("billing:write", ok)))
+
+	orgID, _ := newOrganization(t, h, "owner@example.com", "acme")
+	addMember(t, h, orgID, "bob@example.com", "admin")
+	signInAs(t, h, "bob@example.com")
+	resp := h.Do(http.MethodPost, "/api-keys", map[string]any{
+		"name": "ci", "orgId": orgID, "scopes": []string{"read"},
+	})
+	if resp.Status != http.StatusCreated {
+		t.Fatalf("the key got status %d: %s", resp.Status, string(resp.Body))
+	}
+	var body keyBody
+	resp.Decode(t, &body)
+	h.ClearCookies()
+
+	for path, want := range map[string]int{
+		"/host/both": http.StatusOK, "/host/noscope": http.StatusForbidden, "/host/nopermission": http.StatusForbidden,
+	} {
+		if got := h.DoURL(http.MethodGet, h.Server.URL+path, nil, testsupport.WithBearer(body.Plaintext)); got.Status != want {
+			t.Fatalf("%s got %d: %s", path, got.Status, string(got.Body))
+		}
+	}
+}

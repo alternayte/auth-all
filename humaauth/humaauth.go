@@ -275,6 +275,27 @@ func RequireRole(api huma.API, auth *authall.Auth, min string) func(huma.Context
 	}
 }
 
+// RequireScope returns a huma middleware that refuses an API key that does not
+// hold the scope.
+//
+// The middleware has the same result as the RequireScope method of the API keys
+// plugin: a request with no principal gets 401 UNAUTHORIZED, and a key without
+// the scope gets 403 SCOPE_MISSING. A session passes.
+func RequireScope(api huma.API, scope string) func(huma.Context, func(huma.Context)) {
+	return func(ctx huma.Context, next func(huma.Context)) {
+		principal := authall.PrincipalFrom(ctx.Context())
+		if principal == nil {
+			writeError(api, ctx, apierr.ErrUnauthorized)
+			return
+		}
+		if !principal.HasScope(scope) {
+			writeError(api, ctx, apierr.ErrScopeMissing)
+			return
+		}
+		next(ctx)
+	}
+}
+
 // writeError writes one Auth-All error through the huma error writer.
 func writeError(api huma.API, ctx huma.Context, e *apierr.Error) {
 	_ = huma.WriteErr(api, ctx, e.Status, string(e.Code))
