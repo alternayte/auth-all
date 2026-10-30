@@ -14,6 +14,7 @@ import (
 
 	authall "github.com/alternayte/auth-all"
 	"github.com/alternayte/auth-all/humaauth"
+	"github.com/alternayte/auth-all/plugins/apikeys"
 	"github.com/alternayte/auth-all/plugins/roles"
 	"github.com/alternayte/auth-all/ratelimit"
 	"github.com/alternayte/auth-all/store"
@@ -249,5 +250,81 @@ func setRole(t *testing.T, s store.Store, address, role string) {
 	user.Role = role
 	if err := s.Users().Update(ctx, user); err != nil {
 		t.Fatalf("update user: %v", err)
+	}
+}
+
+// TestRequireScopeLimitsAKeyAndNoSession covers the huma form of the scope check
+// of issue 18.
+func TestRequireScopeLimitsAKeyAndNoSession(t *testing.T) {
+	db, err := sqlite.Open("file:" + filepath.Join(t.TempDir(), "scope.db"))
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	r := roles.New(roles.Hierarchy(testHierarchy...), roles.Default("viewer"))
+	k := apikeys.New(apikeys.Scopes("read", "propose"))
+	insecure := false
+	auth, err := authall.New(
+		authall.WithStore(sqlite.New(db)),
+		authall.WithBaseURL("https://app.example.com"),
+		authall.WithEmailPassword(),
+		authall.WithCookie(authall.CookieOptions{Secure: &insecure}),
+		authall.WithRateLimiter(ratelimit.NewMemory(1000, time.Minute)),
+		authall.WithPlugins(r, k),
+	)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	if _, err := auth.Migrate(context.Background()); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle(auth.BasePath()+"/", auth.Handler())
+	api := humago.New(mux, huma.DefaultConfig("Example", "1.0.0"))
+	for _, scope := range []string{"read", "propose"} {
+		huma.Register(api, huma.Operation{
+			OperationID: "op-" + scope,
+			Method:      http.MethodGet,
+			Path:        "/deploy/" + scope,
+			Middlewares: huma.Middlewares{humaauth.RequireScope(api, scope)},
+		}, func(context.Context, *struct{}) (*deployOutput, error) { return &deployOutput{}, nil })
+	}
+	// The Auth-All middleware resolves the principal of the huma routes.
+	protected := auth.RequireAuth(mux)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/deploy/") {
+			protected.ServeHTTP(w, r)
+			return
+		}
+		mux.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	client := srv.Client()
+	token := signUp(t, srv, client, "huma@example.com")
+
+	if got := call(t, client, srv.URL+"/deploy/propose", token); got != http.StatusOK {
+		t.Fatalf("the session got %d", got)
+	}
+	if got := call(t, client, srv.URL+"/deploy/read", ""); got != http.StatusUnauthorized {
+		t.Fatalf("the anonymous request got %d", got)
+	}
+
+	s := sqlite.New(db)
+	owner, err := s.Users().GetByNormalizedEmail(context.Background(), "huma@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, plaintext, err := k.Create(context.Background(), owner, apikeys.CreateInput{
+		UserID: owner.ID, Name: "agent", Scopes: "read",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := call(t, client, srv.URL+"/deploy/read", plaintext); got != http.StatusOK {
+		t.Fatalf("the key got %d on its scope", got)
+	}
+	if got := call(t, client, srv.URL+"/deploy/propose", plaintext); got != http.StatusForbidden {
+		t.Fatalf("the key got %d outside its scope", got)
 	}
 }

@@ -38,6 +38,10 @@ var (
 	ErrLastAdmin              = apierr.ErrLastAdmin
 	ErrAPIKeyExpiryTooLong    = apierr.ErrAPIKeyExpiryTooLong
 	ErrAPIKeyExpiryRequired   = apierr.ErrAPIKeyExpiryRequired
+
+	// Re-exported errors of the v0.7.0 release.
+	ErrScopeUnknown = apierr.ErrScopeUnknown
+	ErrScopeMissing = apierr.ErrScopeMissing
 )
 
 func isNotFound(err error) bool { return errors.Is(err, store.ErrNotFound) }

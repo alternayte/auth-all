@@ -894,6 +894,12 @@
                   },
                   "role": {
                     "type": "string"
+                  },
+                  "scopes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   }
                 },
                 "required": [
@@ -5288,6 +5294,12 @@
           "role": {
             "type": "string"
           },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "start": {
             "type": "string"
           },
@@ -5300,6 +5312,7 @@
           "name",
           "start",
           "role",
+          "scopes",
           "createdAt"
         ]
       },

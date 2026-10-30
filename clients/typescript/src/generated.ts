@@ -10,6 +10,7 @@ export interface APIKey {
   orgId?: string | null
   revokedAt?: string | null
   role: string
+  scopes: string[]
   start: string
   userId?: string
 }
@@ -271,6 +272,7 @@ export interface CreateAPIKeyBody {
   name: string
   orgId?: string
   role?: string
+  scopes?: string[]
 }
 
 export interface EmailVerificationSendBody {

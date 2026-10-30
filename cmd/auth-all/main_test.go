@@ -34,6 +34,7 @@ func TestSCNSCH003TheCLIExportsTheMigrationFiles(t *testing.T) {
 			"20261201000002_authall_oauth_clients.sql",
 			"20261201000003_authall_oauth_grants.sql",
 			"20261201000004_authall_oauth_tokens.sql",
+			"20261215000001_authall_apikeys_scopes_column.sql",
 		}},
 		{"plain", []string{
 			"20260101000000_authall_core.up.sql",
@@ -66,6 +67,8 @@ func TestSCNSCH003TheCLIExportsTheMigrationFiles(t *testing.T) {
 			"20261201000003_authall_oauth_grants.down.sql",
 			"20261201000004_authall_oauth_tokens.up.sql",
 			"20261201000004_authall_oauth_tokens.down.sql",
+			"20261215000001_authall_apikeys_scopes_column.up.sql",
+			"20261215000001_authall_apikeys_scopes_column.down.sql",
 		}},
 	}
 	for _, c := range cases {

@@ -55,6 +55,64 @@ key role and the current role of the owner, so a demoted owner keeps no
 stronger key. A create with a role above the owner role fails with
 `ROLE_NOT_ALLOWED`.
 
+## Scopes
+
+A scope limits one key below the role of its owner. Scopes do not form a rank,
+so a key with `propose` and no `read` is valid. The application declares the
+scopes:
+
+```go
+k := apikeys.New(
+    apikeys.Scopes("read", "propose"),
+    apikeys.DefaultScopes("read"),
+)
+```
+
+A name must match `^[a-z][a-z0-9_:.-]{0,63}$`. `DefaultScopes` gives the scopes
+of a key that is created with none. Without it, such a key holds every declared
+scope. Each default must be a declared scope, and an empty default fails at
+construction.
+
+The create route takes `"scopes": ["read", "propose"]`. In Go, `CreateInput.Scopes`
+and `APIKey.Scopes` hold the names separated by a space, and `APIKey.ScopeList`
+returns them as a slice. The create and list routes return `scopes` as an array. A scope that is not
+declared fails with `400 SCOPE_UNKNOWN`. The store keeps the scopes sorted and
+without duplicates. Scopes never change after the create, so a different set
+needs a new key. A Before hook reads the scopes on `ev.Key` and can refuse a
+scope for one user.
+
+Protect a route with the middleware of the plugin, after `authall.New` returns:
+
+```go
+mux.Handle("/findings", k.RequireScope("read")(listFindings))
+```
+
+A request with no principal gets `401 UNAUTHORIZED`. A key without the scope gets
+`403 SCOPE_MISSING`. A scope that is not declared panics at this call, so a typing
+error fails at startup. The huma form is `humaauth.RequireScope(api, "read")`, and
+it needs the Auth-All middleware before it.
+
+A handler checks a scope with `authall.PrincipalFrom(ctx).HasScope("read")`. A
+plugin checks a `*plugin.Principal` with `apikeys.HasScope(p, "read")`.
+
+| Credential | Result of the check |
+|---|---|
+| Session | Passes. |
+| API key, with declared scopes | Passes when the key holds the scope. |
+| API key, with no declared scope | Passes. |
+| Any other credential, for example an OAuth access token | Fails. |
+
+With no declared scope the plugin works as it did before scopes existed, and a
+create with a non-empty `scopes` fails with `SCOPE_UNKNOWN`.
+
+A key from before the scope column holds a null value, and it resolves with the
+default scopes. Set `DefaultScopes` before an upgrade if the existing keys must
+not receive every declared scope.
+
+The scopes of an organization key apply in addition to the permission statements
+of the membership. A request passes only when both allow it. Scopes do not add
+permissions.
+
 ## Refuse a key
 
 A Before hook decides whether one owner may hold a key. It runs inside the
@@ -83,4 +141,8 @@ about the key.
 
 ## Storage
 
-The migration unit `20260910000002_authall_apikeys` creates the key table.
+The migration unit `20260910000002_authall_apikeys` creates the key table. Unit
+`20261101000007_authall_apikeys_org_column` adds the organization column, and
+unit `20261215000001_authall_apikeys_scopes_column` adds the scope column.
+Apply the scope unit before the release that reads it serves traffic, because a
+key read names the column.

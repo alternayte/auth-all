@@ -62,6 +62,10 @@ const (
 	// meaning.
 	CodeOAuthRequestInvalid Code = "OAUTH_REQUEST_INVALID"
 	CodeOAuthClientUnknown  Code = "OAUTH_CLIENT_UNKNOWN"
+
+	// Codes of the v0.7.0 release. A released code never changes its meaning.
+	CodeScopeUnknown Code = "SCOPE_UNKNOWN"
+	CodeScopeMissing Code = "SCOPE_MISSING"
 )
 
 // Error is a public Auth-All error. It carries a stable code, a safe public
@@ -161,6 +165,10 @@ var (
 	// invitation, a revoked invitation, and an expired invitation look equal.
 	ErrInvitationInvalid = New(CodeInvitationInvalid, http.StatusBadRequest, "The invitation is invalid.")
 	ErrMemberLimit       = New(CodeMemberLimit, http.StatusConflict, "The organization reached its member limit.")
+
+	// Errors of the v0.7.0 release.
+	ErrScopeUnknown = New(CodeScopeUnknown, http.StatusBadRequest, "The application does not declare the scope.")
+	ErrScopeMissing = New(CodeScopeMissing, http.StatusForbidden, "The API key does not hold the scope.")
 )
 
 // Writer replaces the public error envelope of Auth-All. The host receives the

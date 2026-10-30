@@ -2,6 +2,7 @@ package apikeys
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/alternayte/auth-all/apierr"
@@ -18,6 +19,7 @@ type keyDTO struct {
 	Name       string     `json:"name"`
 	Start      string     `json:"start"`
 	Role       string     `json:"role"`
+	Scopes     []string   `json:"scopes"`
 	OrgID      *string    `json:"orgId"`
 	CreatedAt  time.Time  `json:"createdAt"`
 	ExpiresAt  *time.Time `json:"expiresAt"`
@@ -39,6 +41,9 @@ type createRequest struct {
 	// OrgID names the organization of the key. An empty value creates a key of
 	// the whole application.
 	OrgID string `json:"orgId"`
+	// Scopes names the scopes of the key. An empty value takes the default
+	// scopes.
+	Scopes []string `json:"scopes"`
 }
 
 // createResponse carries the plaintext key one time.
@@ -50,7 +55,7 @@ type createResponse struct {
 // toDTO returns the public shape of one key.
 func toDTO(k *store.APIKey) keyDTO {
 	return keyDTO{
-		ID: k.ID, UserID: k.UserID, Name: k.Name, Start: k.Start, Role: k.Role,
+		ID: k.ID, UserID: k.UserID, Name: k.Name, Start: k.Start, Role: k.Role, Scopes: k.ScopeList(),
 		OrgID: k.OrgID, CreatedAt: k.CreatedAt, ExpiresAt: k.ExpiresAt,
 		LastUsedAt: k.LastUsedAt, RevokedAt: k.RevokedAt,
 	}
@@ -72,6 +77,7 @@ func (p *Plugin) registerRoutes(r *plugin.Registry) {
 				"role":      openapi.String(),
 				"expiresAt": {Type: "string", Format: "date-time", Nullable: true},
 				"orgId":     openapi.String(),
+				"scopes":    {Type: "array", Items: openapi.String()},
 			})),
 			openapi.Ref("APIKeyCreateResponse"), "createKey", "400"),
 	})
@@ -183,7 +189,7 @@ func (p *Plugin) handleCreate(w http.ResponseWriter, r *http.Request, principal 
 	}
 	key, plaintext, err := p.Create(r.Context(), principal.User, CreateInput{
 		UserID: principal.User.ID, Name: req.Name, Role: req.Role,
-		ExpiresAt: req.ExpiresAt, OrgID: req.OrgID,
+		ExpiresAt: req.ExpiresAt, OrgID: req.OrgID, Scopes: strings.Join(req.Scopes, " "),
 	})
 	if err != nil {
 		p.writeError(w, r, err)
