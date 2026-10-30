@@ -6,7 +6,7 @@ module github.com/alternayte/auth-all/humaauth
 
 go 1.25.0
 
-require github.com/alternayte/auth-all v0.3.0
+require github.com/alternayte/auth-all v0.7.0
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
