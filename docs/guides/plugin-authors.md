@@ -76,6 +76,15 @@ TypeScript client, so `auth.notes.create(...)` exists without extra work.
 
 A plugin receives no other access to Auth-All internals.
 
+A host can change the sender and the base URL at run time with
+`authall.WithEmailSenderSource` and `authall.WithBaseURLSource`. `Email()` and
+`BaseURL()` then read the source with `context.Background()`, and they drop a
+source error. A plugin that reads them on a request asserts
+`plugin.RuntimeService` and calls `EmailSenderFor(ctx)` and `BaseURLFor(ctx)`.
+Read the value on each use. Do not keep it from `Register`. A plugin that builds
+a lasting identity from the base URL, such as a token issuer, checks
+`BaseURLFixed()` and refuses to register when it is false.
+
 ## A plugin that authenticates a user
 
 Call `Services().MFA().Challenge` before you issue a session. A user with a

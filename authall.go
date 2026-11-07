@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing/fstest"
 	"time"
 
@@ -54,7 +54,6 @@ type Auth struct {
 	effectiveSchema *schema.Schema
 	doc             *openapi.Document
 	providers       map[string]oauth.Provider
-	providerOrder   []string
 	trustedOrigins  []string
 	// resolvers hold the credential resolvers of the plugins, in registration
 	// order.
@@ -65,6 +64,9 @@ type Auth struct {
 	// crossOrigin refuses an unsafe cross-site request on a host route. It is
 	// nil when the host turned the check off.
 	crossOrigin *http.CrossOriginProtection
+	// dynamicOrigin holds the last cross-origin check that a base URL source
+	// produced. hostProtection replaces it when the trusted list changes.
+	dynamicOrigin atomic.Pointer[originProtection]
 	// organizations reports whether the organizations plugin is enabled. The
 	// credential read then loads the active organization and the membership.
 	organizations bool
@@ -142,8 +144,10 @@ func New(opts ...Option) (*Auth, error) {
 		}
 		a.principals = newPrincipalCache(cfg.principalCacheTTL, cfg.now)
 	}
-	a.trustedOrigins = buildTrustedOrigins(cfg)
-	if cfg.browserErrorRedirect != "" && a.safeRedirect(cfg.browserErrorRedirect, "") == "" {
+	a.trustedOrigins = originList(cfg.baseURL, cfg.trustedOrigins)
+	// With a base URL source, New knows only the origins of
+	// WithTrustedOrigins, so the target must be relative or one of them.
+	if cfg.browserErrorRedirect != "" && safeRedirectIn(a.trustedOrigins, cfg.browserErrorRedirect, "") == "" {
 		return nil, fmt.Errorf(
 			"authall: the browser error redirect %q must be a relative path or a URL of a trusted origin",
 			cfg.browserErrorRedirect)
@@ -153,12 +157,9 @@ func New(opts ...Option) (*Auth, error) {
 		cfg.hostOriginCheck = &on
 	}
 	if *cfg.hostOriginCheck {
-		protection := http.NewCrossOriginProtection()
-		for _, origin := range a.trustedOrigins {
-			if err := protection.AddTrustedOrigin(origin); err != nil {
-				return nil, fmt.Errorf("authall: the trusted origin %q is not usable for the origin check: %w",
-					origin, err)
-			}
+		protection, err := newProtection(a.trustedOrigins)
+		if err != nil {
+			return nil, err
 		}
 		a.crossOrigin = protection
 	} else {
@@ -177,15 +178,15 @@ func New(opts ...Option) (*Auth, error) {
 		if _, exists := a.providers[id]; exists {
 			return nil, fmt.Errorf("authall: the OAuth provider %q is registered twice", id)
 		}
+		// A base URL source has no value yet, so New checks only the
+		// provider, and each request checks the base URL.
 		if !cfg.skipProviderCheck {
-			if err := a.checkProvider(p); err != nil {
+			if err := checkProvider(p, cfg.baseURL, cfg.baseURLSource == nil); err != nil {
 				return nil, err
 			}
 		}
 		a.providers[id] = p
-		a.providerOrder = append(a.providerOrder, id)
 	}
-	sort.Strings(a.providerOrder)
 
 	sopts, err := cfg.schemaOptions.Normalize()
 	if err != nil {
@@ -356,14 +357,12 @@ func normalizeConfig(cfg *config) error {
 	if cfg.basePath == "/" {
 		cfg.basePath = ""
 	}
-	cfg.baseURL = strings.TrimRight(cfg.baseURL, "/")
-	if cfg.baseURL != "" {
-		u, err := url.Parse(cfg.baseURL)
-		if err != nil || u.Scheme == "" || u.Host == "" {
-			return fmt.Errorf("authall: the base URL must be absolute, for example https://app.example.com")
-		}
+	base, err := normalizeBaseURL(cfg.baseURL)
+	if err != nil {
+		return err
 	}
-	if cfg.emailPasswordEnabled && cfg.sender == nil {
+	cfg.baseURL = base
+	if cfg.emailPasswordEnabled && cfg.sender == nil && cfg.senderSource == nil {
 		if cfg.emailPassword.RequireEmailVerification || cfg.emailPassword.SendVerificationOnSignUp {
 			return fmt.Errorf("authall: email verification requires an email sender. Use authall.WithEmailSender")
 		}
@@ -388,14 +387,16 @@ func normalizeConfig(cfg *config) error {
 	return nil
 }
 
-func buildTrustedOrigins(cfg *config) []string {
-	out := make([]string, 0, len(cfg.trustedOrigins)+1)
-	if cfg.baseURL != "" {
-		if u, err := url.Parse(cfg.baseURL); err == nil && u.Host != "" {
+// originList returns the origin of the base URL, when one is set, and every
+// configured trusted origin.
+func originList(baseURL string, trusted []string) []string {
+	out := make([]string, 0, len(trusted)+1)
+	if baseURL != "" {
+		if u, err := url.Parse(baseURL); err == nil && u.Host != "" {
 			out = append(out, u.Scheme+"://"+u.Host)
 		}
 	}
-	for _, o := range cfg.trustedOrigins {
+	for _, o := range trusted {
 		out = append(out, strings.TrimRight(o, "/"))
 	}
 	return out
@@ -714,9 +715,10 @@ func (a *Auth) MigrationSQL(d schema.Dialect) ([]schema.Statement, error) {
 }
 
 // checkProvider reports a provider that cannot serve: a missing base URL, or a
-// failed Validate of the provider.
-func (a *Auth) checkProvider(p oauth.Provider) error {
-	if a.cfg.baseURL == "" {
+// failed Validate of the provider. checkBase is false when the base URL is not
+// known yet.
+func checkProvider(p oauth.Provider, baseURL string, checkBase bool) error {
+	if checkBase && baseURL == "" {
 		return fmt.Errorf("authall: an OAuth provider requires a base URL. Use authall.WithBaseURL")
 	}
 	if v, ok := p.(interface{ Validate() error }); ok {

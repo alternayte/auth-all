@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/alternayte/auth-all/email"
 	"github.com/alternayte/auth-all/schema"
 )
 
@@ -93,4 +94,24 @@ type PasswordService interface {
 	CheckPassword(password string) error
 	// HashPassword returns the argon2id hash of a password.
 	HashPassword(password string) (string, error)
+}
+
+// RuntimeService reads the values that a host can change while the process
+// runs: the email sender and the public base URL. A host sets them with
+// authall.WithEmailSenderSource and authall.WithBaseURLSource. A plugin calls
+// it on each use, so a change in the host applies to the next request.
+//
+// Services.Email and Services.BaseURL return the same values, but they carry
+// no context and drop an error of the host source.
+type RuntimeService interface {
+	// EmailSenderFor returns the current email sender. It returns nil and no
+	// error when no sender is configured.
+	EmailSenderFor(ctx context.Context) (email.Sender, error)
+	// BaseURLFor returns the current absolute public base URL, with no
+	// trailing slash. It returns an empty value when none is configured.
+	BaseURLFor(ctx context.Context) (string, error)
+	// BaseURLFixed reports whether the base URL is fixed at construction. A
+	// plugin that builds a lasting identity from the base URL, such as the
+	// issuer of a token, needs a fixed value.
+	BaseURLFixed() bool
 }

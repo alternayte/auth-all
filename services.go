@@ -18,11 +18,11 @@ import (
 type services struct{ auth *Auth }
 
 func (s *services) Store() store.Store              { return s.auth.cfg.store }
-func (s *services) Email() email.Sender             { return s.auth.cfg.sender }
+func (s *services) Email() email.Sender             { return s.auth.legacySender() }
 func (s *services) Events() *events.Emitter         { return s.auth.emitter }
 func (s *services) Now() time.Time                  { return s.auth.cfg.now() }
 func (s *services) BasePath() string                { return s.auth.cfg.basePath }
-func (s *services) BaseURL() string                 { return s.auth.cfg.baseURL }
+func (s *services) BaseURL() string                 { return s.auth.legacyBaseURL() }
 func (s *services) RateLimiter() ratelimit.Limiter  { return s.auth.cfg.limiter }
 func (s *services) Logger() *slog.Logger            { return s.auth.cfg.logger }
 func (s *services) Users() plugin.UserService       { return (*userService)(s) }
@@ -30,6 +30,17 @@ func (s *services) Sessions() plugin.SessionService { return (*sessionService)(s
 func (s *services) Tokens() plugin.TokenService     { return (*tokenService)(s) }
 func (s *services) HTTP() plugin.HTTPService        { return (*httpService)(s) }
 func (s *services) MFA() plugin.MFAService          { return (*mfaService)(s) }
+
+// EmailSenderFor implements plugin.RuntimeService.
+func (s *services) EmailSenderFor(ctx context.Context) (email.Sender, error) {
+	return s.auth.senderFor(ctx)
+}
+
+// BaseURLFor implements plugin.RuntimeService.
+func (s *services) BaseURLFor(ctx context.Context) (string, error) { return s.auth.baseURLFor(ctx) }
+
+// BaseURLFixed implements plugin.RuntimeService.
+func (s *services) BaseURLFixed() bool { return s.auth.cfg.baseURLSource == nil }
 
 type userService services
 
@@ -128,8 +139,10 @@ func (h *httpService) WriteBrowserError(w http.ResponseWriter, r *http.Request, 
 	h.auth.writeBrowserError(w, r, err)
 }
 
+// SafeRedirect carries no context, so a base URL source receives
+// context.Background.
 func (h *httpService) SafeRedirect(candidate, fallback string) string {
-	return h.auth.safeRedirect(candidate, fallback)
+	return h.auth.safeRedirect(context.Background(), candidate, fallback)
 }
 
 func (h *httpService) ClientIP(r *http.Request) string { return h.auth.clientIP(r) }

@@ -120,10 +120,14 @@ func (a *Auth) LoadSessionFunc(next http.HandlerFunc) http.Handler {
 // A bearer credential is not ambient, so a cross-site page cannot send it. Only
 // a cookie request therefore needs the check.
 func (a *Auth) checkHostOrigin(r *http.Request, p *Principal) error {
-	if a.crossOrigin == nil || p == nil || !p.ViaCookie {
+	if !*a.cfg.hostOriginCheck || p == nil || !p.ViaCookie {
 		return nil
 	}
-	if err := a.crossOrigin.Check(r); err != nil {
+	protection, err := a.hostProtection(r.Context())
+	if err != nil {
+		return apierr.ErrInternal.WithCause(err)
+	}
+	if err := protection.Check(r); err != nil {
 		return apierr.ErrOriginNotAllowed.WithCause(err)
 	}
 	// The standard check passes a request that names no origin, because a

@@ -166,8 +166,8 @@ func (a *Auth) handleUserDeleteVerify(w http.ResponseWriter, r *http.Request) {
 // sendDeleteConfirmation issues a delete token and sends it to the address of
 // the user.
 func (a *Auth) sendDeleteConfirmation(ctx context.Context, user *store.User) error {
-	if a.cfg.sender == nil {
-		a.cfg.logger.Error("authall: an account delete confirmation needs an email sender")
+	sender, ok := a.requireSender(ctx, "an account delete confirmation")
+	if !ok {
 		return apierr.ErrInternal
 	}
 	token, tok, err := a.issueToken(ctx, plugin.IssueTokenInput{
@@ -180,15 +180,19 @@ func (a *Auth) sendDeleteConfirmation(ctx context.Context, user *store.User) err
 	if err != nil {
 		return err
 	}
+	link, err := a.actionURL(ctx, a.cfg.emailPassword.DeleteAccountURL, "/delete-account", token, "")
+	if err != nil {
+		return apierr.ErrInternal.WithCause(err)
+	}
 	msg := email.Message{
 		Intent:    email.IntentDeleteAccount,
 		To:        user.Email,
 		UserID:    user.ID,
 		Token:     token,
-		URL:       a.actionURL(a.cfg.emailPassword.DeleteAccountURL, "/delete-account", token, ""),
+		URL:       link,
 		ExpiresAt: tok.ExpiresAt,
 	}
-	if err := a.cfg.sender.Send(ctx, msg); err != nil {
+	if err := sender.Send(ctx, msg); err != nil {
 		return apierr.ErrInternal.WithCause(err)
 	}
 	return nil
@@ -264,8 +268,8 @@ func (a *Auth) handleEmailChange(w http.ResponseWriter, r *http.Request) {
 	// The response never discloses whether the new address is taken.
 	defer a.writeJSON(w, http.StatusOK, messageResponse{Message: messageEmailChangeSent})
 
-	if a.cfg.sender == nil {
-		a.cfg.logger.Error("authall: an email change needs an email sender")
+	sender, ok := a.requireSender(ctx, "an email change")
+	if !ok {
 		return
 	}
 	if _, err := a.cfg.store.Users().GetByNormalizedEmail(ctx, normalized); err == nil {
@@ -287,16 +291,21 @@ func (a *Auth) handleEmailChange(w http.ResponseWriter, r *http.Request) {
 		a.cfg.logger.Error("authall: cannot issue a change token", "error", err.Error())
 		return
 	}
+	link, err := a.actionURL(ctx, a.cfg.emailPassword.ChangeEmailURL, "/change-email", token, "")
+	if err != nil {
+		a.cfg.logger.Error("authall: cannot build the change link", "error", err.Error())
+		return
+	}
 	confirmation := email.Message{
 		Intent:    email.IntentEmailChange,
 		To:        normalized,
 		UserID:    user.ID,
 		Token:     token,
-		URL:       a.actionURL(a.cfg.emailPassword.ChangeEmailURL, "/change-email", token, ""),
+		URL:       link,
 		ExpiresAt: tok.ExpiresAt,
 		Data:      map[string]string{"oldEmail": user.Email, "newEmail": normalized},
 	}
-	if err := a.cfg.sender.Send(ctx, confirmation); err != nil {
+	if err := sender.Send(ctx, confirmation); err != nil {
 		a.cfg.logger.Error("authall: cannot send the change confirmation", "error", err.Error())
 		return
 	}
@@ -308,7 +317,7 @@ func (a *Auth) handleEmailChange(w http.ResponseWriter, r *http.Request) {
 		UserID: user.ID,
 		Data:   map[string]string{"oldEmail": user.Email, "newEmail": normalized},
 	}
-	if err := a.cfg.sender.Send(ctx, notice); err != nil {
+	if err := sender.Send(ctx, notice); err != nil {
 		a.cfg.logger.Error("authall: cannot send the change notice", "error", err.Error())
 	}
 	a.emitter.Emit(ctx, events.EmailChangeRequested, user.ID, nil)

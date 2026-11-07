@@ -205,10 +205,32 @@ type sendRequest struct {
 	CallbackURL string `json:"callbackURL"`
 }
 
-func (p *Plugin) linkURL(token, callback string) string {
+// sender returns the current email sender. A host can change it at run time,
+// so the plugin reads it on each message.
+func (p *Plugin) sender(ctx context.Context) (email.Sender, error) {
+	if rt, ok := p.svc.(plugin.RuntimeService); ok {
+		return rt.EmailSenderFor(ctx)
+	}
+	return p.svc.Email(), nil
+}
+
+// baseURL returns the current public base URL. A host can change it at run
+// time, so the plugin reads it on each use.
+func (p *Plugin) baseURL(ctx context.Context) (string, error) {
+	if rt, ok := p.svc.(plugin.RuntimeService); ok {
+		return rt.BaseURLFor(ctx)
+	}
+	return p.svc.BaseURL(), nil
+}
+
+func (p *Plugin) linkURL(ctx context.Context, token, callback string) (string, error) {
 	base := p.verifyURL
 	if base == "" {
-		base = p.svc.BaseURL() + p.svc.BasePath() + "/magic-link/verify"
+		root, err := p.baseURL(ctx)
+		if err != nil {
+			return "", err
+		}
+		base = root + p.svc.BasePath() + "/magic-link/verify"
 	}
 	sep := "?"
 	if strings.Contains(base, "?") {
@@ -218,7 +240,7 @@ func (p *Plugin) linkURL(token, callback string) string {
 	if callback != "" {
 		link += "&callbackURL=" + url.QueryEscape(callback)
 	}
-	return link
+	return link, nil
 }
 
 func (p *Plugin) handleSend(w http.ResponseWriter, r *http.Request) {
@@ -287,7 +309,11 @@ func (p *Plugin) send(ctx context.Context, r *http.Request, address, callbackURL
 	if !email.Valid(normalized) {
 		return nil
 	}
-	sender := p.svc.Email()
+	sender, err := p.sender(ctx)
+	if err != nil {
+		p.svc.Logger().Error("magiclink: a sign-in link needs an email sender", "error", err.Error())
+		return nil
+	}
 	if sender == nil {
 		p.svc.Logger().Error("magiclink: a sign-in link needs an email sender")
 		return nil
@@ -313,11 +339,16 @@ func (p *Plugin) send(ctx context.Context, r *http.Request, address, callbackURL
 		return nil
 	}
 	callback := httpSvc.SafeRedirect(callbackURL, p.callbackURL)
+	link, err := p.linkURL(ctx, token, callback)
+	if err != nil {
+		p.svc.Logger().Error("magiclink: cannot build the sign-in link", "error", err.Error())
+		return nil
+	}
 	msg := email.Message{
 		Intent:    email.IntentMagicLink,
 		To:        normalized,
 		Token:     token,
-		URL:       p.linkURL(token, callback),
+		URL:       link,
 		ExpiresAt: tok.ExpiresAt,
 	}
 	if userID != nil {
@@ -491,7 +522,12 @@ func (p *Plugin) completeVerify(w http.ResponseWriter, r *http.Request, token, c
 	p.svc.Events().Emit(ctx, events.MagicLinkUsed, user.ID, nil)
 	fallback := p.callbackURL
 	if fallback == "" {
-		fallback = p.svc.BaseURL()
+		// The session exists already, so a failed read sends the browser to
+		// the root of the application.
+		if fallback, err = p.baseURL(ctx); err != nil {
+			p.svc.Logger().Error("magiclink: cannot read the base URL", "error", err.Error())
+			fallback = ""
+		}
 	}
 	target := httpSvc.SafeRedirect(callbackURL, fallback)
 	if target == "" {
