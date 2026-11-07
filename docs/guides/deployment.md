@@ -97,6 +97,44 @@ preview deployment of a frontend gets a new host on every build, so add the
 stable production origins and handle preview hosts with a separate
 configuration.
 
+## Settings that change at run time
+
+A host can let an administrator change the sign-in providers, the mail
+settings, or the public URL while the process runs. Give Auth-All a source for
+each value. Auth-All calls the source on each use, so the next request on every
+instance sees the change, and no hook needs registration again.
+
+```go
+authall.WithBaseURLSource(func(ctx context.Context) (string, error) {
+    return settings.Load().PublicURL, nil
+}),
+authall.WithEmailSenderSource(func(ctx context.Context) (email.Sender, error) {
+    return settings.Load().Sender, nil // nil means no sender
+}),
+authall.WithProviderSource(func(ctx context.Context) ([]oauth.Provider, error) {
+    return settings.Load().Providers, nil
+}),
+```
+
+- A source runs on the request path. Return a snapshot from memory. Do not
+  query the database in the source.
+- `WithBaseURL` and `WithBaseURLSource` set one value. The last option wins.
+  `WithEmailSender` and `WithEmailSenderSource` work the same way.
+- `WithProvider` and `WithProviderSource` add up. Two providers with one id
+  fail the request with an internal error.
+- The base URL source sets the trusted origin of the base URL, the redirect
+  check, the OAuth callback URI, the links in an email, and the TOTP issuer.
+  `WithTrustedOrigins` stays fixed.
+- With a base URL source, `WithBrowserErrorRedirect` must name a relative path
+  or an origin of `WithTrustedOrigins`, because New cannot read the source.
+- A provider that is removed answers `PROVIDER_NOT_FOUND`, also on the
+  callback of a flow that started before the removal.
+- A source error, or a base URL that is not absolute, fails the request that
+  needs the value with an internal error. Auth-All logs the cause.
+- The OAuth provider plugin refuses a base URL source, because its issuer must
+  not change.
+- `auth.ProviderIDs(ctx)` returns the ids that serve now, for a sign-in page.
+
 ## The reverse proxy
 
 Auth-All builds the rate-limit key from one client address. Any client can set

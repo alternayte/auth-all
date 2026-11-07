@@ -1,6 +1,7 @@
 package authall
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -113,7 +114,11 @@ func (a *Auth) checkOrigin(r *http.Request) error {
 		}
 		return nil
 	}
-	if a.originAllowed(r, origin) {
+	allowed, err := a.originAllowed(r, origin)
+	if err != nil {
+		return apierr.ErrInternal.WithCause(err)
+	}
+	if allowed {
 		return nil
 	}
 	return apierr.ErrOriginNotAllowed
@@ -142,14 +147,18 @@ func strictOriginOK(r *http.Request) bool {
 	return strings.EqualFold(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site")), "same-origin")
 }
 
-func (a *Auth) originAllowed(r *http.Request, origin string) bool {
+func (a *Auth) originAllowed(r *http.Request, origin string) (bool, error) {
 	origin = strings.TrimSuffix(origin, "/")
-	for _, allowed := range a.trustedOrigins {
+	trusted, err := a.originsFor(r.Context())
+	if err != nil {
+		return false, err
+	}
+	for _, allowed := range trusted {
 		if strings.EqualFold(allowed, origin) {
-			return true
+			return true, nil
 		}
 	}
-	return strings.EqualFold(requestOrigin(r), origin)
+	return strings.EqualFold(requestOrigin(r), origin), nil
 }
 
 func requestOrigin(r *http.Request) string {
@@ -165,7 +174,21 @@ func requestOrigin(r *http.Request) string {
 
 // safeRedirect returns candidate when it is a relative path of this
 // application or points at a trusted origin, and fallback otherwise.
-func (a *Auth) safeRedirect(candidate, fallback string) string {
+//
+// When the base URL source fails, only a relative path passes, because the
+// trusted list is not known.
+func (a *Auth) safeRedirect(ctx context.Context, candidate, fallback string) string {
+	trusted, err := a.originsFor(ctx)
+	if err != nil {
+		a.cfg.logger.Error("authall: the redirect check cannot read the trusted origins", "error", err.Error())
+		trusted = nil
+	}
+	return safeRedirectIn(trusted, candidate, fallback)
+}
+
+// safeRedirectIn returns candidate when it is a relative path or points at one
+// of the trusted origins, and fallback otherwise.
+func safeRedirectIn(trusted []string, candidate, fallback string) string {
 	candidate = strings.TrimSpace(candidate)
 	if candidate == "" {
 		return fallback
@@ -190,7 +213,7 @@ func (a *Auth) safeRedirect(candidate, fallback string) string {
 		return fallback
 	}
 	origin := u.Scheme + "://" + u.Host
-	for _, allowed := range a.trustedOrigins {
+	for _, allowed := range trusted {
 		if strings.EqualFold(allowed, origin) {
 			return candidate
 		}

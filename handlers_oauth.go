@@ -69,29 +69,40 @@ func (a *Auth) registerOAuthRoutes() {
 	a.handle(http.MethodPost, "/account/unlink/{provider}", a.handleAccountUnlink, unlink)
 }
 
-func (a *Auth) provider(id string) (oauth.Provider, error) {
-	p, ok := a.providers[id]
-	if !ok {
-		return nil, apierr.ErrProviderNotFound
+// provider returns the provider of one request and the base URL that the
+// request uses. A provider of a source, a provider that New did not check, and
+// a base URL of a source are checked here, because New could not see them.
+func (a *Auth) provider(ctx context.Context, id string) (oauth.Provider, string, error) {
+	set, err := a.providersFor(ctx)
+	if err != nil {
+		return nil, "", apierr.ErrInternal.WithCause(err)
 	}
-	if a.cfg.skipProviderCheck {
-		if err := a.checkProvider(p); err != nil {
-			return nil, apierr.ErrInternal.WithCause(err)
+	p, ok := set[id]
+	if !ok {
+		return nil, "", apierr.ErrProviderNotFound
+	}
+	base, err := a.baseURLFor(ctx)
+	if err != nil {
+		return nil, "", apierr.ErrInternal.WithCause(err)
+	}
+	if a.cfg.skipProviderCheck || a.cfg.baseURLSource != nil || len(a.cfg.providerSources) > 0 {
+		if err := checkProvider(p, base, true); err != nil {
+			return nil, "", apierr.ErrInternal.WithCause(err)
 		}
 	}
-	return p, nil
+	return p, base, nil
 }
 
 // callbackURI returns the registered redirect URI of one provider. Auth-All
 // always sends its own callback URL, so a provider cannot be told to redirect
 // somewhere else.
-func (a *Auth) callbackURI(providerID string) string {
-	return a.cfg.baseURL + a.cfg.basePath + "/oauth/" + providerID + "/callback"
+func (a *Auth) callbackURI(baseURL, providerID string) string {
+	return baseURL + a.cfg.basePath + "/oauth/" + providerID + "/callback"
 }
 
 // startOAuth stores the state, the PKCE verifier, and the nonce, and returns
 // the provider authorization URL.
-func (a *Auth) startOAuth(ctx context.Context, w http.ResponseWriter, p oauth.Provider, redirectTo string, linkUserID *string) (string, error) {
+func (a *Auth) startOAuth(ctx context.Context, w http.ResponseWriter, p oauth.Provider, baseURL, redirectTo string, linkUserID *string) (string, error) {
 	state, err := crypto.NewToken()
 	if err != nil {
 		return "", apierr.ErrInternal.WithCause(err)
@@ -126,7 +137,7 @@ func (a *Auth) startOAuth(ctx context.Context, w http.ResponseWriter, p oauth.Pr
 	}
 	url, err := p.AuthCodeURL(oauth.AuthRequest{
 		State:         state,
-		RedirectURI:   a.callbackURI(p.ID()),
+		RedirectURI:   a.callbackURI(baseURL, p.ID()),
 		CodeChallenge: challenge,
 		Nonce:         nonce,
 	})
@@ -186,13 +197,13 @@ func (a *Auth) requestBindsState(r *http.Request, state string) bool {
 
 func (a *Auth) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	p, err := a.provider(r.PathValue("provider"))
+	p, base, err := a.provider(ctx, r.PathValue("provider"))
 	if err != nil {
 		a.writeBrowserError(w, r, err)
 		return
 	}
-	redirectTo := a.safeRedirect(r.URL.Query().Get("redirect_to"), a.cfg.baseURL)
-	url, err := a.startOAuth(ctx, w, p, redirectTo, nil)
+	redirectTo := a.safeRedirect(ctx, r.URL.Query().Get("redirect_to"), base)
+	url, err := a.startOAuth(ctx, w, p, base, redirectTo, nil)
 	if err != nil {
 		a.writeBrowserError(w, r, err)
 		return
@@ -202,7 +213,7 @@ func (a *Auth) handleOAuthStart(w http.ResponseWriter, r *http.Request) {
 
 func (a *Auth) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	p, err := a.provider(r.PathValue("provider"))
+	p, base, err := a.provider(ctx, r.PathValue("provider"))
 	if err != nil {
 		a.writeBrowserError(w, r, err)
 		return
@@ -253,7 +264,7 @@ func (a *Auth) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	identity, err := p.Exchange(ctx, oauth.ExchangeRequest{
 		Code:         code,
-		RedirectURI:  a.callbackURI(p.ID()),
+		RedirectURI:  a.callbackURI(base, p.ID()),
 		CodeVerifier: record.Verifier,
 		Nonce:        record.Nonce,
 	})
@@ -283,7 +294,7 @@ func (a *Auth) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		a.writeBrowserError(w, r, err)
 		return
 	}
-	target := a.safeRedirect(record.RedirectTo, a.cfg.baseURL)
+	target := a.safeRedirect(ctx, record.RedirectTo, base)
 	if required {
 		a.setMFACookie(w, challenge)
 		http.Redirect(w, r, withMFAMarker(target), http.StatusFound)
@@ -472,13 +483,13 @@ func (a *Auth) handleAccountLink(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	p, err := a.provider(r.PathValue("provider"))
+	p, base, err := a.provider(ctx, r.PathValue("provider"))
 	if err != nil {
 		a.writeError(w, r, err)
 		return
 	}
-	redirectTo := a.safeRedirect(r.URL.Query().Get("redirect_to"), a.cfg.baseURL)
-	url, err := a.startOAuth(ctx, w, p, redirectTo, &user.ID)
+	redirectTo := a.safeRedirect(ctx, r.URL.Query().Get("redirect_to"), base)
+	url, err := a.startOAuth(ctx, w, p, base, redirectTo, &user.ID)
 	if err != nil {
 		a.writeError(w, r, err)
 		return
@@ -497,7 +508,7 @@ func (a *Auth) handleAccountUnlink(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	providerID := r.PathValue("provider")
-	if _, err := a.provider(providerID); err != nil {
+	if _, _, err := a.provider(ctx, providerID); err != nil {
 		a.writeError(w, r, err)
 		return
 	}

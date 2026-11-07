@@ -168,7 +168,7 @@ func (a *Auth) registerCoreRoutes() {
 		a.registerTOTPRoutes()
 	}
 
-	if len(a.providers) > 0 {
+	if a.hasProviders() {
 		a.registerOAuthRoutes()
 	}
 }

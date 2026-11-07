@@ -17,10 +17,14 @@ import (
 )
 
 // actionURL builds the application link that carries a one-time token.
-func (a *Auth) actionURL(configured, defaultPath, token, redirectTo string) string {
+func (a *Auth) actionURL(ctx context.Context, configured, defaultPath, token, redirectTo string) (string, error) {
 	base := configured
 	if base == "" {
-		base = a.cfg.baseURL + defaultPath
+		root, err := a.baseURLFor(ctx)
+		if err != nil {
+			return "", err
+		}
+		base = root + defaultPath
 	}
 	sep := "?"
 	if strings.Contains(base, "?") {
@@ -30,11 +34,12 @@ func (a *Auth) actionURL(configured, defaultPath, token, redirectTo string) stri
 	if redirectTo != "" {
 		link += "&redirectTo=" + url.QueryEscape(redirectTo)
 	}
-	return link
+	return link, nil
 }
 
 func (a *Auth) sendVerificationEmail(ctx context.Context, user *store.User, redirectTo string) error {
-	if a.cfg.sender == nil {
+	sender, ok := a.requireSender(ctx, "an email verification")
+	if !ok {
 		return apierr.ErrInternal.WithMessage("An internal error occurred.")
 	}
 	token, tok, err := a.issueToken(ctx, plugin.IssueTokenInput{
@@ -47,15 +52,19 @@ func (a *Auth) sendVerificationEmail(ctx context.Context, user *store.User, redi
 	if err != nil {
 		return err
 	}
+	link, err := a.actionURL(ctx, a.cfg.emailPassword.VerifyEmailURL, "/verify-email", token, redirectTo)
+	if err != nil {
+		return apierr.ErrInternal.WithCause(err)
+	}
 	msg := email.Message{
 		Intent:    email.IntentVerifyEmail,
 		To:        user.Email,
 		UserID:    user.ID,
 		Token:     token,
-		URL:       a.actionURL(a.cfg.emailPassword.VerifyEmailURL, "/verify-email", token, redirectTo),
+		URL:       link,
 		ExpiresAt: tok.ExpiresAt,
 	}
-	if err := a.cfg.sender.Send(ctx, msg); err != nil {
+	if err := sender.Send(ctx, msg); err != nil {
 		return apierr.ErrInternal.WithCause(err)
 	}
 	return nil
@@ -94,8 +103,8 @@ func (a *Auth) handlePasswordForgot(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if a.cfg.sender == nil {
-		a.cfg.logger.Error("authall: a password reset needs an email sender")
+	sender, ok := a.requireSender(ctx, "a password reset")
+	if !ok {
 		return
 	}
 	token, tok, err := a.issueToken(ctx, plugin.IssueTokenInput{
@@ -109,16 +118,21 @@ func (a *Auth) handlePasswordForgot(w http.ResponseWriter, r *http.Request) {
 		a.cfg.logger.Error("authall: cannot issue a reset token", "error", err.Error())
 		return
 	}
-	redirect := a.safeRedirect(req.RedirectTo, "")
+	redirect := a.safeRedirect(ctx, req.RedirectTo, "")
+	link, err := a.actionURL(ctx, a.cfg.emailPassword.ResetPasswordURL, "/reset-password", token, redirect)
+	if err != nil {
+		a.cfg.logger.Error("authall: cannot build the reset link", "error", err.Error())
+		return
+	}
 	msg := email.Message{
 		Intent:    email.IntentResetPassword,
 		To:        user.Email,
 		UserID:    user.ID,
 		Token:     token,
-		URL:       a.actionURL(a.cfg.emailPassword.ResetPasswordURL, "/reset-password", token, redirect),
+		URL:       link,
 		ExpiresAt: tok.ExpiresAt,
 	}
-	if err := a.cfg.sender.Send(ctx, msg); err != nil {
+	if err := sender.Send(ctx, msg); err != nil {
 		a.cfg.logger.Error("authall: cannot send the reset message", "error", err.Error())
 		return
 	}
@@ -212,7 +226,7 @@ func (a *Auth) handleVerificationSend(w http.ResponseWriter, r *http.Request) {
 	if user.EmailVerifiedAt != nil {
 		return
 	}
-	if err := a.sendVerificationEmail(ctx, user, a.safeRedirect(req.RedirectTo, "")); err != nil {
+	if err := a.sendVerificationEmail(ctx, user, a.safeRedirect(ctx, req.RedirectTo, "")); err != nil {
 		a.cfg.logger.Error("authall: cannot send the verification message", "error", err.Error())
 	}
 }

@@ -5,6 +5,7 @@
 package authall
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 	"net/netip"
@@ -116,9 +117,12 @@ type AccountLinkingOptions struct {
 }
 
 type config struct {
-	store          store.Store
-	basePath       string
-	baseURL        string
+	store    store.Store
+	basePath string
+	baseURL  string
+	// baseURLSource replaces baseURL when the host sets it. Auth-All reads it
+	// on each use.
+	baseURLSource  func(context.Context) (string, error)
 	trustedOrigins []string
 	trustedProxies []string
 	// proxyNets holds the parsed form of trustedProxies. normalizeConfig fills
@@ -133,9 +137,15 @@ type config struct {
 	passwordPolicy       PasswordPolicy
 	argon                crypto.Argon2Params
 
-	sender    email.Sender
-	providers []oauth.Provider
-	plugins   []plugin.Plugin
+	sender email.Sender
+	// senderSource replaces sender when the host sets it. Auth-All reads it on
+	// each send.
+	senderSource func(context.Context) (email.Sender, error)
+	providers    []oauth.Provider
+	// providerSources add to providers. Auth-All reads them on each OAuth
+	// request.
+	providerSources []func(context.Context) ([]oauth.Provider, error)
+	plugins         []plugin.Plugin
 
 	cookie   CookieOptions
 	session  SessionOptions
@@ -306,7 +316,37 @@ func WithBasePath(p string) Option { return func(c *config) { c.basePath = p } }
 // WithBaseURL sets the absolute public URL of the application, for example
 // https://app.example.com. Auth-All uses it to build links and to validate
 // redirects. It is required when an OAuth provider is configured.
-func WithBaseURL(u string) Option { return func(c *config) { c.baseURL = u } }
+//
+// WithBaseURL and WithBaseURLSource set one value, and the last option wins.
+func WithBaseURL(u string) Option {
+	return func(c *config) {
+		c.baseURL = u
+		c.baseURLSource = nil
+	}
+}
+
+// WithBaseURLSource sets a function that returns the absolute public URL of
+// the application. Auth-All calls it on each use: the OAuth callback URI, the
+// redirect check, the links in an email, the TOTP issuer, and the trusted
+// origins. A host that lets an administrator change the public URL at run time
+// uses it.
+//
+// The function runs on the request path, so it must return fast, for example
+// from a snapshot that the host holds in memory. An empty result means that no
+// base URL is configured. A result that is not absolute, or an error, fails the
+// request that needs the value with an internal error.
+//
+// A call made through a plugin method that has no context, such as
+// plugin.Services.BaseURL, passes context.Background.
+//
+// The OAuth authorization server plugin needs a fixed issuer, so it refuses a
+// base URL source.
+func WithBaseURLSource(src func(ctx context.Context) (string, error)) Option {
+	return func(c *config) {
+		c.baseURL = ""
+		c.baseURLSource = src
+	}
+}
 
 // WithTrustedOrigins adds browser origins that can call state-changing
 // endpoints. The origin of BaseURL is always trusted. A credentialed wildcard
@@ -361,11 +401,57 @@ func WithTOTP(opts ...TOTPOptions) Option {
 }
 
 // WithEmailSender sets the email delivery boundary of the application.
-func WithEmailSender(s email.Sender) Option { return func(c *config) { c.sender = s } }
+//
+// WithEmailSender and WithEmailSenderSource set one value, and the last option
+// wins.
+func WithEmailSender(s email.Sender) Option {
+	return func(c *config) {
+		c.sender = s
+		c.senderSource = nil
+	}
+}
+
+// WithEmailSenderSource sets a function that returns the email sender.
+// Auth-All calls it on each message. A host that lets an administrator change
+// the mail settings at run time uses it.
+//
+// A nil sender means that no sender is configured. A flow that needs a message
+// then behaves as with no WithEmailSender. An error fails the flow in the same
+// way, and Auth-All logs the error.
+//
+// New cannot know whether the source returns a sender, so it does not refuse
+// a required email verification with a source.
+func WithEmailSenderSource(src func(ctx context.Context) (email.Sender, error)) Option {
+	return func(c *config) {
+		c.sender = nil
+		c.senderSource = src
+	}
+}
 
 // WithProvider registers one or more OAuth providers.
 func WithProvider(providers ...oauth.Provider) Option {
 	return func(c *config) { c.providers = append(c.providers, providers...) }
+}
+
+// WithProviderSource adds a function that returns OAuth providers. Auth-All
+// calls it on each OAuth start, callback, link, and unlink, together with the
+// providers of WithProvider. A host that lets an administrator add or remove a
+// sign-in provider at run time uses it.
+//
+// The function runs on the request path, so it must return fast. Auth-All
+// checks each provider when a request uses it: a provider with an empty id, an
+// id that two providers share, a missing base URL, or a failed Validate fails
+// the request with an internal error. A provider that is gone answers
+// provider_not_found, also for the callback of a flow that started before the
+// change.
+//
+// The OAuth routes are mounted when any provider or provider source is set.
+func WithProviderSource(src func(ctx context.Context) ([]oauth.Provider, error)) Option {
+	return func(c *config) {
+		if src != nil {
+			c.providerSources = append(c.providerSources, src)
+		}
+	}
 }
 
 // WithPlugins registers one or more plugins.

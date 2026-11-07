@@ -295,6 +295,12 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 	if !ok {
 		return errors.New("authall/oauthprovider: this Auth-All version has no authentication middleware")
 	}
+	// The issuer names the authorization server in every token, so it cannot
+	// follow a base URL that changes at run time.
+	if rt, ok := svc.(plugin.RuntimeService); ok && !rt.BaseURLFixed() {
+		return errors.New("authall/oauthprovider: the issuer needs a fixed base URL. " +
+			"Use authall.WithBaseURL, not authall.WithBaseURLSource")
+	}
 	p.svc = svc
 	p.rows = rows
 	p.principals = principals.Principals()

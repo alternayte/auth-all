@@ -34,6 +34,9 @@ mux.Handle("/api/auth/", auth.Handler())
 mux.Handle("/.well-known/", provider.MetadataHandler())
 ```
 
+The issuer is the base URL plus the base path, and every token carries it. The
+plugin therefore refuses `authall.WithBaseURLSource`. Use `authall.WithBaseURL`.
+
 The plugin refuses to register without the key encryption key. It wraps every
 signing key with AES-256-GCM before it writes the row, so a database dump hands
 out no signing key.

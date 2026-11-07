@@ -79,14 +79,18 @@ func (a *Auth) registerTOTPRoutes() {
 // totpIssuer returns the name that the authenticator application shows. It
 // defaults to the host of the base URL, which names the application without
 // configuration.
-func (a *Auth) totpIssuer() string {
+func (a *Auth) totpIssuer(ctx context.Context) (string, error) {
 	if a.cfg.totp.Issuer != "" {
-		return a.cfg.totp.Issuer
+		return a.cfg.totp.Issuer, nil
 	}
-	if u, err := url.Parse(a.cfg.baseURL); err == nil && u.Host != "" {
-		return u.Host
+	base, err := a.baseURLFor(ctx)
+	if err != nil {
+		return "", err
 	}
-	return "Auth-All"
+	if u, err := url.Parse(base); err == nil && u.Host != "" {
+		return u.Host, nil
+	}
+	return "Auth-All", nil
 }
 
 // totpEnrolment returns the enrolment of a user and the decoded secret. The
@@ -166,6 +170,11 @@ func (a *Auth) handleTOTPEnrol(w http.ResponseWriter, r *http.Request) {
 		a.writeError(w, r, apierr.ErrTOTPAlreadyEnrolled)
 		return
 	}
+	issuer, err := a.totpIssuer(ctx)
+	if err != nil {
+		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
+		return
+	}
 	secret, err := totp.NewSecret()
 	if err != nil {
 		a.writeError(w, r, apierr.ErrInternal.WithCause(err))
@@ -182,7 +191,7 @@ func (a *Auth) handleTOTPEnrol(w http.ResponseWriter, r *http.Request) {
 	}
 	a.writeJSON(w, http.StatusOK, totpEnrolResponse{
 		Secret: totp.EncodeSecret(secret),
-		URI:    totp.URI(secret, a.totpIssuer(), user.Email, totp.Default()),
+		URI:    totp.URI(secret, issuer, user.Email, totp.Default()),
 	})
 }
 
