@@ -4038,6 +4038,366 @@
         }
       }
     },
+    "/api/auth/passkeys": {
+      "get": {
+        "operationId": "listPasskeys",
+        "summary": "List the passkeys",
+        "tags": [
+          "passkeys"
+        ],
+        "responses": {
+          "200": {
+            "description": "The operation succeeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyListResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "passkeys",
+          "method": "list"
+        }
+      }
+    },
+    "/api/auth/passkeys/register/begin": {
+      "post": {
+        "operationId": "beginPasskeyRegistration",
+        "summary": "Start a passkey registration",
+        "tags": [
+          "passkeys"
+        ],
+        "responses": {
+          "200": {
+            "description": "The operation succeeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyCeremony"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "passkeys",
+          "method": "registerBegin"
+        }
+      }
+    },
+    "/api/auth/passkeys/register/finish": {
+      "post": {
+        "operationId": "finishPasskeyRegistration",
+        "summary": "Finish a passkey registration",
+        "tags": [
+          "passkeys"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ceremony": {
+                    "type": "string"
+                  },
+                  "credential": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "ceremony",
+                  "name",
+                  "credential"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The operation succeeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "passkeys",
+          "method": "registerFinish"
+        }
+      }
+    },
+    "/api/auth/passkeys/sign-in/begin": {
+      "post": {
+        "operationId": "beginPasskeySignIn",
+        "summary": "Start a passkey sign-in",
+        "tags": [
+          "passkeys"
+        ],
+        "responses": {
+          "200": {
+            "description": "The operation succeeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasskeyCeremony"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "passkeys",
+          "method": "signInBegin"
+        }
+      }
+    },
+    "/api/auth/passkeys/sign-in/finish": {
+      "post": {
+        "operationId": "finishPasskeySignIn",
+        "summary": "Finish a passkey sign-in",
+        "tags": [
+          "passkeys"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ceremony": {
+                    "type": "string"
+                  },
+                  "credential": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  }
+                },
+                "required": [
+                  "ceremony",
+                  "credential"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The operation succeeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "passkeys",
+          "method": "signInFinish"
+        }
+      }
+    },
+    "/api/auth/passkeys/{id}": {
+      "delete": {
+        "operationId": "deletePasskey",
+        "summary": "Delete a passkey",
+        "tags": [
+          "passkeys"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The operation succeeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Auth-All error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        },
+        "x-authall-client": {
+          "namespace": "passkeys",
+          "method": "delete"
+        }
+      }
+    },
     "/api/auth/password/change": {
       "post": {
         "operationId": "passwordChange",
@@ -5814,6 +6174,73 @@
         },
         "required": [
           "role"
+        ]
+      },
+      "Passkey": {
+        "type": "object",
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "createdAt",
+          "lastUsedAt"
+        ]
+      },
+      "PasskeyCeremony": {
+        "type": "object",
+        "properties": {
+          "ceremony": {
+            "type": "string"
+          },
+          "options": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "ceremony",
+          "options"
+        ]
+      },
+      "PasskeyListResponse": {
+        "type": "object",
+        "properties": {
+          "passkeys": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Passkey"
+            }
+          }
+        },
+        "required": [
+          "passkeys"
+        ]
+      },
+      "PasskeyResponse": {
+        "type": "object",
+        "properties": {
+          "passkey": {
+            "$ref": "#/components/schemas/Passkey"
+          }
+        },
+        "required": [
+          "passkey"
         ]
       },
       "ProvidersResponse": {

@@ -17,6 +17,11 @@ type OrganizationContext struct {
 	// Permissions holds the extra statements that the credential read
 	// resolved, for a custom role and for every team role of the member.
 	Permissions []string
+	// Exact reports that Permissions is the whole permission set of the
+	// request. The role and the team roles of the membership then add
+	// nothing. The core sets it for an API key, whose set is the intersection
+	// of the key role and the live permissions of the owner.
+	Exact bool
 }
 
 // organizationContextKey is the private context key of the active

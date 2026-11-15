@@ -18,6 +18,7 @@ import (
 	"github.com/alternayte/auth-all/plugins/magiclink"
 	"github.com/alternayte/auth-all/plugins/oauthprovider"
 	"github.com/alternayte/auth-all/plugins/organizations"
+	"github.com/alternayte/auth-all/plugins/passkeys"
 	"github.com/alternayte/auth-all/plugins/roles"
 	"github.com/alternayte/auth-all/ratelimit"
 	"github.com/alternayte/auth-all/store"
@@ -99,6 +100,8 @@ func Options(s store.Store) []authall.Option {
 				oauthprovider.ConsentPath("/consent"),
 				oauthprovider.AllowDynamicRegistration(),
 			),
+			// The RP ID and the origin come from the base URL.
+			passkeys.New(),
 		),
 	}
 }

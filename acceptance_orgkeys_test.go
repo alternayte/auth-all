@@ -227,3 +227,97 @@ func TestSCNKEY019AnOrganizationKeyNeedsTheScopeAndThePermission(t *testing.T) {
 		}
 	}
 }
+
+// TestSCNINT001AKeyRoleNarrowsTheOwnerRole proves issue 26: a key with its
+// own role holds the intersection alone, never the whole role of the owner.
+func TestSCNINT001AKeyRoleNarrowsTheOwnerRole(t *testing.T) {
+	h, orgs := orgKeyHarness(t)
+	orgID, _ := newOrganization(t, h, "owner@example.com", "acme")
+	addMember(t, h, orgID, "bob@example.com", "admin")
+
+	signInAs(t, h, "bob@example.com")
+	resp := h.Do(http.MethodPost, "/api-keys", map[string]any{
+		"name": "reader", "role": "viewer", "orgId": orgID,
+	})
+	if resp.Status != http.StatusCreated {
+		t.Fatalf("the key got status %d: %s", resp.Status, string(resp.Body))
+	}
+	var body keyBody
+	resp.Decode(t, &body)
+	h.ClearCookies()
+
+	read := h.DoURL(http.MethodGet, h.BaseURL+"/host/project:read", nil, testsupport.WithBearer(body.Plaintext))
+	if read.Status != http.StatusOK {
+		t.Fatalf("the viewer key read got status %d: %s", read.Status, string(read.Body))
+	}
+	write := h.DoURL(http.MethodGet, h.BaseURL+"/host/project:write", nil, testsupport.WithBearer(body.Plaintext))
+	if write.Status != http.StatusForbidden {
+		t.Fatalf("the viewer key of an admin writes: status %d", write.Status)
+	}
+
+	ctx := bearerContext(t, h, body.Plaintext)
+	if orgs.Can(ctx, "project:write") || !orgs.Can(ctx, "project:read") {
+		t.Fatal("Can widens the key role to the owner role")
+	}
+}
+
+// TestSCNINT001AKeyWithNoRoleKeepsTheCustomRole proves that a key with no role
+// holds every statement of the owner, a custom role included.
+func TestSCNINT001AKeyWithNoRoleKeepsTheCustomRole(t *testing.T) {
+	orgs := organizations.New(testRoles(), organizations.DefaultRole("member"),
+		organizations.OwnerRole("owner"), organizations.AllowCustomRoles(true))
+	hierarchy := roles.New(roles.Hierarchy("viewer", "admin"), roles.Default("viewer"))
+	keys := apikeys.New(apikeys.Organizations(orgs))
+	h := testsupport.NewHarness(t, authall.WithEmailPassword(), authall.WithPlugins(hierarchy, orgs, keys))
+	for _, statement := range []string{"project:read", "project:write", "billing:read"} {
+		h.Handle("/host/"+statement, orgs.Require(statement,
+			http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })))
+	}
+	orgID, _ := newOrganization(t, h, "owner@example.com", "acme")
+	activate(t, h, orgID)
+	created := h.Do(http.MethodPost, "/organizations/"+orgID+"/roles", map[string]any{
+		"name": "auditor", "permissions": []string{"project:read", "billing:read"},
+	})
+	if created.Status != http.StatusCreated {
+		t.Fatalf("the custom role got status %d: %s", created.Status, string(created.Body))
+	}
+	member := addMember(t, h, orgID, "bob@example.com", "viewer")
+	if set := h.Do(http.MethodPatch, "/organizations/"+orgID+"/members/"+member,
+		map[string]any{"role": "auditor"}); set.Status != http.StatusOK {
+		t.Fatalf("the role change got status %d: %s", set.Status, string(set.Body))
+	}
+
+	signInAs(t, h, "bob@example.com")
+	resp := h.Do(http.MethodPost, "/api-keys", map[string]any{"name": "ci", "orgId": orgID})
+	if resp.Status != http.StatusCreated {
+		t.Fatalf("the key got status %d: %s", resp.Status, string(resp.Body))
+	}
+	var body keyBody
+	resp.Decode(t, &body)
+	h.ClearCookies()
+
+	for statement, want := range map[string]int{
+		"project:read": http.StatusOK, "billing:read": http.StatusOK, "project:write": http.StatusForbidden,
+	} {
+		got := h.DoURL(http.MethodGet, h.BaseURL+"/host/"+statement, nil, testsupport.WithBearer(body.Plaintext))
+		if got.Status != want {
+			t.Fatalf("%s with the key got status %d, want %d: %s", statement, got.Status, want, string(got.Body))
+		}
+	}
+}
+
+// bearerContext returns the request context that the middleware builds for
+// one bearer value.
+func bearerContext(t *testing.T, h *testsupport.Harness, bearer string) context.Context {
+	t.Helper()
+	var out context.Context
+	path := "/host/bearer-capture"
+	h.Handle(path, h.Auth.LoadSession(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		out = r.Context()
+		w.WriteHeader(http.StatusOK)
+	})))
+	if resp := h.DoURL(http.MethodGet, h.BaseURL+path, nil, testsupport.WithBearer(bearer)); resp.Status != http.StatusOK {
+		t.Fatalf("the capture got status %d", resp.Status)
+	}
+	return out
+}

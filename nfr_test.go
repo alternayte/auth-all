@@ -181,10 +181,13 @@ func TestNFR004TheModuleGraphKeepsTheV1Dependencies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read go.mod: %v", err)
 	}
-	// The v1 release requires exactly these four modules. A new direct
-	// requirement reaches every application, so the list is part of the
-	// contract.
+	// The library requires exactly these modules. A new direct requirement
+	// reaches every application, so the list is part of the contract. The
+	// v0.9.0 release adds the WebAuthn verifier of the passkeys plugin and its
+	// CBOR encoder, which the virtual authenticator of passkeystest uses.
 	want := []string{
+		"github.com/fxamacker/cbor/v2",
+		"github.com/go-webauthn/webauthn",
 		"github.com/google/uuid",
 		"github.com/jackc/pgx/v5",
 		"golang.org/x/crypto",

@@ -346,5 +346,6 @@ func (p *Provider) Exchange(ctx context.Context, req oauth.ExchangeRequest) (*oa
 		DisplayName:       claims.Name,
 		ImageURL:          claims.Picture,
 		Username:          claims.PreferredUsername,
+		Claims:            oauth.NewClaims(claims.Raw),
 	}, nil
 }

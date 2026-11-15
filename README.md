@@ -5,7 +5,7 @@ Auth-All is an authentication framework that runs inside a Go application.
 It provides the capabilities a developer normally assembles from several
 libraries: users, accounts, database-backed sessions, email and password
 authentication, email verification, password reset, TOTP two-factor
-authentication, magic links, OAuth and OpenID Connect, account linking, roles,
+authentication, magic links, passkeys, OAuth and OpenID Connect, account linking, roles,
 API keys, user administration, rate limits, audit events, plugins, schema
 tooling, an OpenAPI contract, and a generated TypeScript client.
 
@@ -17,7 +17,7 @@ The application keeps its database, its HTTP server, and its user interface.
 
 ## Install
 
-Auth-All needs Go 1.25 or newer.
+Auth-All needs Go 1.26 or newer.
 
 ```bash
 go get github.com/alternayte/auth-all
@@ -107,8 +107,10 @@ go run github.com/alternayte/auth-all/cmd/auth-all migrate \
   password hashing, OAuth state validation, PKCE where the provider supports
   it, and conservative account linking.
 - TOTP two-factor authentication with recovery codes. One code authenticates
-  one time. The gate covers the password, the magic link, and the OAuth
-  callback.
+  one time. The gate covers the password, the magic link, the OAuth
+  callback, and a passkey without user verification.
+- Passkeys (WebAuthn). A signed-in user registers passkeys, and a discoverable
+  sign-in tells nothing about which accounts exist.
 - Authorization through an ordered role hierarchy. A route asks for a minimum
   role. A role that the configuration does not name ranks below every role.
 - Organizations with fine-grained permissions. A person belongs to many
@@ -147,6 +149,7 @@ go run github.com/alternayte/auth-all/cmd/auth-all migrate \
 | [Sessions](docs/guides/sessions.md) | Session storage, cookies, and revocation. |
 | [Two-factor authentication](docs/guides/totp.md) | TOTP enrolment and sign-in. |
 | [Magic Link](docs/guides/magic-link.md) | The official sign-in link plugin. |
+| [Passkeys](docs/guides/passkeys.md) | The official WebAuthn passkey plugin. |
 | [GitHub OAuth](docs/guides/github-oauth.md) | GitHub sign-in. |
 | [Any OpenID Connect provider](docs/guides/oidc.md) | Keycloak, Auth0, Okta, Entra ID, and any conformant issuer. |
 | [Google OAuth](docs/guides/google-oauth.md) | Google sign-in. |

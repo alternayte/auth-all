@@ -4,9 +4,11 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	authall "github.com/alternayte/auth-all"
+	"github.com/alternayte/auth-all/apierr"
 	"github.com/alternayte/auth-all/hook"
 	"github.com/alternayte/auth-all/internal/testsupport"
 	"github.com/alternayte/auth-all/oauth"
@@ -21,13 +23,13 @@ type oidcFixture struct {
 }
 
 // newOIDCFixture builds a harness with two generic OpenID Connect providers.
-func newOIDCFixture(t *testing.T) *oidcFixture {
+func newOIDCFixture(t *testing.T, opts ...authall.Option) *oidcFixture {
 	t.Helper()
 	const clientID = "oidc-app"
 	first := testsupport.NewFakeGoogle(t, clientID)
 	second := testsupport.NewFakeGoogle(t, clientID)
 
-	h := testsupport.NewHarness(t,
+	h := testsupport.NewHarness(t, append([]authall.Option{
 		authall.WithEmailPassword(),
 		authall.WithProvider(oidc.New(
 			oidc.WithIssuer(first.Issuer()),
@@ -41,7 +43,7 @@ func newOIDCFixture(t *testing.T) *oidcFixture {
 			oidc.WithClientID(clientID),
 			oidc.WithClientSecret("secret-2"),
 		)),
-	)
+	}, opts...)...)
 	return &oidcFixture{h: h, first: first, second: second}
 }
 
@@ -183,4 +185,71 @@ func TestOIDCProviderReportsThePreferredUsername(t *testing.T) {
 	if identity == nil || identity.Username != "person" {
 		t.Fatalf("the hook saw the identity %+v", identity)
 	}
+}
+
+// TestOIDCClaimsReachTheOAuthSignInHook proves issue 28: the verified ID token
+// claims reach the host before the second factor, so a user with TOTP is not
+// missed, and the hook can refuse the sign-in.
+func TestOIDCClaimsReachTheOAuthSignInHook(t *testing.T) {
+	f := newOIDCFixture(t, authall.WithTOTP())
+	f.first.SetAccount("subject-1", "person@example.com", true)
+	f.first.SetClaim("groups", []string{"acme-owners"})
+	var seen []*hook.OAuthSignIn
+	refuse := false
+	f.h.Auth.Hooks().OnBeforeOAuthSignIn(func(_ context.Context, ev *hook.OAuthSignIn) error {
+		seen = append(seen, ev)
+		if refuse {
+			return apierr.ErrForbidden
+		}
+		return nil
+	})
+	var created *oauth.Identity
+	f.h.Auth.Hooks().OnBeforeUserCreate(func(_ context.Context, ev *hook.UserCreate) error {
+		created = ev.Identity
+		return nil
+	})
+
+	if resp := f.callback(t, "first", f.start(t, "first", f.first)); resp.Status != http.StatusFound {
+		t.Fatalf("the callback returned %d: %s", resp.Status, string(resp.Body))
+	}
+	if created == nil || !hasGroup(created.Claims, "acme-owners") {
+		t.Fatalf("the user creation hook saw the claims %v", created)
+	}
+	if len(seen) != 1 || seen[0].Provider != "first" || seen[0].User == nil || seen[0].Tx == nil ||
+		!hasGroup(seen[0].Identity.Claims, "acme-owners") {
+		t.Fatalf("the sign-in hook saw %+v", seen)
+	}
+
+	// The user turns on TOTP. The next sign-in stops at the challenge, and the
+	// hook still sees the claims.
+	out := enrol(t, f.h)
+	if resp := f.h.Do(http.MethodPost, "/totp/confirm", map[string]any{"code": codeFor(t, out.Secret)}); resp.Status != http.StatusOK {
+		t.Fatalf("the confirmation returned %d: %s", resp.Status, string(resp.Body))
+	}
+	f.h.ClearCookies()
+	resp := f.callback(t, "first", f.start(t, "first", f.first))
+	if resp.Status != http.StatusFound || !strings.Contains(resp.Location(), "mfa") {
+		t.Fatalf("the callback of a TOTP user returned %d to %q", resp.Status, resp.Location())
+	}
+	if len(seen) != 2 || !hasGroup(seen[1].Identity.Claims, "acme-owners") {
+		t.Fatalf("the hook missed the TOTP user: %d events", len(seen))
+	}
+
+	// A hook error refuses the sign-in.
+	refuse = true
+	f.h.ClearCookies()
+	f.callback(t, "first", f.start(t, "first", f.first))
+	if session := f.h.GetSession(); session.User != nil {
+		t.Fatal("a refused sign-in opened a session")
+	}
+}
+
+// hasGroup reports whether the groups claim holds the group.
+func hasGroup(claims *oauth.Claims, group string) bool {
+	for _, item := range claims.Strings("groups") {
+		if item == group {
+			return true
+		}
+	}
+	return false
 }

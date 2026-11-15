@@ -241,10 +241,11 @@ func (p *Plugin) handleDeleteRole(w http.ResponseWriter, r *http.Request, princi
 
 // KeyCredential returns the organization credential of one API key.
 //
-// The permissions are the intersection of the key permissions and the live
-// permissions of the owner in that organization, so a demoted member keeps no
-// stronger key. A key of an organization that the owner left authenticates
-// nothing.
+// The permissions are the whole effective set of the key. For a key with a
+// role, that is the intersection of the key role and the live permissions of
+// the owner in that organization, so a demoted member keeps no stronger key.
+// For a key with no role, that is the live permissions of the owner. A key of
+// an organization that the owner left authenticates nothing.
 func (p *Plugin) KeyCredential(ctx context.Context, orgID, ownerID, keyRole string) (
 	*store.Organization, *store.Membership, []string, error) {
 	org, err := p.orgs.OrganizationByID(ctx, orgID)
@@ -261,6 +262,9 @@ func (p *Plugin) KeyCredential(ctx context.Context, orgID, ownerID, keyRole stri
 	live, err := p.permissionsOfMembership(ctx, p.store, member)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+	if keyRole == "" {
+		return org, member, live.Statements(), nil
 	}
 	granted, known, err := p.knownRole(ctx, p.store, orgID, keyRole)
 	if err != nil {
@@ -280,19 +284,27 @@ func (p *Plugin) KnownRole(ctx context.Context, orgID, role string) (bool, error
 	return known, err
 }
 
-// intersect returns the statements that both sets hold. A statement of the key
-// survives only when the live set of the owner covers its whole reach.
+// intersect returns the statements that both sets hold. A statement survives
+// when the other set covers its whole reach, so a wildcard on one side keeps
+// the narrower statement of the other side: project:* and project:read give
+// project:read.
 func intersect(key, live permission.Set) []string {
+	seen := map[string]bool{}
 	var out []string
-	for _, statement := range key.Statements() {
-		stmt, err := permission.Parse(statement)
-		if err != nil {
-			continue
-		}
-		if live.Covers(stmt) {
-			out = append(out, statement)
+	keep := func(from, other permission.Set) {
+		for _, statement := range from.Statements() {
+			stmt, err := permission.Parse(statement)
+			if err != nil || seen[statement] {
+				continue
+			}
+			if other.Covers(stmt) {
+				seen[statement] = true
+				out = append(out, statement)
+			}
 		}
 	}
+	keep(key, live)
+	keep(live, key)
 	return out
 }
 

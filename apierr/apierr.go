@@ -66,6 +66,10 @@ const (
 	// Codes of the v0.7.0 release. A released code never changes its meaning.
 	CodeScopeUnknown Code = "SCOPE_UNKNOWN"
 	CodeScopeMissing Code = "SCOPE_MISSING"
+
+	// Codes of the v0.9.0 release. A released code never changes its meaning.
+	CodeSessionNotFresh Code = "SESSION_NOT_FRESH"
+	CodePasskeyInvalid  Code = "PASSKEY_INVALID"
 )
 
 // Error is a public Auth-All error. It carries a stable code, a safe public
@@ -169,6 +173,12 @@ var (
 	// Errors of the v0.7.0 release.
 	ErrScopeUnknown = New(CodeScopeUnknown, http.StatusBadRequest, "The application does not declare the scope.")
 	ErrScopeMissing = New(CodeScopeMissing, http.StatusForbidden, "The API key does not hold the scope.")
+
+	// Errors of the v0.9.0 release.
+	ErrSessionNotFresh = New(CodeSessionNotFresh, http.StatusForbidden, "Sign in again to continue.")
+	// ErrPasskeyInvalid names no reason, so an unknown ceremony, a used
+	// ceremony, and a response that fails a check look equal.
+	ErrPasskeyInvalid = New(CodePasskeyInvalid, http.StatusBadRequest, "The passkey response is invalid.")
 )
 
 // Writer replaces the public error envelope of Auth-All. The host receives the

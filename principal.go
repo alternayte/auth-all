@@ -92,6 +92,9 @@ func (a *Auth) withPrincipal(r *http.Request, p *Principal) *http.Request {
 			// The credential read resolved the statements of a custom role and
 			// of every team role in the same round trip.
 			Permissions: strings.Fields(p.Membership.Permissions),
+			// The resolver of a key computed the whole set, so the role of
+			// the owner must not widen it.
+			Exact: p.APIKey != nil,
 		})
 	}
 	return r.WithContext(ctx)

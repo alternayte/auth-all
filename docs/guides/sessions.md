@@ -90,6 +90,34 @@ second, so a client that cannot use cookies still works.
 
 An expired session never authenticates. Auth-All removes it when it sees it.
 
+## Issuing a session after your own sign-in
+
+A host that verifies a sign-in itself, for example a SAML assertion, issues the
+session with `IssueSession`:
+
+```go
+result, err := auth.IssueSession(ctx, authall.IssueSessionInput{
+    UserID: user.ID,
+    Method: "saml",
+})
+switch {
+case err != nil:
+    // USER_DISABLED, or a store failure.
+case result.MFARequired:
+    // Send result.MFAToken to the TOTP verify route.
+default:
+    auth.SetSessionCookie(w, result.Token, result.Session.ExpiresAt)
+}
+```
+
+Set `PreviousSessionToken` to the session token of the request, when one
+exists, so the old session ends. It refuses a disabled user. It runs the TOTP check of the password sign-in, so
+a user with a confirmed second factor gets a challenge and no session. Set
+`SkipMFA` only when your identity provider proved a second factor for this
+sign-in. It runs the session hooks, the sign-in hooks, and the audit event with
+the method that you name. It writes no cookie and applies no rate limit,
+because your route verified the credential.
+
 ## Revoking a session
 
 ```go

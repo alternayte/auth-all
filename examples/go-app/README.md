@@ -1,8 +1,8 @@
 # Example Go application
 
 The example shows a complete Auth-All integration: SQLite, email and password
-authentication with verification, GitHub and Google sign-in, Magic Link, an
-in-memory rate limit for development, and structured events.
+authentication with verification, GitHub and Google sign-in, Magic Link,
+passkeys, an in-memory rate limit for development, and structured events.
 
 ## Run
 
@@ -46,3 +46,9 @@ curl -i -c cookies.txt -X POST http://localhost:8080/api/auth/sign-in/email \
 
 curl -b cookies.txt http://localhost:8080/me
 ```
+
+## Passkeys
+
+Open `http://localhost:8080/passkeys` in a browser. Use `localhost`, not
+`127.0.0.1`, because a passkey binds to a domain. Sign in with the password of
+a verified account, register a passkey, sign out, and sign in with the passkey.

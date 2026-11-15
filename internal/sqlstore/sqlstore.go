@@ -56,13 +56,16 @@ type Store struct {
 	orgFields []schema.UserField
 	// op holds the physical OAuth provider table names.
 	op schema.OAuthProviderNames
+	// pk holds the physical passkey table names.
+	pk schema.PasskeyNames
 }
 
 // New returns a store over db.
 func New(db *sql.DB, d Dialect) *Store {
 	return &Store{db: db, ex: db, d: d, n: schema.DefaultNames(),
 		on: schema.OrgTableNames(schema.DefaultOptions()),
-		op: schema.OAuthProviderTableNames(schema.DefaultOptions())}
+		op: schema.OAuthProviderTableNames(schema.DefaultOptions()),
+		pk: schema.PasskeyTableNames(schema.DefaultOptions())}
 }
 
 // UseSchema implements store.SchemaConfigurable. It sets the physical table
@@ -75,6 +78,7 @@ func (s *Store) UseSchema(o schema.Options) error {
 	s.n = schema.TableNames(o)
 	s.on = schema.OrgTableNames(o)
 	s.op = schema.OAuthProviderTableNames(o)
+	s.pk = schema.PasskeyTableNames(o)
 	s.fields = append([]schema.UserField(nil), o.UserFields...)
 	s.orgFields = append([]schema.UserField(nil), o.OrgFields...)
 	return nil
@@ -149,7 +153,7 @@ func (s *Store) Transaction(ctx context.Context, fn func(store.Store) error) err
 		return err
 	}
 	txStore := &Store{db: s.db, ex: tx, d: s.d, n: s.n, fields: s.fields,
-		on: s.on, orgFields: s.orgFields, op: s.op}
+		on: s.on, orgFields: s.orgFields, op: s.op, pk: s.pk}
 	if err := fn(txStore); err != nil {
 		_ = tx.Rollback()
 		return err
