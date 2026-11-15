@@ -22,6 +22,8 @@ const (
 	OpEmailChange      Operation = "email-change"
 	OpUserDelete       Operation = "user-delete"
 	OpTOTP             Operation = "totp"
+	// OpPasskeySignIn counts the begin and the finish of a passkey sign-in.
+	OpPasskeySignIn Operation = "passkey-sign-in"
 )
 
 // Key identifies one rate-limited attempt. Fields are set when relevant.

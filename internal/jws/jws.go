@@ -120,9 +120,14 @@ func (k *Key) PublicJWK() (string, error) {
 func PublicJWK(pub crypto.PublicKey, algorithm, id string) (map[string]any, error) {
 	switch p := pub.(type) {
 	case *ecdsa.PublicKey:
+		// Bytes returns 0x04 || X || Y in the fixed width of the curve.
+		raw, err := p.Bytes()
+		if err != nil || len(raw) != 65 {
+			return nil, fmt.Errorf("authall/jws: unsupported public key: %v", err)
+		}
 		return map[string]any{
 			"kty": "EC", "crv": "P-256", "alg": algorithm, "use": "sig", "kid": id,
-			"x": Encode(bytesOf(p.X, 32)), "y": Encode(bytesOf(p.Y, 32)),
+			"x": Encode(raw[1:33]), "y": Encode(raw[33:65]),
 		}, nil
 	case *rsa.PublicKey:
 		e := make([]byte, 4)
@@ -249,7 +254,11 @@ func PublicKeyFromJWK(jwk map[string]any) (crypto.PublicKey, error) {
 		if _, err := ecdh.P256().NewPublicKey(uncompressed); err != nil {
 			return nil, ErrInvalidSignature
 		}
-		return &ecdsa.PublicKey{Curve: elliptic.P256(), X: x, Y: y}, nil
+		key, err := ecdsa.ParseUncompressedPublicKey(elliptic.P256(), uncompressed)
+		if err != nil {
+			return nil, ErrInvalidSignature
+		}
+		return key, nil
 	case "RSA":
 		n, err := decodeCoordinate(jwk["n"])
 		if err != nil {

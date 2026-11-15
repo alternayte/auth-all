@@ -284,7 +284,10 @@ A user who loses the authenticator and the codes still needs an administrator.
 ## What Auth-All does not do
 
 The following are outside v1: SAML, SCIM, enterprise single sign-on, passkeys,
-API keys, organizations, roles, and an administration interface.
+API keys, organizations, roles, and an administration interface. Later releases
+add passkeys, API keys, organizations, roles, and administration. Auth-All
+implements no SAML, and `IssueSession` issues the session after a SAML sign-in
+that the host verifies.
 
 ## Security invariants
 

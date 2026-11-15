@@ -63,6 +63,13 @@ const (
 	TeamMemberAdded       Name = "auth.team_member_added"
 	TeamMemberRemoved     Name = "auth.team_member_removed"
 	ActiveOrganizationSet Name = "auth.active_organization_set"
+
+	// Names of the v0.9.0 release.
+	PasskeyRegistered Name = "auth.passkey_registered"
+	PasskeyDeleted    Name = "auth.passkey_deleted"
+	// PasskeyCloneDetected reports a sign count that did not grow. Two copies
+	// of one private key can exist, so the sign-in is refused.
+	PasskeyCloneDetected Name = "auth.passkey_clone_detected"
 )
 
 // ActorSystem names the actor of an operation that no request started, for

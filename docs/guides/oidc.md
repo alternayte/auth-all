@@ -94,6 +94,33 @@ Auth-All reads `email`, `email_verified`, `name`, `picture`, and
 `Identity.Username`. It links an existing user only for a verified address. See the
 [account linking guide](account-linking.md).
 
+`Identity.Claims` holds every claim of the verified ID token, for example
+`groups`. `Get` returns one claim, `Strings` returns a list claim such as
+`groups`, and `Map` returns a copy of all claims. A number arrives as
+`float64`. The Google provider fills it too,
+because it builds on this provider. The GitHub provider verifies no ID token, so
+its `Claims` is nil.
+
+## Mapping provider groups
+
+`OnBeforeOAuthSignIn` runs on every OAuth callback that signs a user in, after
+the user resolves and before the TOTP check. It therefore runs for a user with
+a confirmed second factor too. It runs in a transaction, and an error refuses
+the sign-in. Return an `*apierr.Error` to choose the response.
+
+```go
+auth.Hooks().OnBeforeOAuthSignIn(func(ctx context.Context, ev *hook.OAuthSignIn) error {
+    groups := ev.Identity.Claims.Strings("groups")
+    if !slices.Contains(groups, "acme-staff") {
+        return apierr.ErrForbidden
+    }
+    return syncRoles(ctx, ev.Tx, ev.User, groups)
+})
+```
+
+The hook runs after the creation of a new user. Refuse a creation in
+`OnBeforeUserCreate`, which carries the same `Identity`.
+
 ## Scopes
 
 The default scopes are `openid`, `email`, and `profile`. Replace them when the

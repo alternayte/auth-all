@@ -6,6 +6,7 @@ import (
 
 	"github.com/alternayte/auth-all/email"
 	"github.com/alternayte/auth-all/schema"
+	"github.com/alternayte/auth-all/store"
 )
 
 // The interfaces in this file are optional. A plugin asks the Services value
@@ -114,4 +115,18 @@ type RuntimeService interface {
 	// plugin that builds a lasting identity from the base URL, such as the
 	// issuer of a token, needs a fixed value.
 	BaseURLFixed() bool
+}
+
+// SignInService finishes a sign-in that a plugin verified. A plugin that
+// authenticates a user with a new credential, for example a passkey, uses it so
+// the sign-in follows the rules and the response shape of the core routes.
+type SignInService interface {
+	// CheckSignIn refuses a user that cannot sign in: a disabled user gets
+	// USER_DISABLED, and an unverified address gets EMAIL_NOT_VERIFIED when
+	// the application requires a verified address.
+	CheckSignIn(ctx context.Context, user *store.User) error
+	// WriteAuthResponse writes the AuthResponse body of the core sign-in
+	// routes. A non-empty mfaToken writes the challenge form, and user and
+	// session are then ignored.
+	WriteAuthResponse(w http.ResponseWriter, r *http.Request, status int, user *store.User, session *store.Session, mfaToken string)
 }

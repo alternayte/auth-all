@@ -444,3 +444,54 @@ func TestTheGoMethodsAndTheRoutesAgree(t *testing.T) {
 		}
 	}
 }
+
+// TestIssueSessionFollowsTheSignInRules proves issue 29: a sign-in that the
+// host verified keeps the second factor, the disabled check, and the hooks.
+func TestIssueSessionFollowsTheSignInRules(t *testing.T) {
+	h, _, _ := enrolledHarness(t, "ada@example.com")
+	ctx := context.Background()
+	var methods []string
+	h.Auth.Hooks().OnAfterSignIn(func(_ context.Context, ev *hook.SignIn) error { methods = append(methods, ev.Method); return nil })
+	user, err := h.Auth.GetUserByEmail(ctx, "ada@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := h.Auth.IssueSession(ctx, authall.IssueSessionInput{UserID: user.ID}); !errors.Is(err, apierr.ErrInvalidRequest) {
+		t.Fatalf("an empty method = %v, want INVALID_REQUEST", err)
+	}
+
+	gated, err := h.Auth.IssueSession(ctx, authall.IssueSessionInput{UserID: user.ID, Method: "saml"})
+	if err != nil {
+		t.Fatalf("IssueSession = %v", err)
+	}
+	if !gated.MFARequired || gated.MFAToken == "" || gated.Session != nil || gated.Token != "" {
+		t.Fatalf("a confirmed second factor must give a challenge and no session: %+v", gated)
+	}
+	if len(methods) != 0 {
+		t.Fatalf("the challenge ran the sign-in hook: %v", methods)
+	}
+
+	issued, err := h.Auth.IssueSession(ctx, authall.IssueSessionInput{UserID: user.ID, Method: "saml", SkipMFA: true})
+	if err != nil {
+		t.Fatalf("IssueSession with SkipMFA = %v", err)
+	}
+	if issued.Session == nil || issued.Token == "" || issued.MFARequired {
+		t.Fatalf("SkipMFA must give a session: %+v", issued)
+	}
+	if len(methods) != 1 || methods[0] != "saml" {
+		t.Fatalf("the sign-in hook saw the methods %v, want [saml]", methods)
+	}
+	if got, err := h.Store.Sessions().GetByTokenHash(ctx, sha256Hex(issued.Token)); err != nil || got.UserID != user.ID {
+		t.Fatalf("the token names no session of the user: %v", err)
+	}
+
+	disabled := time.Now().UTC()
+	user.DisabledAt = &disabled
+	if err := h.Store.Users().Update(ctx, user); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Auth.IssueSession(ctx, authall.IssueSessionInput{UserID: user.ID, Method: "saml", SkipMFA: true}); !errors.Is(err, apierr.ErrUserDisabled) {
+		t.Fatalf("a disabled user = %v, want USER_DISABLED", err)
+	}
+}

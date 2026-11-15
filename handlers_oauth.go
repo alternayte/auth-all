@@ -285,6 +285,19 @@ func (a *Auth) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 		a.writeBrowserError(w, r, err)
 		return
 	}
+	// The host sees the identity of every sign-in, before the second factor,
+	// so a mapping of provider groups misses no user.
+	if a.hooks.HasBeforeOAuthSignIn() {
+		ev := &hook.OAuthSignIn{User: user, Provider: p.ID(), Identity: identity}
+		err := a.cfg.store.Transaction(ctx, func(tx store.Store) error {
+			ev.Tx = tx
+			return a.hooks.RunBeforeOAuthSignIn(ctx, ev)
+		})
+		if err != nil {
+			a.writeBrowserError(w, r, publicError(err))
+			return
+		}
+	}
 	// A user with a live second factor receives a challenge instead of a
 	// session. The redirect carries no token, because a query parameter
 	// reaches the browser history, the server log, and any Referer header

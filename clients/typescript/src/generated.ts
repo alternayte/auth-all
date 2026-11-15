@@ -169,6 +169,28 @@ export interface OrganizationRoleResponse {
   role: OrganizationRole
 }
 
+export interface Passkey {
+  createdAt: string
+  id: string
+  lastUsedAt: string | null
+  name: string
+}
+
+export interface PasskeyCeremony {
+  ceremony: string
+  options: {
+    [key: string]: unknown
+  }
+}
+
+export interface PasskeyListResponse {
+  passkeys: Passkey[]
+}
+
+export interface PasskeyResponse {
+  passkey: Passkey
+}
+
 export interface ProvidersResponse {
   hasPassword: boolean
   providers: {
@@ -359,6 +381,21 @@ export interface CreateOrganizationTeamBody {
 
 export interface AddOrganizationTeamMemberBody {
   userId: string
+}
+
+export interface FinishPasskeyRegistrationBody {
+  ceremony: string
+  credential: {
+    [key: string]: unknown
+  }
+  name: string
+}
+
+export interface FinishPasskeySignInBody {
+  ceremony: string
+  credential: {
+    [key: string]: unknown
+  }
 }
 
 export interface PasswordChangeBody {
@@ -791,6 +828,21 @@ export class AuthAllClient {
     setMember: (id: string, userId: string, body: UpdateOrganizationMemberBody): Promise<MembershipResponse> => this.http.request("PATCH", `/api/auth/organizations/${id}/members/${userId}`, body, undefined),
     /** Update one organization. */
     update: (id: string, body: UpdateOrganizationBody): Promise<OrganizationResponse> => this.http.request("PATCH", `/api/auth/organizations/${id}`, body, undefined),
+  }
+
+  readonly passkeys = {
+    /** Delete a passkey. */
+    delete: (id: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/passkeys/${id}`, undefined, undefined),
+    /** List the passkeys. */
+    list: (): Promise<PasskeyListResponse> => this.http.request("GET", `/api/auth/passkeys`, undefined, undefined),
+    /** Start a passkey registration. */
+    registerBegin: (): Promise<PasskeyCeremony> => this.http.request("POST", `/api/auth/passkeys/register/begin`, undefined, undefined),
+    /** Finish a passkey registration. */
+    registerFinish: (body: FinishPasskeyRegistrationBody): Promise<PasskeyResponse> => this.http.request("POST", `/api/auth/passkeys/register/finish`, body, undefined),
+    /** Start a passkey sign-in. */
+    signInBegin: (): Promise<PasskeyCeremony> => this.http.request("POST", `/api/auth/passkeys/sign-in/begin`, undefined, undefined),
+    /** Finish a passkey sign-in. */
+    signInFinish: (body: FinishPasskeySignInBody): Promise<AuthResponse> => this.http.request("POST", `/api/auth/passkeys/sign-in/finish`, body, undefined),
   }
 
   readonly password = {

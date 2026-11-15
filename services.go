@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/alternayte/auth-all/apierr"
 	"github.com/alternayte/auth-all/email"
 	"github.com/alternayte/auth-all/events"
 	"github.com/alternayte/auth-all/plugin"
@@ -41,6 +42,29 @@ func (s *services) BaseURLFor(ctx context.Context) (string, error) { return s.au
 
 // BaseURLFixed implements plugin.RuntimeService.
 func (s *services) BaseURLFixed() bool { return s.auth.cfg.baseURLSource == nil }
+
+// CheckSignIn implements plugin.SignInService.
+func (s *services) CheckSignIn(ctx context.Context, user *store.User) error {
+	if user.DisabledAt != nil {
+		s.auth.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{"reason": "user_disabled"})
+		return apierr.ErrUserDisabled
+	}
+	if s.auth.cfg.emailPassword.RequireEmailVerification && user.EmailVerifiedAt == nil {
+		s.auth.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{"reason": "email_not_verified"})
+		return apierr.ErrEmailNotVerified
+	}
+	return nil
+}
+
+// WriteAuthResponse implements plugin.SignInService.
+func (s *services) WriteAuthResponse(w http.ResponseWriter, _ *http.Request, status int,
+	user *store.User, session *store.Session, mfaToken string) {
+	if mfaToken != "" {
+		s.auth.writeJSON(w, status, authResponse{MFARequired: true, MFAToken: mfaToken})
+		return
+	}
+	s.auth.writeJSON(w, status, authResponse{User: s.auth.toUserDTO(user), Session: toSessionDTO(session)})
+}
 
 type userService services
 

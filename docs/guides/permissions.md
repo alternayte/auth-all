@@ -135,7 +135,9 @@ POST /api-keys
 {"name": "ci", "role": "admin", "orgId": "..."}
 ```
 
-The permissions of that key are the intersection of the key permissions and the
-live permissions of the owner in that organization. A demoted member therefore
-keeps no stronger key, and a key of an organization that the owner left gets
-401.
+The permissions of that key are the intersection of the key role and the live
+permissions of the owner in that organization. The key role narrows the owner:
+an `admin` member with a `viewer` key holds the `viewer` statements only. A key
+with no role holds the live permissions of the owner, a custom role and the
+team roles included. A demoted member therefore keeps no stronger key, and a
+key of an organization that the owner left gets 401.

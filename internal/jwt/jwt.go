@@ -36,6 +36,8 @@ type Claims struct {
 	Picture       string `json:"picture"`
 	// PreferredUsername is the preferred_username claim of OpenID Connect.
 	PreferredUsername string `json:"preferred_username"`
+	// Raw holds every claim of the verified payload, for example groups.
+	Raw map[string]any `json:"-"`
 }
 
 // VerifiedEmail reports the boolean form of the email_verified claim, which
@@ -215,6 +217,9 @@ func (k *KeySet) Verify(ctx context.Context, token string, v Verification) (*Cla
 	}
 	var claims Claims
 	if err := json.Unmarshal(payload, &claims); err != nil {
+		return nil, fmt.Errorf("%w: malformed claims", ErrInvalidToken)
+	}
+	if err := json.Unmarshal(payload, &claims.Raw); err != nil {
 		return nil, fmt.Errorf("%w: malformed claims", ErrInvalidToken)
 	}
 	if claims.Issuer != v.Issuer {

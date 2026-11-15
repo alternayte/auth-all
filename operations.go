@@ -154,6 +154,61 @@ func (a *Auth) SignIn(ctx context.Context, in SignInInput) (*SignInResult, error
 	return &SignInResult{User: user, Session: sess, Token: token}, nil
 }
 
+// IssueSessionInput names one sign-in that the host verified itself, for
+// example a SAML assertion that a SAML library checked.
+type IssueSessionInput struct {
+	// UserID is the account of the sign-in.
+	UserID string
+	// Method names the authentication method for the hooks and the audit
+	// event, for example "saml". It must not be empty.
+	Method string
+	// PreviousSessionToken names a session of the caller that the sign-in
+	// replaces, so no old session survives a new sign-in.
+	PreviousSessionToken string
+	// SkipMFA issues the session for a user with a confirmed second factor.
+	// The host sets it only when its identity provider proved a second factor
+	// for this sign-in.
+	SkipMFA bool
+}
+
+// IssueSession creates a session after a sign-in that the host verified.
+//
+// It refuses a disabled user. It returns a challenge instead of a session when
+// the user holds a confirmed second factor, unless SkipMFA is true. It runs the
+// session hooks, the sign-in hooks, and the audit event of every other
+// sign-in. It writes no cookie and no response, so the caller owns the
+// transport. SetSessionCookie writes the cookie of a browser.
+//
+// It applies no rate limit, because the host verified the credential.
+func (a *Auth) IssueSession(ctx context.Context, in IssueSessionInput) (*SignInResult, error) {
+	if in.UserID == "" || in.Method == "" {
+		return nil, apierr.ErrInvalidRequest.WithMessage("A user and a method are required.")
+	}
+	user, err := a.cfg.store.Users().GetByID(ctx, in.UserID)
+	if err != nil {
+		return nil, publicError(err)
+	}
+	if user.DisabledAt != nil {
+		a.emitter.Emit(ctx, events.SignInFailed, user.ID, map[string]any{
+			"reason": "user_disabled", "method": in.Method})
+		return nil, apierr.ErrUserDisabled
+	}
+	if !in.SkipMFA {
+		challenge, required, err := a.mfaChallenge(ctx, user)
+		if err != nil {
+			return nil, err
+		}
+		if required {
+			return &SignInResult{User: user, MFARequired: true, MFAToken: challenge}, nil
+		}
+	}
+	sess, token, err := a.createSession(ctx, user, in.Method, in.PreviousSessionToken)
+	if err != nil {
+		return nil, err
+	}
+	return &SignInResult{User: user, Session: sess, Token: token}, nil
+}
+
 // SignOut ends one session.
 //
 // It runs the sign-out hook and emits the audit event, which RevokeSession

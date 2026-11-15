@@ -64,8 +64,8 @@ db-down:
 
 # Run the unit tests of the library packages.
 test-unit:
-    go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./cmd/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/... ./plugins/organizations/...
-    @just _record "unit tests" "go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./cmd/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/... ./plugins/organizations/..."
+    go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./cmd/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/... ./plugins/organizations/... ./plugins/passkeys/...
+    @just _record "unit tests" "go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./cmd/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/... ./plugins/organizations/... ./plugins/passkeys/..."
 
 # Run the storage contract suite against PostgreSQL.
 test-postgres:
@@ -86,7 +86,7 @@ test-sqlite:
 
 # Run the HTTP integration and acceptance tests.
 test-http:
-    {{pg}} go test -run 'TestAUTH|TestPLUG|TestAPI|TestMIG|TestPostgres|TestMagicLink|TestOAuth|TestAccount|TestUnlink|TestUnknown|TestProvider|TestVerified|TestAutoLink|TestGeneration|TestDuplicate|TestConfig|TestPassword|TestStable|TestPlugin|TestTOTP|TestSignInWith|TestConfirmReturns|TestRecoveryCode|TestWrongRecoveryCode|TestRegenerate|TestRequireAuth|TestLoadSession|TestOIDC|TestTwoIssuers' .
+    {{pg}} go test -run 'TestAUTH|TestPLUG|TestAPI|TestMIG|TestPostgres|TestMagicLink|TestOAuth|TestAccount|TestUnlink|TestUnknown|TestProvider|TestVerified|TestAutoLink|TestGeneration|TestDuplicate|TestConfig|TestPassword|TestStable|TestPlugin|TestTOTP|TestSignInWith|TestConfirmReturns|TestRecoveryCode|TestWrongRecoveryCode|TestRegenerate|TestRequireAuth|TestLoadSession|TestOIDC|TestTwoIssuers|TestPasskey|TestIssueSession' .
     @just _record "HTTP integration tests" "just test-http"
 
 # Run the security regression tests.
@@ -144,6 +144,8 @@ coverage:
         --package github.com/alternayte/auth-all/plugins/organizations \
         --package github.com/alternayte/auth-all/plugins/organizations/permission \
         --package github.com/alternayte/auth-all/plugins/oauthprovider \
+        --package github.com/alternayte/auth-all/plugins/passkeys \
+        --package github.com/alternayte/auth-all/plugins/passkeys/passkeystest \
         --package github.com/alternayte/auth-all/ratelimit/storelimit \
         --package github.com/alternayte/auth-all/migrations
     just _record "new package coverage" "go run ./tools/coverage --minimum 85"

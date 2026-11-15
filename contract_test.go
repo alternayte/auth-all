@@ -116,9 +116,21 @@ var oauthProviderEndpoints = []struct{ Method, Path string }{
 	{"DELETE", "/api/auth/oauth2/clients/{clientID}"},
 }
 
+// passkeyEndpoints are the routes of the passkeys plugin of the v0.9.0
+// release.
+var passkeyEndpoints = []struct{ Method, Path string }{
+	{"POST", "/api/auth/passkeys/register/begin"},
+	{"POST", "/api/auth/passkeys/register/finish"},
+	{"POST", "/api/auth/passkeys/sign-in/begin"},
+	{"POST", "/api/auth/passkeys/sign-in/finish"},
+	{"GET", "/api/auth/passkeys"},
+	{"DELETE", "/api/auth/passkeys/{id}"},
+}
+
 // allEndpoints is the complete normative endpoint set.
-var allEndpoints = append(append(append(append([]struct{ Method, Path string }{},
-	v1Endpoints...), nextEndpoints...), organizationEndpoints...), oauthProviderEndpoints...)
+var allEndpoints = append(append(append(append(append([]struct{ Method, Path string }{},
+	v1Endpoints...), nextEndpoints...), organizationEndpoints...), oauthProviderEndpoints...),
+	passkeyEndpoints...)
 
 // TestAPI001OpenAPICompleteness covers API-001.
 func TestAPI001OpenAPICompleteness(t *testing.T) {

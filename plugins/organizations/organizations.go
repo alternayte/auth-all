@@ -349,7 +349,8 @@ func (p *Plugin) Can(ctx context.Context, statement string) bool {
 //
 // The set is the union of the organization role and of every statement that
 // the credential read resolved, which holds a custom role and every team role.
-// A suspended membership holds no permission.
+// An exact credential carries its whole set instead. A suspended membership
+// holds no permission.
 func (p *Plugin) activePermissions(ctx context.Context) (permission.Set, bool) {
 	value, ok := plugin.OrganizationFrom(ctx)
 	if !ok {
@@ -357,6 +358,15 @@ func (p *Plugin) activePermissions(ctx context.Context) (permission.Set, bool) {
 	}
 	if value.Membership.Status != store.MembershipActive {
 		return permission.Set{}, true
+	}
+	if value.Exact {
+		// The credential carries its whole set, for example an API key whose
+		// role narrows the role of the owner.
+		set, err := permission.NewSet(value.Permissions...)
+		if err != nil {
+			return permission.Set{}, true
+		}
+		return set, true
 	}
 	set, _ := p.PermissionsOf(value.Membership.Role)
 	// The union holds every team role of the member.

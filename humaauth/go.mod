@@ -4,7 +4,7 @@
 // core module.
 module github.com/alternayte/auth-all/humaauth
 
-go 1.25.0
+go 1.26.0
 
 require github.com/alternayte/auth-all v0.7.0
 
@@ -22,8 +22,8 @@ require (
 require (
 	github.com/danielgtaylor/huma/v2 v2.39.1
 	github.com/google/uuid v1.6.0 // indirect
-	golang.org/x/crypto v0.55.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/sys v0.48.0 // indirect
 )
 
 // The replace serves the development of this repository, where the adapter

@@ -37,6 +37,21 @@ type UserCreate struct {
 	Identity *oauth.Identity
 }
 
+// OAuthSignIn carries one OAuth or OpenID Connect sign-in after the user
+// resolves and before the second-factor check. It fires for every callback
+// that signs a user in, including a user with a confirmed second factor, so a
+// host that maps provider groups to its own roles sees every sign-in. Tx is
+// the transactional store.
+type OAuthSignIn struct {
+	User *store.User
+	// Provider is the identifier of the provider, for example "oidc".
+	Provider string
+	// Identity is the identity that the provider reported. Identity.Claims
+	// holds the verified ID token claims of an OpenID Connect provider.
+	Identity *oauth.Identity
+	Tx       store.Store
+}
+
 // SessionCreate carries a session creation.
 type SessionCreate struct {
 	Session *store.Session
@@ -114,6 +129,10 @@ type (
 	// user row exists. A hook that writes a row with a foreign key to the user
 	// needs this point, and it can still reject the creation.
 	AfterUserInsertFunc func(ctx context.Context, ev *UserCreate) error
+	// BeforeOAuthSignInFunc runs in the transaction and can reject. An error
+	// refuses the sign-in, and no session and no challenge exist. An
+	// *apierr.Error selects the public error of the response.
+	BeforeOAuthSignInFunc func(ctx context.Context, ev *OAuthSignIn) error
 	// BeforeSessionCreateFunc runs in the transaction and can reject.
 	BeforeSessionCreateFunc func(ctx context.Context, ev *SessionCreate) error
 	// AfterSessionCreateFunc runs after commit.
@@ -149,6 +168,7 @@ type Hooks struct {
 	beforeUserCreate    []BeforeUserCreateFunc
 	afterUserCreate     []AfterUserCreateFunc
 	afterUserInsert     []AfterUserInsertFunc
+	beforeOAuthSignIn   []BeforeOAuthSignInFunc
 	beforeSessionCreate []BeforeSessionCreateFunc
 	afterSessionCreate  []AfterSessionCreateFunc
 	afterSignIn         []AfterSignInFunc
@@ -205,6 +225,35 @@ func (h *Hooks) OnAfterUserInsert(fn AfterUserInsertFunc) {
 func (h *Hooks) RunAfterUserInsert(ctx context.Context, ev *UserCreate) error {
 	h.mu.RLock()
 	fns := append([]AfterUserInsertFunc(nil), h.afterUserInsert...)
+	h.mu.RUnlock()
+	for _, fn := range fns {
+		if err := fn(ctx, ev); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// OnBeforeOAuthSignIn registers a hook that runs in the transaction of an
+// OAuth sign-in, before the second-factor check, and can reject.
+func (h *Hooks) OnBeforeOAuthSignIn(fn BeforeOAuthSignInFunc) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.beforeOAuthSignIn = append(h.beforeOAuthSignIn, fn)
+}
+
+// HasBeforeOAuthSignIn reports whether a hook is registered, so the caller
+// opens no transaction for nothing.
+func (h *Hooks) HasBeforeOAuthSignIn() bool {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.beforeOAuthSignIn) > 0
+}
+
+// RunBeforeOAuthSignIn runs the registered hooks and stops at the first error.
+func (h *Hooks) RunBeforeOAuthSignIn(ctx context.Context, ev *OAuthSignIn) error {
+	h.mu.RLock()
+	fns := append([]BeforeOAuthSignInFunc(nil), h.beforeOAuthSignIn...)
 	h.mu.RUnlock()
 	for _, fn := range fns {
 		if err := fn(ctx, ev); err != nil {

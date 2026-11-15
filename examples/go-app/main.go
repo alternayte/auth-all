@@ -1,6 +1,6 @@
 // Command example-app shows a complete Auth-All integration in a small Go
 // application. It uses SQLite, email and password authentication, GitHub and
-// Google sign-in, and the Magic Link plugin.
+// Google sign-in, the Magic Link plugin, and the passkeys plugin.
 //
 // Run the migration before the first start:
 //
@@ -22,6 +22,7 @@ import (
 	"github.com/alternayte/auth-all/oauth/github"
 	"github.com/alternayte/auth-all/oauth/google"
 	"github.com/alternayte/auth-all/plugins/magiclink"
+	"github.com/alternayte/auth-all/plugins/passkeys"
 	"github.com/alternayte/auth-all/ratelimit"
 	"github.com/alternayte/auth-all/store/sqlite"
 )
@@ -58,6 +59,9 @@ func run() error {
 		)),
 		authall.WithPlugins(
 			magiclink.New(magiclink.WithTTL(15*time.Minute)),
+			// The RP ID and the origin come from APP_URL. A passkey binds
+			// to a domain, so open the example at localhost, not 127.0.0.1.
+			passkeys.New(passkeys.RPDisplayName("Auth-All example")),
 		),
 		authall.WithRateLimiter(ratelimit.NewMemory(20, time.Minute)),
 		authall.WithLogger(logger),
@@ -97,6 +101,12 @@ func run() error {
 			return
 		}
 		fmt.Fprintf(w, "Signed in as %s\n", user.Email)
+	})
+
+	// A small page drives the passkey ceremonies in the browser.
+	mux.HandleFunc("GET /passkeys", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte(passkeyPage))
 	})
 
 	address := envOr("ADDRESS", ":8080")

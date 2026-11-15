@@ -206,6 +206,12 @@ func NewPostgresPool(t *testing.T, dsn string, o schema.Options, opts ...postgre
 			return
 		}
 		names := append(tableNames(sc), sc.Names().Migrations)
+		// The contract suite adds the plugin tables. A CASCADE drop of the
+		// users table removes their foreign keys and leaves the tables, so
+		// the next store would reuse a table without its constraints.
+		for _, t := range schema.PasskeyTables(sc.Options()) {
+			names = append(names, t.Name)
+		}
 		for _, name := range names {
 			_, _ = pool.Exec(context.Background(), "DROP TABLE IF EXISTS "+name+" CASCADE")
 		}
