@@ -2,7 +2,8 @@
 
 The example shows a complete Auth-All integration: SQLite, email and password
 authentication with verification, GitHub and Google sign-in, Magic Link,
-passkeys, an in-memory rate limit for development, and structured events.
+passkeys, the OAuth provider for an MCP endpoint, an in-memory rate limit for
+development, and structured events.
 
 ## Run
 
@@ -52,3 +53,30 @@ curl -b cookies.txt http://localhost:8080/me
 Open `http://localhost:8080/passkeys` in a browser. Use `localhost`, not
 `127.0.0.1`, because a passkey binds to a domain. Sign in with the password of
 a verified account, register a passkey, sign out, and sign in with the passkey.
+
+## MCP authorization
+
+The example is the authorization server of its `/mcp` endpoint. Set `OAUTH_KEY`
+to 32 random bytes in standard base64. Without it the example uses a public
+development key.
+
+```bash
+export OAUTH_KEY="$(openssl rand -base64 32)"
+```
+
+A call without a token names the metadata URL:
+
+```bash
+curl -i http://localhost:8080/mcp
+# HTTP/1.1 401 Unauthorized
+# Www-Authenticate: Bearer resource_metadata="http://localhost:8080/.well-known/oauth-protected-resource/mcp"
+
+curl http://localhost:8080/.well-known/oauth-protected-resource/mcp
+```
+
+An MCP client then registers with a Client ID Metadata Document or through
+`/api/auth/oauth2/register`, and the authorize route sends the browser to
+`/oauth`. That page signs the user in, shows the client name and host, and
+posts the decision. A client with a metadata document needs a public HTTPS
+host, so connect a hosted client such as Claude through a tunnel that gives the
+example an HTTPS `APP_URL`.

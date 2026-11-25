@@ -658,30 +658,30 @@ export class AuthAllClient {
 
   readonly account = {
     /** Start an explicit provider link. */
-    link: (provider: string): Promise<LinkResponse> => this.http.request("POST", `/api/auth/account/link/${provider}`, undefined, undefined),
+    link: (provider: string): Promise<LinkResponse> => this.http.request("POST", `/api/auth/account/link/${encodeURIComponent(provider)}`, undefined, undefined),
     /** List the authentication methods of the current user. */
     providers: (): Promise<ProvidersResponse> => this.http.request("GET", `/api/auth/account/providers`, undefined, undefined),
     /** Remove a linked provider. */
-    unlink: (provider: string): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/account/unlink/${provider}`, undefined, undefined),
+    unlink: (provider: string): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/account/unlink/${encodeURIComponent(provider)}`, undefined, undefined),
   }
 
   readonly admin = {
     /** Create a user. */
     createUser: (body: AdminCreateUserBody): Promise<AdminCreateUserResponse> => this.http.request("POST", `/api/auth/admin/users`, body, undefined),
     /** Delete one organization of the application. */
-    deleteOrganization: (id: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/admin/organizations/${id}`, undefined, undefined),
+    deleteOrganization: (id: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/admin/organizations/${encodeURIComponent(id)}`, undefined, undefined),
     /** Disable a user. */
-    disableUser: (id: string): Promise<AdminUserResponse> => this.http.request("POST", `/api/auth/admin/users/${id}/disable`, undefined, undefined),
+    disableUser: (id: string): Promise<AdminUserResponse> => this.http.request("POST", `/api/auth/admin/users/${encodeURIComponent(id)}/disable`, undefined, undefined),
     /** Enable a user. */
-    enableUser: (id: string): Promise<AdminUserResponse> => this.http.request("POST", `/api/auth/admin/users/${id}/enable`, undefined, undefined),
+    enableUser: (id: string): Promise<AdminUserResponse> => this.http.request("POST", `/api/auth/admin/users/${encodeURIComponent(id)}/enable`, undefined, undefined),
     /** List every organization of the application. */
     listOrganizations: (query: { cursor?: string; limit?: string } = {}): Promise<AdminOrganizationListResponse> => this.http.request("GET", `/api/auth/admin/organizations`, undefined, query),
     /** List the users. */
     listUsers: (): Promise<AdminUserListResponse> => this.http.request("GET", `/api/auth/admin/users`, undefined, undefined),
     /** Set a new password for a user. */
-    resetUserPassword: (id: string, body: AdminResetUserPasswordBody): Promise<AdminPasswordResponse> => this.http.request("POST", `/api/auth/admin/users/${id}/password`, body, undefined),
+    resetUserPassword: (id: string, body: AdminResetUserPasswordBody): Promise<AdminPasswordResponse> => this.http.request("POST", `/api/auth/admin/users/${encodeURIComponent(id)}/password`, body, undefined),
     /** Set the role of a user. */
-    setUserRole: (id: string, body: AdminSetUserRoleBody): Promise<AdminUserResponse> => this.http.request("POST", `/api/auth/admin/users/${id}/role`, body, undefined),
+    setUserRole: (id: string, body: AdminSetUserRoleBody): Promise<AdminUserResponse> => this.http.request("POST", `/api/auth/admin/users/${encodeURIComponent(id)}/role`, body, undefined),
   }
 
   readonly apiKeys = {
@@ -690,7 +690,7 @@ export class AuthAllClient {
     /** List the API keys. */
     listKeys: (): Promise<APIKeyListResponse> => this.http.request("GET", `/api/auth/api-keys`, undefined, undefined),
     /** Revoke an API key. */
-    revokeKey: (id: string): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/api-keys/${id}/revoke`, undefined, undefined),
+    revokeKey: (id: string): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/api-keys/${encodeURIComponent(id)}/revoke`, undefined, undefined),
   }
 
   readonly email = {
@@ -716,9 +716,9 @@ export class AuthAllClient {
 
   readonly oauth = {
     /** Start a provider sign-in. */
-    authorize: (provider: string, query: { redirect_to?: string } = {}): string => this.http.url(`/api/auth/oauth/${provider}`, query),
+    authorize: (provider: string, query: { redirect_to?: string } = {}): string => this.http.url(`/api/auth/oauth/${encodeURIComponent(provider)}`, query),
     /** Complete a provider sign-in. */
-    callback: (provider: string, query: { code?: string; state?: string } = {}): string => this.http.url(`/api/auth/oauth/${provider}/callback`, query),
+    callback: (provider: string, query: { code?: string; state?: string } = {}): string => this.http.url(`/api/auth/oauth/${encodeURIComponent(provider)}/callback`, query),
   }
 
   readonly oauthProvider = {
@@ -764,10 +764,12 @@ export class AuthAllClient {
     /** Remove one client of the signed-in user. */
     deleteClient: (clientID: string): Promise<{
   deleted: boolean
-}> => this.http.request("DELETE", `/api/auth/oauth2/clients/${clientID}`, undefined, undefined),
+}> => this.http.request("DELETE", `/api/auth/oauth2/clients/${encodeURIComponent(clientID)}`, undefined, undefined),
     /** Read one authorization request. */
     request: (query: { request_id?: string } = {}): Promise<{
+  clientHost: string
   clientId: string
+  clientKind: "static" | "dynamic" | "cimd"
   clientName: string
   consentGranted: boolean
   firstParty: boolean
@@ -780,59 +782,59 @@ export class AuthAllClient {
     /** Withdraw the consent of one client. */
     withdrawConsent: (clientID: string): Promise<{
   withdrawn: boolean
-}> => this.http.request("DELETE", `/api/auth/oauth2/consents/${clientID}`, undefined, undefined),
+}> => this.http.request("DELETE", `/api/auth/oauth2/consents/${encodeURIComponent(clientID)}`, undefined, undefined),
   }
 
   readonly organizations = {
     /** Accept one invitation. */
     acceptInvitation: (body: AcceptOrganizationInvitationBody): Promise<MembershipResponse> => this.http.request("POST", `/api/auth/organizations/invitations/accept`, body, undefined),
     /** Put one member in one team. */
-    addTeamMember: (id: string, teamId: string, body: AddOrganizationTeamMemberBody): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/organizations/${id}/teams/${teamId}/members`, body, undefined),
+    addTeamMember: (id: string, teamId: string, body: AddOrganizationTeamMemberBody): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/organizations/${encodeURIComponent(id)}/teams/${encodeURIComponent(teamId)}/members`, body, undefined),
     /** End the active organization. */
     clearActive: (): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/organizations/deactivate`, undefined, undefined),
     /** Create an organization. */
     create: (body: CreateOrganizationBody): Promise<OrganizationResponse> => this.http.request("POST", `/api/auth/organizations`, body, undefined),
     /** Declare one custom role. */
-    createRole: (id: string, body: CreateOrganizationRoleBody): Promise<OrganizationRoleResponse> => this.http.request("POST", `/api/auth/organizations/${id}/roles`, body, undefined),
+    createRole: (id: string, body: CreateOrganizationRoleBody): Promise<OrganizationRoleResponse> => this.http.request("POST", `/api/auth/organizations/${encodeURIComponent(id)}/roles`, body, undefined),
     /** Create one team. */
-    createTeam: (id: string, body: CreateOrganizationTeamBody): Promise<TeamResponse> => this.http.request("POST", `/api/auth/organizations/${id}/teams`, body, undefined),
+    createTeam: (id: string, body: CreateOrganizationTeamBody): Promise<TeamResponse> => this.http.request("POST", `/api/auth/organizations/${encodeURIComponent(id)}/teams`, body, undefined),
     /** Delete one organization. */
-    delete: (id: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/organizations/${id}`, undefined, undefined),
+    delete: (id: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/organizations/${encodeURIComponent(id)}`, undefined, undefined),
     /** Remove one custom role. */
-    deleteRole: (id: string, name: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/organizations/${id}/roles/${name}`, undefined, undefined),
+    deleteRole: (id: string, name: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/organizations/${encodeURIComponent(id)}/roles/${encodeURIComponent(name)}`, undefined, undefined),
     /** Remove one team. */
-    deleteTeam: (id: string, teamId: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/organizations/${id}/teams/${teamId}`, undefined, undefined),
+    deleteTeam: (id: string, teamId: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/organizations/${encodeURIComponent(id)}/teams/${encodeURIComponent(teamId)}`, undefined, undefined),
     /** Read one organization. */
-    get: (id: string): Promise<OrganizationResponse> => this.http.request("GET", `/api/auth/organizations/${id}`, undefined, undefined),
+    get: (id: string): Promise<OrganizationResponse> => this.http.request("GET", `/api/auth/organizations/${encodeURIComponent(id)}`, undefined, undefined),
     /** Invite an address into one organization. */
-    invite: (id: string, body: CreateOrganizationInvitationBody): Promise<InvitationCreateResponse> => this.http.request("POST", `/api/auth/organizations/${id}/invitations`, body, undefined),
+    invite: (id: string, body: CreateOrganizationInvitationBody): Promise<InvitationCreateResponse> => this.http.request("POST", `/api/auth/organizations/${encodeURIComponent(id)}/invitations`, body, undefined),
     /** List the organizations of the caller. */
     list: (): Promise<OrganizationListResponse> => this.http.request("GET", `/api/auth/organizations`, undefined, undefined),
     /** List the invitations of one organization. */
-    listInvitations: (id: string): Promise<InvitationListResponse> => this.http.request("GET", `/api/auth/organizations/${id}/invitations`, undefined, undefined),
+    listInvitations: (id: string): Promise<InvitationListResponse> => this.http.request("GET", `/api/auth/organizations/${encodeURIComponent(id)}/invitations`, undefined, undefined),
     /** List the members of one organization. */
-    listMembers: (id: string): Promise<MemberListResponse> => this.http.request("GET", `/api/auth/organizations/${id}/members`, undefined, undefined),
+    listMembers: (id: string): Promise<MemberListResponse> => this.http.request("GET", `/api/auth/organizations/${encodeURIComponent(id)}/members`, undefined, undefined),
     /** List the custom roles of one organization. */
-    listRoles: (id: string): Promise<OrganizationRoleListResponse> => this.http.request("GET", `/api/auth/organizations/${id}/roles`, undefined, undefined),
+    listRoles: (id: string): Promise<OrganizationRoleListResponse> => this.http.request("GET", `/api/auth/organizations/${encodeURIComponent(id)}/roles`, undefined, undefined),
     /** List the teams of one organization. */
-    listTeams: (id: string): Promise<TeamListResponse> => this.http.request("GET", `/api/auth/organizations/${id}/teams`, undefined, undefined),
+    listTeams: (id: string): Promise<TeamListResponse> => this.http.request("GET", `/api/auth/organizations/${encodeURIComponent(id)}/teams`, undefined, undefined),
     /** Remove one member. */
-    removeMember: (id: string, userId: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/organizations/${id}/members/${userId}`, undefined, undefined),
+    removeMember: (id: string, userId: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`, undefined, undefined),
     /** Take one member out of one team. */
-    removeTeamMember: (id: string, teamId: string, userId: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/organizations/${id}/teams/${teamId}/members/${userId}`, undefined, undefined),
+    removeTeamMember: (id: string, teamId: string, userId: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/organizations/${encodeURIComponent(id)}/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(userId)}`, undefined, undefined),
     /** Revoke one pending invitation. */
-    revokeInvitation: (id: string, invitationId: string): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/organizations/${id}/invitations/${invitationId}/revoke`, undefined, undefined),
+    revokeInvitation: (id: string, invitationId: string): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/organizations/${encodeURIComponent(id)}/invitations/${encodeURIComponent(invitationId)}/revoke`, undefined, undefined),
     /** Switch the active organization. */
-    setActive: (id: string): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/organizations/${id}/activate`, undefined, undefined),
+    setActive: (id: string): Promise<SuccessResponse> => this.http.request("POST", `/api/auth/organizations/${encodeURIComponent(id)}/activate`, undefined, undefined),
     /** Change the role or the status of one member. */
-    setMember: (id: string, userId: string, body: UpdateOrganizationMemberBody): Promise<MembershipResponse> => this.http.request("PATCH", `/api/auth/organizations/${id}/members/${userId}`, body, undefined),
+    setMember: (id: string, userId: string, body: UpdateOrganizationMemberBody): Promise<MembershipResponse> => this.http.request("PATCH", `/api/auth/organizations/${encodeURIComponent(id)}/members/${encodeURIComponent(userId)}`, body, undefined),
     /** Update one organization. */
-    update: (id: string, body: UpdateOrganizationBody): Promise<OrganizationResponse> => this.http.request("PATCH", `/api/auth/organizations/${id}`, body, undefined),
+    update: (id: string, body: UpdateOrganizationBody): Promise<OrganizationResponse> => this.http.request("PATCH", `/api/auth/organizations/${encodeURIComponent(id)}`, body, undefined),
   }
 
   readonly passkeys = {
     /** Delete a passkey. */
-    delete: (id: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/passkeys/${id}`, undefined, undefined),
+    delete: (id: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/passkeys/${encodeURIComponent(id)}`, undefined, undefined),
     /** List the passkeys. */
     list: (): Promise<PasskeyListResponse> => this.http.request("GET", `/api/auth/passkeys`, undefined, undefined),
     /** Start a passkey registration. */
@@ -858,7 +860,7 @@ export class AuthAllClient {
     /** List the sessions of the current user. */
     list: (): Promise<SessionListResponse> => this.http.request("GET", `/api/auth/sessions`, undefined, undefined),
     /** Revoke one session of the current user. */
-    revoke: (id: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/sessions/${id}`, undefined, undefined),
+    revoke: (id: string): Promise<SuccessResponse> => this.http.request("DELETE", `/api/auth/sessions/${encodeURIComponent(id)}`, undefined, undefined),
     /** Revoke the other sessions of the current user. */
     revokeAll: (body: RevokeAllSessionsBody): Promise<RevokeAllResponse> => this.http.request("POST", `/api/auth/sessions/revoke-all`, body, undefined),
   }

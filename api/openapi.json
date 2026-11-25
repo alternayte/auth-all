@@ -2175,8 +2175,19 @@
                 "schema": {
                   "type": "object",
                   "properties": {
+                    "clientHost": {
+                      "type": "string"
+                    },
                     "clientId": {
                       "type": "string"
+                    },
+                    "clientKind": {
+                      "type": "string",
+                      "enum": [
+                        "static",
+                        "dynamic",
+                        "cimd"
+                      ]
                     },
                     "clientName": {
                       "type": "string"
@@ -2215,6 +2226,8 @@
                     "clientName",
                     "scopes",
                     "firstParty",
+                    "clientKind",
+                    "clientHost",
                     "needsSignIn",
                     "consentGranted"
                   ]

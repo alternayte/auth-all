@@ -19,7 +19,16 @@ const (
 	MethodSession = "session"
 	// MethodAPIKey names a request that an API key authenticated.
 	MethodAPIKey = "api_key"
+	// MethodOAuth names a request that an access token of the OAuth provider
+	// plugin authenticated. The value is the plugin identifier, which the
+	// principal and the audit events of such a request carried before the
+	// constant existed.
+	MethodOAuth = "oauthprovider"
 )
+
+// OAuthGrant is the authority that one OAuth access token carries: the client,
+// the granted scopes, and the audience.
+type OAuthGrant = plugin.OAuthGrant
 
 // Principal is the authenticated caller of one request.
 type Principal struct {
@@ -31,7 +40,8 @@ type Principal struct {
 	APIKey *store.APIKey
 	// Role is the effective role of the request.
 	Role string
-	// Method is MethodSession or MethodAPIKey.
+	// Method is MethodSession, MethodAPIKey, MethodOAuth, or the method of
+	// another credential plugin.
 	Method string
 	// ViaCookie reports whether a cookie carried the credential. Only a cookie
 	// request needs the origin check.
@@ -44,17 +54,23 @@ type Principal struct {
 	// Permissions field holds the statements that the credential read
 	// resolved, for a custom role and for every team role of the member.
 	Membership *store.Membership
+	// OAuth describes the access token of a MethodOAuth request. It is nil for
+	// any other credential.
+	OAuth *OAuthGrant
 }
 
-// HasScope reports whether the request may use one API key scope.
+// HasScope reports whether the request may use one scope.
 //
 // A session holds every scope. An API key holds the scopes of its row, and a key
-// of an application that declares no scope passes every check. Any other
-// credential, for example an OAuth access token, fails the check, because API
-// key scopes do not describe it.
+// of an application that declares no scope passes every check. An OAuth access
+// token holds the scopes that the user granted to the client. Any other
+// credential fails the check.
 func (p *Principal) HasScope(scope string) bool {
 	if p == nil {
 		return false
+	}
+	if p.OAuth != nil {
+		return slices.Contains(p.OAuth.Scopes, scope)
 	}
 	if p.APIKey != nil {
 		return p.APIKey.Scopes == "" || slices.Contains(p.APIKey.ScopeList(), scope)
@@ -219,6 +235,7 @@ func fromPluginPrincipal(p *plugin.Principal) *Principal {
 		Method:       p.Method,
 		Organization: p.Organization,
 		Membership:   p.Membership,
+		OAuth:        p.OAuth,
 	}
 }
 

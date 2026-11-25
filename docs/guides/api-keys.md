@@ -100,7 +100,8 @@ plugin checks a `*plugin.Principal` with `apikeys.HasScope(p, "read")`.
 | Session | Passes. |
 | API key, with declared scopes | Passes when the key holds the scope. |
 | API key, with no declared scope | Passes. |
-| Any other credential, for example an OAuth access token | Fails. |
+| OAuth access token of the OAuth provider plugin | Passes when the token carries the scope. |
+| Any other credential | Fails. |
 
 With no declared scope the plugin works as it did before scopes existed, and a
 create with a non-empty `scopes` fails with `SCOPE_UNKNOWN`.

@@ -285,17 +285,11 @@ func (p *Plugin) Resolve(ctx context.Context, bearer string) (*plugin.Principal,
 		// the request. ResolveRequest reads it.
 		return nil, errors.New("authall/oauthprovider: the bound token needs a DPoP proof")
 	}
-	if verified.Row.UserID == nil {
-		return nil, errors.New("authall/oauthprovider: the token names no user")
-	}
-	user, err := p.svc.Users().ByID(ctx, *verified.Row.UserID)
+	principal, err := p.tokenPrincipal(ctx, verified)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("authall/oauthprovider: " + err.Error())
 	}
-	if user.DisabledAt != nil {
-		return nil, errors.New("authall/oauthprovider: the user is disabled")
-	}
-	return &plugin.Principal{User: user, Role: user.Role, Method: ID}, nil
+	return principal, nil
 }
 
 // ResolveRequest implements plugin.RequestResolver. It enforces the DPoP proof
@@ -305,17 +299,11 @@ func (p *Plugin) ResolveRequest(ctx context.Context, bearer string, r *http.Requ
 	if err != nil {
 		return nil, err
 	}
-	if verified.Row.UserID == nil {
-		return nil, errors.New("authall/oauthprovider: the token names no user")
-	}
-	user, err := p.svc.Users().ByID(ctx, *verified.Row.UserID)
+	principal, err := p.tokenPrincipal(ctx, verified)
 	if err != nil {
-		return nil, err
+		return nil, errors.New("authall/oauthprovider: " + err.Error())
 	}
-	if user.DisabledAt != nil {
-		return nil, errors.New("authall/oauthprovider: the user is disabled")
-	}
-	return &plugin.Principal{User: user, Role: user.Role, Method: ID}, nil
+	return principal, nil
 }
 
 // cleanupWindow is the age at which the host may delete spent rows.

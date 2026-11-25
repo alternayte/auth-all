@@ -63,6 +63,15 @@ type ProtectService interface {
 	Protect(next http.Handler) http.Handler
 }
 
+// PrincipalAttacher attaches a principal that a plugin verified itself to a
+// request. A plugin middleware that checks its own credential, for example an
+// access token for one resource, uses it, so the host handler reads the
+// principal with authall.PrincipalFrom as it does behind RequireAuth.
+type PrincipalAttacher interface {
+	// WithPrincipal returns the request with the principal in its context.
+	WithPrincipal(r *http.Request, p *Principal) *http.Request
+}
+
 // OrganizationConfigurator turns the organization read on in the core. The
 // organizations plugin calls it during registration, so a credential read
 // loads the active organization and the membership in the same round trip.

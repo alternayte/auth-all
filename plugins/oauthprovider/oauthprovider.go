@@ -17,9 +17,11 @@
 package oauthprovider
 
 import (
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
@@ -129,12 +131,21 @@ type Plugin struct {
 	codeTTL         time.Duration
 	requestTTL      time.Duration
 	rotationGrace   time.Duration
+	cimdOptions     *CIMDOptions
+
+	// cimdPermit and cimdRoots replace the address check and the certificate
+	// pool of the metadata document fetch. Only a test of this package sets
+	// them, so a test server on the loopback interface serves a document.
+	cimdPermit func(netip.Addr) bool
+	cimdRoots  *x509.CertPool
 
 	svc        plugin.Services
 	rows       store.OAuthProviderStore
 	hooks      *hook.Hooks
 	principals plugin.PrincipalService
 	protect    func(http.Handler) http.Handler
+	attach     func(*http.Request, *plugin.Principal) *http.Request
+	cimd       *cimdFetcher
 	now        func() time.Time
 	issuer     string
 
@@ -295,6 +306,17 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 	if !ok {
 		return errors.New("authall/oauthprovider: this Auth-All version has no authentication middleware")
 	}
+	attacher, ok := svc.(plugin.PrincipalAttacher)
+	if !ok {
+		return errors.New("authall/oauthprovider: this Auth-All version cannot attach a principal")
+	}
+	if p.cimdOptions != nil {
+		fetcher, err := newCIMDFetcher(p, *p.cimdOptions, p.cimdPermit, p.cimdRoots)
+		if err != nil {
+			return err
+		}
+		p.cimd = fetcher
+	}
 	// The issuer names the authorization server in every token, so it cannot
 	// follow a base URL that changes at run time.
 	if rt, ok := svc.(plugin.RuntimeService); ok && !rt.BaseURLFixed() {
@@ -305,6 +327,7 @@ func (p *Plugin) Register(r *plugin.Registry) error {
 	p.rows = rows
 	p.principals = principals.Principals()
 	p.protect = protector.Protect
+	p.attach = attacher.WithPrincipal
 	p.hooks = r.Hooks()
 	p.now = svc.Now
 	p.issuer = strings.TrimRight(svc.BaseURL(), "/") + svc.BasePath()

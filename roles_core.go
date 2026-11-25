@@ -107,11 +107,17 @@ func (s *principalService) Current(ctx context.Context) *plugin.Principal {
 		APIKey:  p.APIKey,
 		Role:    p.Role,
 		Method:  p.Method,
+		OAuth:   p.OAuth,
 	}
 }
 
 // Protect implements plugin.ProtectService.
 func (s *services) Protect(next http.Handler) http.Handler { return s.auth.RequireAuth(next) }
+
+// WithPrincipal implements plugin.PrincipalAttacher.
+func (s *services) WithPrincipal(r *http.Request, p *plugin.Principal) *http.Request {
+	return s.auth.withPrincipal(r, fromPluginPrincipal(p))
+}
 
 // SchemaOptions implements plugin.SchemaService.
 func (s *services) SchemaOptions() schema.Options { return s.auth.cfg.schemaOptions }

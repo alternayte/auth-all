@@ -78,6 +78,14 @@ window.location.href = redirectTo
 A static first-party client needs no consent page. Your source declares it, so
 the flow completes at the authorize route.
 
+`request.clientKind` is `static`, `dynamic`, or `cimd`. No administrator
+checked a `dynamic` or a `cimd` client, so the plugin always sends the user to
+the consent page before the first grant of such a client. Show
+`request.clientHost` beside `request.clientName`. A `cimd` client chooses its
+own name, and its host is the part that it cannot fake. The host of a `cimd`
+client is the host of its client identifier URL. The host of any other client
+is the host of the redirect URI of the request.
+
 ## Clients
 
 Three populations of clients exist, and each holds a different authority.
@@ -90,6 +98,10 @@ Three populations of clients exist, and each holds a different authority.
 
 `oauthprovider.AllowDynamicRegistration()` opens the registration route. Leave
 it closed when only your own clients exist.
+
+`oauthprovider.AllowClientIDMetadataDocuments(...)` adds a fourth population:
+a client whose `client_id` is the HTTPS URL of its metadata document. See
+[MCP authorization](#mcp-authorization).
 
 ## Redirect URIs
 
@@ -113,7 +125,9 @@ resource indicator that the client named, or the issuer identifier when the
 client named none.
 
 The plugin also accepts its own access tokens on your routes, and only when the
-`aud` claim names the issuer itself. A token that a third-party relying party
+`aud` claim names the issuer itself. `HasScope` of such a principal reports the
+scopes of the token. `RequireAudience` accepts a token for one of your declared
+resources. See [MCP authorization](#mcp-authorization). A token that a third-party relying party
 holds for another resource server therefore opens no route of your
 application.
 
@@ -173,6 +187,130 @@ authentication claims and nothing else, as OIDC Core section 5.4 asks.
 
 A grant belongs to the user and the client, not to the browser session that
 approved it.
+
+## MCP authorization
+
+The plugin is the authorization server of your MCP endpoint, as the MCP
+authorization specification of 2026-07-28 describes. An MCP client such as
+Claude, ChatGPT, or an IDE finds the server from a 401, registers with a Client
+ID Metadata Document or with dynamic registration, and gets an access token for
+your MCP endpoint only.
+
+```go
+const mcp = "https://app.example.com/mcp"
+
+provider := oauthprovider.New(
+    oauthprovider.KeyEncryptionKey(key),
+    oauthprovider.LoginPath("/sign-in"),
+    oauthprovider.ConsentPath("/consent"),
+    oauthprovider.Scopes("openid", "email", "offline_access", "mcp"),
+    oauthprovider.Resources(oauthprovider.Resource{
+        Identifier: mcp,
+        Scopes:     []string{"mcp", "offline_access"},
+    }),
+    oauthprovider.AllowClientIDMetadataDocuments(oauthprovider.CIMDOptions{}),
+    oauthprovider.AllowDynamicRegistration(),
+)
+
+mux.Handle("/.well-known/", provider.MetadataHandler())
+resourceMetadata := provider.ProtectedResourceHandler(mcp)
+mux.Handle("/.well-known/oauth-protected-resource", resourceMetadata)
+mux.Handle("/.well-known/oauth-protected-resource/", resourceMetadata)
+mux.Handle("/mcp", provider.RequireAudience(mcp, mcpServer,
+    oauthprovider.RequireAudienceOptions{
+        Scopes:   []string{"mcp"},
+        Fallback: auth.RequireAuth(mcpServer), // keeps API keys on /mcp
+    }))
+```
+
+`RequireAudience` runs in the process of the issuer. A resource server in
+another process validates the token itself against the published key set.
+
+### Discovery
+
+1. The client calls `/mcp` with no token. `RequireAudience` answers 401 with
+   `WWW-Authenticate: Bearer resource_metadata="https://app.example.com/.well-known/oauth-protected-resource/mcp"`.
+2. The client reads that URL. `ProtectedResourceHandler` serves RFC 9728
+   metadata. `authorization_servers` holds the issuer as its only entry, and
+   `scopes_supported` holds the scopes of the resource.
+3. The client reads the RFC 8414 metadata of the issuer from
+   `MetadataHandler`.
+
+`ProtectedResourceHandler` answers the path-suffixed location of the resource
+and the plain location `/.well-known/oauth-protected-resource`, which an older
+client reads. When you serve two resources, mount each handler at its
+path-suffixed location only. `oauthprovider.ResourceMetadataURL(identifier)`
+returns the location.
+
+### Client ID Metadata Documents
+
+With `AllowClientIDMetadataDocuments`, the metadata carries
+`client_id_metadata_document_supported: true`, and
+`token_endpoint_auth_methods_supported` lists `none`. Claude uses a metadata
+document only when both are present.
+
+A `client_id` that is an HTTPS URL names a metadata document. The authorize
+route fetches it, and the server sends the client nothing until the document
+passes these rules:
+
+- The URL uses `https`, names a path, and carries no fragment, no user
+  information, and no dot segment.
+- The fetch connects to a public address only. The check runs on the address
+  after the name resolution, so a name that resolves to a loopback, private,
+  link-local, shared, or reserved address reaches nothing. The fetch uses no
+  proxy and follows no redirect.
+- The document is at most `MaxBytes` (default 5 KiB), and the fetch ends after
+  `Timeout` (default 5 seconds).
+- The `client_id` of the document equals the URL. The document lists the
+  `redirect_uri` of the request. It carries no client secret, and its
+  `token_endpoint_auth_method` is `none` or absent.
+
+The cache honours `Cache-Control`, `Expires`, `ETag`, and `Last-Modified`. A
+document stays at least 5 minutes and at most `CacheTTL` (default 24 hours).
+When a fetch of a cached document fails with a network error, a 5xx status, or
+429, the cached copy serves until `CacheTTL` after its last successful fetch. A
+404, a redirect, or an invalid document removes the client at once.
+
+A metadata document client is public. It presents no secret, and PKCE with
+S256 is required, as it is for every client. It must send the `resource`
+parameter at the authorize route and at every token call, so its access token
+never carries the issuer as its audience.
+
+### The audience check
+
+`RequireAudience` accepts an access token of this server only when its `aud`
+claim equals the identifier. It reads the token, the grant, and the user on
+each request:
+
+| Request | Answer |
+| --- | --- |
+| No token of this server, with a fallback | The fallback serves it |
+| No token of this server, no fallback | 401 with `resource_metadata` |
+| A token for another resource, or for the issuer | 401 `invalid_token` |
+| A revoked token or grant, a disabled user | 401 `invalid_token` |
+| A token without a scope of `Scopes` | 403 `insufficient_scope` |
+| A valid token | The handler, with the principal |
+
+`authall.PrincipalFrom(ctx)` then returns a principal with the method
+`authall.MethodOAuth`. `principal.OAuth` holds the client identifier, the
+granted scopes, and the audience. `principal.HasScope("mcp")` reports whether
+the token carries the scope. A handler that checks a scope of one tool calls
+`oauthprovider.WriteChallenge` with `oauthprovider.ErrorInsufficientScope`, so
+the client learns which scope to ask for:
+
+```go
+if !authall.PrincipalFrom(r.Context()).HasScope("mcp:write") {
+    oauthprovider.WriteChallenge(w, oauthprovider.Challenge{
+        Resource: mcp, Status: http.StatusForbidden,
+        Error:    oauthprovider.ErrorInsufficientScope,
+        Scopes:   []string{"mcp:write"},
+    })
+    return
+}
+```
+
+The authorization response carries the RFC 9207 `iss` parameter, so a client
+detects a mix-up of two authorization servers.
 
 ## Cleanup
 

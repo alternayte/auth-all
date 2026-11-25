@@ -48,9 +48,27 @@ type client struct {
 	// Static reports a client declared in host source. It skips consent,
 	// because the host already decided for it.
 	Static bool
+	// Kind names where the client comes from: kindStatic, kindDynamic, or
+	// kindCIMD.
+	Kind string
+	// Host is the host of the client identifier URL of a metadata document
+	// client. It is empty for any other client.
+	Host string
 	// Row is the stored client. A static client holds nil.
 	Row *store.OAuthClient
 }
+
+// The kinds of client that the consent page reads.
+const (
+	// kindStatic is a static first-party client of host source.
+	kindStatic = "static"
+	// kindDynamic is a client with a row: a dynamic registration or a client
+	// that a signed-in user created.
+	kindDynamic = "dynamic"
+	// kindCIMD is a client whose identifier is the URL of its metadata
+	// document.
+	kindCIMD = "cimd"
+)
 
 // staticClient converts a declaration into a client.
 func (p *Plugin) staticToClient(c StaticClient) client {
@@ -63,6 +81,7 @@ func (p *Plugin) staticToClient(c StaticClient) client {
 		AuthMethod:   AuthNone,
 		DPoPRequired: c.DPoPRequired,
 		Static:       true,
+		Kind:         kindStatic,
 	}
 	if len(out.GrantTypes) == 0 {
 		out.GrantTypes = []string{GrantAuthorizationCode, GrantRefreshToken}
@@ -96,15 +115,21 @@ func (p *Plugin) rowToClient(row *store.OAuthClient) client {
 		Scopes:       scopes,
 		AuthMethod:   row.TokenEndpointAuthMethod,
 		DPoPRequired: row.DPoPRequired,
+		Kind:         kindDynamic,
 		Row:          row,
 	}
 }
 
 // lookupClient returns one client. A static declaration wins, because host
-// source is the higher authority and no runtime route may shadow it.
+// source is the higher authority and no runtime route may shadow it. A client
+// identifier that is a URL names a metadata document when the server accepts
+// them, and the document is fetched or read from the cache.
 func (p *Plugin) lookupClient(ctx context.Context, clientID string) (client, error) {
 	if c, ok := p.staticClients[clientID]; ok {
 		return p.staticToClient(c), nil
+	}
+	if p.cimd != nil && isCIMDClientID(clientID) {
+		return p.cimd.client(ctx, clientID)
 	}
 	row, err := p.rows.OAuthClientByClientID(ctx, clientID)
 	if err != nil {

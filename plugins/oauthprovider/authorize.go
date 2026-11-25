@@ -47,6 +47,11 @@ func (p *Plugin) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 			p.writeOAuthError(w, http.StatusBadRequest, errInvalidClient, "the client is unknown")
 			return
 		}
+		var refused *cimdError
+		if errors.As(err, &refused) {
+			p.writeOAuthError(w, http.StatusBadRequest, errInvalidClient, refused.Error())
+			return
+		}
 		p.writeOAuthError(w, http.StatusInternalServerError, errServerError, "the client read failed")
 		return
 	}
@@ -95,6 +100,13 @@ func (p *Plugin) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 	resources, err := p.requestedResources(q["resource"], scopes)
 	if err != nil {
 		p.redirectError(w, r, matched, state, errInvalidTarget, err.Error())
+		return
+	}
+	if c.Kind == kindCIMD && len(resources) == 0 {
+		// The token route requires the resource of such a client, so the
+		// request fails here, before the user sees a consent page for it.
+		p.redirectError(w, r, matched, state, errInvalidTarget,
+			"a metadata document client names the resource")
 		return
 	}
 	var maxAge *int
