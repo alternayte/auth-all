@@ -5,6 +5,7 @@ package clientgen
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -298,7 +299,9 @@ func writeClient(b *strings.Builder, doc *openapi.Document, ops []boundOperation
 func signature(op boundOperation) (args string, body string, result string) {
 	operation := op.operation
 	var parts []string
-	pathExpr := "`" + strings.ReplaceAll(operation2Path(op), "{", "${") + "`"
+	// A path value is encoded, because an identifier can carry a slash. The
+	// client identifier of an OAuth client with a metadata document is a URL.
+	pathExpr := "`" + pathParamPattern.ReplaceAllString(operation2Path(op), "$${encodeURIComponent($1)}") + "`"
 	for _, p := range pathParams(operation) {
 		parts = append(parts, p.Name+": string")
 	}
@@ -334,6 +337,9 @@ func signature(op boundOperation) (args string, body string, result string) {
 }
 
 func operation2Path(op boundOperation) string { return op.path }
+
+// pathParamPattern matches one path parameter, such as {clientID}.
+var pathParamPattern = regexp.MustCompile(`\{([A-Za-z0-9_]+)\}`)
 
 func writeMethod(b *strings.Builder, op boundOperation, indent, name string) {
 	args, call, result := signature(op)

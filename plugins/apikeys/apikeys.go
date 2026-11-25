@@ -620,12 +620,16 @@ func normalizeScopes(names []string) []string {
 // HasScope reports whether a principal may use one scope.
 //
 // A session holds every scope. An API key holds the scopes of its row, and a key
-// of an application that declares no scope passes every check. Any other
-// credential fails the check, because API key scopes do not describe it. A host
-// handler uses authall.PrincipalFrom(ctx).HasScope, which has the same result.
+// of an application that declares no scope passes every check. An OAuth access
+// token holds the scopes that the user granted to the client. Any other
+// credential fails the check. A host handler uses
+// authall.PrincipalFrom(ctx).HasScope, which has the same result.
 func HasScope(p *plugin.Principal, scope string) bool {
 	if p == nil {
 		return false
+	}
+	if p.OAuth != nil {
+		return slices.Contains(p.OAuth.Scopes, scope)
 	}
 	if p.APIKey != nil {
 		return p.APIKey.Scopes == "" || slices.Contains(p.APIKey.ScopeList(), scope)

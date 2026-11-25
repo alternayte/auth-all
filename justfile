@@ -64,8 +64,8 @@ db-down:
 
 # Run the unit tests of the library packages.
 test-unit:
-    go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./cmd/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/... ./plugins/organizations/... ./plugins/passkeys/...
-    @just _record "unit tests" "go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./cmd/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/... ./plugins/organizations/... ./plugins/passkeys/..."
+    go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./cmd/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/... ./plugins/organizations/... ./plugins/passkeys/... ./plugins/oauthprovider/...
+    @just _record "unit tests" "go test ./apierr/... ./email/... ./events/... ./hook/... ./openapi/... ./plugin/... ./ratelimit/... ./schema/... ./cmd/... ./oauth/... ./internal/crypto/... ./internal/totp/... ./internal/clientgen/... ./plugins/organizations/... ./plugins/passkeys/... ./plugins/oauthprovider/..."
 
 # Run the storage contract suite against PostgreSQL.
 test-postgres:

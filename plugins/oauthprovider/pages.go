@@ -3,6 +3,7 @@ package oauthprovider
 import (
 	"errors"
 	"net/http"
+	"net/url"
 
 	"github.com/google/uuid"
 
@@ -13,14 +14,21 @@ import (
 // requestDTO is what the host login page and the host consent page read. It
 // names the client and what the client asks for, and it carries no token.
 type requestDTO struct {
-	RequestID   string   `json:"requestId"`
-	ClientID    string   `json:"clientId"`
-	ClientName  string   `json:"clientName"`
-	LogoURI     string   `json:"logoUri,omitempty"`
-	Scopes      []string `json:"scopes"`
-	Resources   []string `json:"resources,omitempty"`
-	FirstParty  bool     `json:"firstParty"`
-	NeedsSignIn bool     `json:"needsSignIn"`
+	RequestID  string   `json:"requestId"`
+	ClientID   string   `json:"clientId"`
+	ClientName string   `json:"clientName"`
+	LogoURI    string   `json:"logoUri,omitempty"`
+	Scopes     []string `json:"scopes"`
+	Resources  []string `json:"resources,omitempty"`
+	FirstParty bool     `json:"firstParty"`
+	// ClientKind is static, dynamic, or cimd. No administrator vetted a
+	// dynamic or a cimd client, so the page shows its host beside its name.
+	ClientKind string `json:"clientKind"`
+	// ClientHost is the host of the client identifier URL of a cimd client,
+	// and the host of the redirect URI of any other client. It is empty for a
+	// redirect URI with a private-use scheme.
+	ClientHost  string `json:"clientHost"`
+	NeedsSignIn bool   `json:"needsSignIn"`
 	// ConsentGranted reports that the user already granted the request, so the
 	// page can post the decision without asking again.
 	ConsentGranted bool `json:"consentGranted"`
@@ -78,12 +86,40 @@ func (p *Plugin) handleRequest(w http.ResponseWriter, r *http.Request) {
 		Scopes:      row.Scopes,
 		Resources:   row.Resources,
 		FirstParty:  c.Static,
+		ClientKind:  c.Kind,
+		ClientHost:  clientHost(c, row.RedirectURI),
 		NeedsSignIn: user == nil,
 	}
 	if user != nil {
 		out.ConsentGranted = !p.consentMissing(r.Context(), row, c, user)
 	}
 	p.svc.HTTP().WriteJSON(w, http.StatusOK, out)
+}
+
+// clientHost returns the host the consent page shows for a client.
+func clientHost(c client, redirectURI string) string {
+	if c.Kind == kindCIMD {
+		return c.Host
+	}
+	u, err := url.Parse(redirectURI)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") {
+		return ""
+	}
+	return u.Host
+}
+
+// consentClient returns the client of a standing consent. A metadata document
+// client comes from the cache only, because a list of consents must not make
+// the server fetch from the network.
+func (p *Plugin) consentClient(r *http.Request, clientID string) (client, bool) {
+	if _, static := p.staticClients[clientID]; !static && isCIMDClientID(clientID) {
+		if p.cimd == nil {
+			return client{}, false
+		}
+		return p.cimd.cached(clientID)
+	}
+	c, err := p.lookupClient(r.Context(), clientID)
+	return c, err == nil
 }
 
 // handleDecide records the decision of the user and returns the URL that
@@ -172,7 +208,7 @@ func (p *Plugin) handleConsents(w http.ResponseWriter, r *http.Request) {
 	out := make([]consentDTO, 0, len(rows))
 	for _, row := range rows {
 		name := row.ClientID
-		if c, err := p.lookupClient(r.Context(), row.ClientID); err == nil && c.Name != "" {
+		if c, ok := p.consentClient(r, row.ClientID); ok && c.Name != "" {
 			name = c.Name
 		}
 		out = append(out, consentDTO{ClientID: row.ClientID, ClientName: name,

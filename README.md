@@ -10,7 +10,9 @@ API keys, user administration, rate limits, audit events, plugins, schema
 tooling, an OpenAPI contract, and a generated TypeScript client.
 
 Auth-All also serves as an OAuth 2.1 and OpenID Connect authorization server,
-so another application signs its users in with yours. See
+so another application signs its users in with yours. It is also the
+authorization server of your MCP endpoint, so Claude, ChatGPT, or an IDE
+connects with no manual token. See
 [the OAuth provider guide](docs/guides/oauth-provider.md).
 
 The application keeps its database, its HTTP server, and its user interface.

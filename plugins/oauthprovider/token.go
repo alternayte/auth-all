@@ -175,12 +175,46 @@ func (p *Plugin) tokenFromCode(w http.ResponseWriter, r *http.Request, c client,
 			"the proof key differs from the authorize call")
 		return
 	}
+	resources, ok := p.tokenResources(w, r, c, row.Resources, row.Scopes)
+	if !ok {
+		return
+	}
 	grant, err := p.rows.OAuthGrantByID(r.Context(), row.GrantID)
 	if err != nil || grant.RevokedAt != nil {
 		p.writeOAuthError(w, http.StatusBadRequest, errInvalidGrant, "the grant is revoked")
 		return
 	}
-	p.issueTokens(w, r, c, grant, row.Scopes, row.Resources, row.Nonce, jkt)
+	p.issueTokens(w, r, c, grant, row.Scopes, resources, row.Nonce, jkt)
+}
+
+// tokenResources returns the resources of a token call. A named resource must
+// be one the grant holds, because the token route narrows and never widens. A
+// metadata document client must name it, because the MCP authorization
+// specification requires the parameter of every token request, and the
+// audience then never falls back to the issuer. The function writes the error
+// itself and reports whether the caller continues.
+func (p *Plugin) tokenResources(w http.ResponseWriter, r *http.Request, c client,
+	granted, scopes []string) ([]string, bool) {
+	values := r.PostForm["resource"]
+	if len(values) == 0 {
+		if c.Kind == kindCIMD {
+			p.writeOAuthError(w, http.StatusBadRequest, errInvalidTarget,
+				"a metadata document client names the resource")
+			return nil, false
+		}
+		return granted, true
+	}
+	narrowed, err := p.requestedResources(values, scopes)
+	if err != nil {
+		p.writeOAuthError(w, http.StatusBadRequest, errInvalidTarget, err.Error())
+		return nil, false
+	}
+	if !covers(granted, narrowed) {
+		p.writeOAuthError(w, http.StatusBadRequest, errInvalidTarget,
+			"the resource differs from the authorization")
+		return nil, false
+	}
+	return narrowed, true
 }
 
 // tokenFromRefresh rotates a refresh token.
@@ -246,19 +280,9 @@ func (p *Plugin) tokenFromRefresh(w http.ResponseWriter, r *http.Request, c clie
 		}
 		scopes = wanted
 	}
-	resources := row.Resources
-	if values := r.PostForm["resource"]; len(values) > 0 {
-		narrowed, err := p.requestedResources(values, scopes)
-		if err != nil {
-			p.writeOAuthError(w, http.StatusBadRequest, errInvalidTarget, err.Error())
-			return
-		}
-		if !covers(row.Resources, narrowed) {
-			p.writeOAuthError(w, http.StatusBadRequest, errInvalidTarget,
-				"a refresh names no other resource")
-			return
-		}
-		resources = narrowed
+	resources, ok := p.tokenResources(w, r, c, row.Resources, scopes)
+	if !ok {
+		return
 	}
 	successor := uuid.NewString()
 	if err := p.rows.RotateOAuthRefreshToken(r.Context(), row.ID, successor, now); err != nil {

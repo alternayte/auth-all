@@ -27,7 +27,8 @@ func stringList() *openapi.Schema {
 
 func requestSchema() *openapi.Schema {
 	return openapi.Object(
-		[]string{"requestId", "clientId", "clientName", "scopes", "firstParty", "needsSignIn", "consentGranted"},
+		[]string{"requestId", "clientId", "clientName", "scopes", "firstParty", "clientKind", "clientHost",
+			"needsSignIn", "consentGranted"},
 		map[string]*openapi.Schema{
 			"requestId":      openapi.String(),
 			"clientId":       openapi.String(),
@@ -36,6 +37,8 @@ func requestSchema() *openapi.Schema {
 			"scopes":         stringList(),
 			"resources":      stringList(),
 			"firstParty":     openapi.Bool(),
+			"clientKind":     {Type: "string", Enum: []string{"static", "dynamic", "cimd"}},
+			"clientHost":     openapi.String(),
 			"needsSignIn":    openapi.Bool(),
 			"consentGranted": openapi.Bool(),
 		})

@@ -63,6 +63,19 @@ type Principal struct {
 	// that the credential read resolved, for a custom role and for every team
 	// role of the member.
 	Membership *store.Membership
+	// OAuth describes the access token of an OAuth request. It is nil for any
+	// other credential.
+	OAuth *OAuthGrant
+}
+
+// OAuthGrant is the authority that one OAuth access token carries.
+type OAuthGrant struct {
+	// ClientID names the client that holds the token.
+	ClientID string
+	// Scopes holds the granted scopes of the token.
+	Scopes []string
+	// Audience is the resource the token is for, the aud claim.
+	Audience string
 }
 
 // CredentialResolver turns a bearer value into a principal. A plugin registers

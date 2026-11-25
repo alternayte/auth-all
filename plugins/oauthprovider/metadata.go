@@ -60,6 +60,11 @@ func (p *Plugin) metadata() map[string]any {
 	if p.dynamic {
 		doc["registration_endpoint"] = p.issuer + PathRegister
 	}
+	if p.cimd != nil {
+		// A client such as Claude uses a metadata document only when the
+		// server says so and lists none among the authentication methods.
+		doc["client_id_metadata_document_supported"] = true
+	}
 	if len(p.resources) > 0 {
 		list := make([]string, 0, len(p.resources))
 		for id := range p.resources {
