@@ -256,18 +256,24 @@ func TestOAuthProviderCIMDRefusesABadAnswer(t *testing.T) {
 		t.Fatalf("a chunked document: %s", msg)
 	}
 
+	// The handler answers only after the assertion. A request context that
+	// ends early on the server side must not let the answer arrive in time.
+	release := make(chan struct{})
 	d.handle("/slow.json", func(w http.ResponseWriter, r *http.Request) {
 		select {
-		case <-time.After(2 * time.Second):
-		case <-r.Context().Done():
+		case <-release:
+		case <-time.After(5 * time.Second):
 		}
 		serveJSON(document(d.url("/slow.json"), nil), nil)(w, r)
 	})
 	started := time.Now()
-	if msg := refusal(t, second(f.client(ctx, d.url("/slow.json")))); !strings.Contains(msg, "could not be fetched") {
+	slowErr := second(f.client(ctx, d.url("/slow.json")))
+	elapsed := time.Since(started)
+	close(release)
+	if msg := refusal(t, slowErr); !strings.Contains(msg, "could not be fetched") {
 		t.Fatalf("a slow document: %s", msg)
 	}
-	if time.Since(started) > 1500*time.Millisecond {
+	if elapsed > 1500*time.Millisecond {
 		t.Fatal("the fetch outlived its timeout")
 	}
 
